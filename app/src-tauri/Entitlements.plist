@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Screen capture permission for ScreenCaptureKit -->
+    <key>com.apple.security.screen-capture</key>
+    <true/>
+
+    <!-- Audio input for recording with microphone -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- Microphone access -->
+    <key>com.apple.security.device.microphone</key>
+    <true/>
+
+    <!-- Allow outgoing network connections (for potential future features) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- File access for saving recordings/screenshots -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>

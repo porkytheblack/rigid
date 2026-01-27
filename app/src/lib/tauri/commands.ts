@@ -69,7 +69,32 @@ import type {
   ArchitectureDocBlock,
   NewArchitectureDocBlock,
   UpdateArchitectureDocBlock,
+  NativeRecordingOptions,
+  NativeScreenshotOptions,
+  NativeWindowInfo,
+  NativeDisplayInfo,
 } from './types';
+
+// =============================================================================
+// Platform Detection
+// =============================================================================
+
+let _isMacOS: boolean | null = null;
+
+/** Check if running on macOS (cached) */
+async function isMacOS(): Promise<boolean> {
+  if (_isMacOS === null) {
+    try {
+      // Dynamic import to avoid issues if plugin not available
+      const { platform } = await import('@tauri-apps/plugin-os');
+      _isMacOS = platform() === 'macos';
+    } catch {
+      // Fallback: check navigator
+      _isMacOS = navigator.platform.toLowerCase().includes('mac');
+    }
+  }
+  return _isMacOS;
+}
 
 // App commands
 export const apps = {
@@ -684,3 +709,389 @@ export const architectureDocs = {
   bulkReplaceBlocks: (docId: string, blocks: NewArchitectureDocBlock[]) =>
     invoke<ArchitectureDocBlock[]>('bulk_replace_architecture_doc_blocks', { docId, blocks }),
 };
+
+// =============================================================================
+// Native Capture Commands (ScreenCaptureKit on macOS, fallback on other platforms)
+// =============================================================================
+
+/** Extended recording options with native capture settings */
+export interface HighQualityRecordingOptions extends RecordingOptions {
+  /** Native capture options (macOS only) */
+  native?: NativeRecordingOptions | null;
+  /** Force use of fallback capture even on macOS */
+  forceFallback?: boolean;
+}
+
+/** Extended screenshot options with native capture settings */
+export interface HighQualityScreenshotOptions {
+  explorationId?: string | null;
+  title?: string | null;
+  windowId?: number | null;
+  displayId?: number | null;
+  region?: { x: number; y: number; width: number; height: number } | null;
+  /** Native capture options (macOS only) */
+  native?: NativeScreenshotOptions | null;
+  /** Force use of fallback capture even on macOS */
+  forceFallback?: boolean;
+}
+
+// Raw native capture commands (direct Tauri invocations)
+const nativeCaptureRaw = {
+  // Permission management
+  checkPermission: () =>
+    invoke<boolean>('check_native_capture_permission'),
+
+  requestPermission: () =>
+    invoke<void>('request_native_capture_permission'),
+
+  // Window/display enumeration
+  listWindows: () =>
+    invoke<NativeWindowInfo[]>('list_windows_native'),
+
+  listDisplays: () =>
+    invoke<NativeDisplayInfo[]>('list_displays_native'),
+
+  // Recording (macOS only)
+  startRecording: (
+    testId: string | null,
+    name: string | null,
+    windowId: number | null,
+    displayId: number | null,
+    region: [number, number, number, number] | null,
+    options: {
+      codec?: string | null;
+      bitrate?: number | null;
+      fps?: number | null;
+      keyframe_interval?: number | null;
+      retina_capture?: boolean | null;
+      capture_cursor?: boolean | null;
+      capture_audio?: boolean | null;
+    } | null
+  ) =>
+    invoke<Recording>('start_native_recording', {
+      testId,
+      name,
+      windowId,
+      displayId,
+      region,
+      options,
+    }),
+
+  stopRecording: () =>
+    invoke<Recording>('stop_native_recording'),
+
+  cancelRecording: () =>
+    invoke<void>('cancel_native_recording'),
+
+  isRecording: () =>
+    invoke<boolean>('is_native_recording'),
+
+  getRecordingId: () =>
+    invoke<string | null>('get_native_recording_id'),
+
+  getRecordingDuration: () =>
+    invoke<number>('get_native_recording_duration'),
+
+  // Screenshot (macOS only)
+  captureScreenshot: (
+    testId: string | null,
+    title: string | null,
+    windowId: number | null,
+    displayId: number | null,
+    region: [number, number, number, number] | null,
+    options: {
+      retina_capture?: boolean | null;
+      capture_cursor?: boolean | null;
+    } | null
+  ) =>
+    invoke<Screenshot>('capture_native_screenshot', {
+      testId,
+      title,
+      windowId,
+      displayId,
+      region,
+      options,
+    }),
+};
+
+/**
+ * High-quality capture adapter that uses native ScreenCaptureKit on macOS
+ * and falls back to screencapture CLI on other platforms.
+ *
+ * Features on macOS:
+ * - Native Retina resolution capture (2x backing pixels)
+ * - 60 FPS video with timestamp-driven encoding
+ * - HEVC/ProRes codec support
+ * - Explicit bitrate and keyframe control
+ */
+export const nativeCapture = {
+  /**
+   * Check if native high-quality capture is available.
+   * Returns true on macOS 12.3+, false on other platforms.
+   */
+  isAvailable: async (): Promise<boolean> => {
+    if (!(await isMacOS())) return false;
+    try {
+      return await nativeCaptureRaw.checkPermission();
+    } catch {
+      return false;
+    }
+  },
+
+  /**
+   * Check screen capture permission status.
+   * On non-macOS platforms, always returns true.
+   */
+  checkPermission: async (): Promise<boolean> => {
+    if (!(await isMacOS())) return true;
+    return nativeCaptureRaw.checkPermission();
+  },
+
+  /**
+   * Request screen capture permission (opens system dialog on macOS).
+   * No-op on other platforms.
+   */
+  requestPermission: async (): Promise<void> => {
+    if (!(await isMacOS())) return;
+    return nativeCaptureRaw.requestPermission();
+  },
+
+  /**
+   * List all capturable windows with native backing scale info.
+   * On macOS: Uses ScreenCaptureKit for accurate window info.
+   * On other platforms: Falls back to AppleScript-based enumeration.
+   */
+  listWindows: async (): Promise<NativeWindowInfo[]> => {
+    if (await isMacOS()) {
+      try {
+        return await nativeCaptureRaw.listWindows();
+      } catch {
+        // Fall through to legacy
+      }
+    }
+    // Fallback: convert legacy WindowInfo to NativeWindowInfo
+    const windows = await capture.listWindows();
+    return windows.map(w => ({
+      window_id: w.window_id ?? w.id,
+      title: w.name,
+      owner_name: w.owner,
+      x: w.bounds?.x ?? 0,
+      y: w.bounds?.y ?? 0,
+      width: w.bounds?.width ?? 0,
+      height: w.bounds?.height ?? 0,
+      backing_scale_factor: 2.0, // Assume retina
+    }));
+  },
+
+  /**
+   * List all displays with native backing scale info.
+   * On macOS: Uses ScreenCaptureKit for accurate display info.
+   * On other platforms: Falls back to system_profiler-based enumeration.
+   */
+  listDisplays: async (): Promise<NativeDisplayInfo[]> => {
+    if (await isMacOS()) {
+      try {
+        return await nativeCaptureRaw.listDisplays();
+      } catch {
+        // Fall through to legacy
+      }
+    }
+    // Fallback: convert legacy DisplayInfo to NativeDisplayInfo
+    const displays = await capture.listDisplays();
+    return displays.map(d => ({
+      display_id: d.id,
+      name: d.name,
+      width: d.width,
+      height: d.height,
+      backing_scale_factor: 2.0, // Assume retina
+      is_main: d.is_main,
+    }));
+  },
+
+  /**
+   * Start a high-quality recording.
+   * On macOS: Uses ScreenCaptureKit with configurable codec, bitrate, FPS.
+   * On other platforms: Falls back to screencapture -v.
+   */
+  startRecording: async (options: HighQualityRecordingOptions = {}): Promise<Recording> => {
+    const useMacOS = (await isMacOS()) && !options.forceFallback;
+
+    if (useMacOS) {
+      try {
+        const region = options.bounds
+          ? [options.bounds.x, options.bounds.y, options.bounds.width, options.bounds.height] as [number, number, number, number]
+          : null;
+
+        const nativeOpts = options.native ? {
+          codec: options.native.codec ?? null,
+          bitrate: options.native.bitrate ?? null,
+          fps: options.native.fps ?? null,
+          keyframe_interval: options.native.keyframeInterval ?? null,
+          retina_capture: options.native.retinaCapture ?? null,
+          capture_cursor: options.native.captureCursor ?? null,
+          capture_audio: options.native.captureAudio ?? null,
+        } : null;
+
+        return await nativeCaptureRaw.startRecording(
+          options.explorationId ?? options.testId ?? null,
+          options.name ?? null,
+          options.windowId ?? null,
+          options.displayId ?? null,
+          region,
+          nativeOpts
+        );
+      } catch (error) {
+        // If native fails, fall through to legacy
+        console.warn('Native recording failed, falling back to screencapture:', error);
+      }
+    }
+
+    // Fallback to legacy capture
+    return capture.startRecording(options);
+  },
+
+  /**
+   * Stop the current recording.
+   * Automatically uses the correct stop method based on which capture is active.
+   */
+  stopRecording: async (): Promise<Recording> => {
+    if (await isMacOS()) {
+      try {
+        // Check if native recording is active
+        const isNativeRecording = await nativeCaptureRaw.isRecording();
+        if (isNativeRecording) {
+          return await nativeCaptureRaw.stopRecording();
+        }
+      } catch {
+        // Fall through to legacy
+      }
+    }
+    return capture.stopRecording();
+  },
+
+  /**
+   * Cancel the current recording without saving.
+   */
+  cancelRecording: async (): Promise<void> => {
+    if (await isMacOS()) {
+      try {
+        const isNativeRecording = await nativeCaptureRaw.isRecording();
+        if (isNativeRecording) {
+          return await nativeCaptureRaw.cancelRecording();
+        }
+      } catch {
+        // Fall through to legacy
+      }
+    }
+    return capture.cancelRecording();
+  },
+
+  /**
+   * Check if currently recording.
+   */
+  isRecording: async (): Promise<boolean> => {
+    if (await isMacOS()) {
+      try {
+        const isNative = await nativeCaptureRaw.isRecording();
+        if (isNative) return true;
+      } catch {
+        // Fall through
+      }
+    }
+    return capture.isRecording();
+  },
+
+  /**
+   * Get the current recording ID.
+   */
+  getRecordingId: async (): Promise<string | null> => {
+    if (await isMacOS()) {
+      try {
+        const nativeId = await nativeCaptureRaw.getRecordingId();
+        if (nativeId) return nativeId;
+      } catch {
+        // Fall through
+      }
+    }
+    return capture.getCurrentRecordingId();
+  },
+
+  /**
+   * Get current recording duration in milliseconds.
+   */
+  getRecordingDuration: async (): Promise<number> => {
+    if (await isMacOS()) {
+      try {
+        return await nativeCaptureRaw.getRecordingDuration();
+      } catch {
+        return 0;
+      }
+    }
+    return 0; // Legacy doesn't support duration polling
+  },
+
+  /**
+   * Capture a high-quality screenshot.
+   * On macOS: Uses ScreenCaptureKit at native retina resolution.
+   * On other platforms: Falls back to screencapture CLI.
+   */
+  captureScreenshot: async (options: HighQualityScreenshotOptions = {}): Promise<Screenshot> => {
+    const useMacOS = (await isMacOS()) && !options.forceFallback;
+
+    if (useMacOS) {
+      try {
+        const region = options.region
+          ? [options.region.x, options.region.y, options.region.width, options.region.height] as [number, number, number, number]
+          : null;
+
+        const nativeOpts = options.native ? {
+          retina_capture: options.native.retinaCapture ?? null,
+          capture_cursor: options.native.captureCursor ?? null,
+        } : null;
+
+        return await nativeCaptureRaw.captureScreenshot(
+          options.explorationId ?? null,
+          options.title ?? null,
+          options.windowId ?? null,
+          options.displayId ?? null,
+          region,
+          nativeOpts
+        );
+      } catch (error) {
+        console.warn('Native screenshot failed, falling back to screencapture:', error);
+      }
+    }
+
+    // Fallback to legacy capture
+    if (options.windowId) {
+      // Need window info for legacy capture
+      const windows = await capture.listWindows();
+      const window = windows.find(w => w.window_id === options.windowId || w.id === options.windowId);
+      if (window) {
+        return capture.windowScreenshot(
+          options.explorationId ?? null,
+          options.title ?? null,
+          window.owner,
+          window.name,
+          window.window_id
+        );
+      }
+    }
+
+    if (options.displayId || options.region) {
+      // Full screen for display/region (legacy doesn't support region crop)
+      return capture.fullscreenScreenshot(options.explorationId, options.title);
+    }
+
+    // Interactive selection
+    return capture.screenshot(options.explorationId, options.title);
+  },
+};
+
+// Re-export types for convenience
+export type {
+  NativeRecordingOptions,
+  NativeScreenshotOptions,
+  NativeWindowInfo,
+  NativeDisplayInfo,
+} from './types';

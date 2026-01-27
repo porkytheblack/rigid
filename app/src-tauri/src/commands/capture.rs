@@ -9,6 +9,13 @@ use crate::error::TakaError;
 use crate::models::{NewScreenshot, NewRecording, UpdateRecording, Screenshot, Recording};
 use crate::repositories::{ScreenshotRepository, RecordingRepository};
 
+#[cfg(target_os = "macos")]
+use crate::native::{
+    NativeCaptureEngine, NativeWindowInfo, NativeDisplayInfo,
+    RecordingConfig as NativeRecordingConfig, ScreenshotConfig as NativeScreenshotConfig,
+    VideoCodec,
+};
+
 /// Represents an open window that can be captured
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowInfo {
@@ -887,4 +894,485 @@ pub async fn export_asset(
         .map_err(|e| TakaError::Io(e))?;
 
     Ok(dest_path.to_string_lossy().to_string())
+}
+
+// =============================================================================
+// Native ScreenCaptureKit Commands (macOS only)
+// =============================================================================
+
+/// Native recording configuration from frontend
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeRecordingOptions {
+    /// Video codec: "h264", "hevc", "prores422", "prores422hq"
+    pub codec: Option<String>,
+    /// Bitrate in bits per second (e.g., 20000000 for 20 Mbps)
+    pub bitrate: Option<u32>,
+    /// Frames per second (default: 60)
+    pub fps: Option<u32>,
+    /// Keyframe interval in frames (default: 60 = 1 second at 60fps)
+    pub keyframe_interval: Option<u32>,
+    /// Capture at retina resolution (default: true)
+    pub retina_capture: Option<bool>,
+    /// Include cursor in capture (default: true)
+    pub capture_cursor: Option<bool>,
+    /// Include audio (default: false)
+    pub capture_audio: Option<bool>,
+}
+
+/// Native screenshot configuration from frontend
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeScreenshotOptions {
+    /// Capture at retina resolution (default: true)
+    pub retina_capture: Option<bool>,
+    /// Include cursor in capture (default: false)
+    pub capture_cursor: Option<bool>,
+}
+
+// NativeWindowInfo and NativeDisplayInfo are defined in crate::native and re-exported
+
+/// State for native capture engine
+#[cfg(target_os = "macos")]
+pub struct NativeCaptureState {
+    pub engine: std::sync::Mutex<Option<NativeCaptureEngine>>,
+    pub current_recording_id: Mutex<Option<String>>,
+    pub start_time: Mutex<Option<i64>>,
+}
+
+#[cfg(target_os = "macos")]
+impl NativeCaptureState {
+    pub fn new() -> Self {
+        Self {
+            engine: std::sync::Mutex::new(NativeCaptureEngine::new()),
+            current_recording_id: Mutex::new(None),
+            start_time: Mutex::new(None),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Default for NativeCaptureState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Check if native screen capture permission is granted
+#[tauri::command]
+pub async fn check_native_capture_permission() -> Result<bool, TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(NativeCaptureEngine::check_permission())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(true)
+    }
+}
+
+/// Request native screen capture permission
+#[tauri::command]
+pub async fn request_native_capture_permission() -> Result<(), TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        NativeCaptureEngine::request_permission();
+    }
+    Ok(())
+}
+
+/// List all windows using native ScreenCaptureKit
+#[tauri::command]
+pub async fn list_windows_native() -> Result<Vec<NativeWindowInfo>, TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        let windows = NativeCaptureEngine::list_windows()
+            .map_err(|e| TakaError::Internal(e.to_string()))?;
+
+        Ok(windows
+            .into_iter()
+            .map(|w| NativeWindowInfo {
+                window_id: w.window_id,
+                title: w.title,
+                owner_name: w.owner_name,
+                x: w.x,
+                y: w.y,
+                width: w.width,
+                height: w.height,
+                backing_scale_factor: w.backing_scale_factor,
+            })
+            .collect())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(TakaError::Internal("Native capture not supported on this platform".into()))
+    }
+}
+
+/// List all displays using native ScreenCaptureKit
+#[tauri::command]
+pub async fn list_displays_native() -> Result<Vec<NativeDisplayInfo>, TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        let displays = NativeCaptureEngine::list_displays()
+            .map_err(|e| TakaError::Internal(e.to_string()))?;
+
+        Ok(displays
+            .into_iter()
+            .map(|d| NativeDisplayInfo {
+                display_id: d.display_id,
+                name: d.name,
+                width: d.width,
+                height: d.height,
+                backing_scale_factor: d.backing_scale_factor,
+                is_main: d.is_main,
+            })
+            .collect())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(TakaError::Internal("Native capture not supported on this platform".into()))
+    }
+}
+
+/// Start native screen recording with ScreenCaptureKit
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn start_native_recording(
+    test_id: Option<String>,
+    name: Option<String>,
+    window_id: Option<u32>,
+    display_id: Option<u32>,
+    region: Option<(i32, i32, i32, i32)>, // x, y, width, height
+    options: Option<NativeRecordingOptions>,
+    app: AppHandle,
+    recording_repo: State<'_, RecordingRepository>,
+    native_state: State<'_, NativeCaptureState>,
+) -> Result<Recording, TakaError> {
+    // Check if already recording
+    {
+        let engine_guard = native_state.engine.lock().unwrap();
+        if let Some(ref engine) = *engine_guard {
+            if engine.is_recording() {
+                return Err(TakaError::Internal("A recording is already in progress".into()));
+            }
+        }
+    }
+
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| TakaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+
+    let recordings_dir = data_dir.join("recordings");
+    std::fs::create_dir_all(&recordings_dir).map_err(TakaError::Io)?;
+
+    // Build recording config
+    let opts = options.unwrap_or(NativeRecordingOptions {
+        codec: None,
+        bitrate: None,
+        fps: None,
+        keyframe_interval: None,
+        retina_capture: None,
+        capture_cursor: None,
+        capture_audio: None,
+    });
+
+    let codec = opts
+        .codec
+        .as_deref()
+        .and_then(|c| c.parse::<VideoCodec>().ok())
+        .unwrap_or(VideoCodec::Hevc);
+
+    let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+    let filename = format!("recording_{}.{}", timestamp, codec.file_extension());
+    let recording_path = recordings_dir.join(&filename);
+
+    // Determine dimensions from window or display
+    let (width, height) = if let Some(wid) = window_id {
+        let windows = NativeCaptureEngine::list_windows()
+            .map_err(|e| TakaError::Internal(e.to_string()))?;
+        windows
+            .iter()
+            .find(|w| w.window_id == wid)
+            .map(|w| (w.width as u32, w.height as u32))
+            .unwrap_or((1920, 1080))
+    } else if let Some(did) = display_id {
+        let displays = NativeCaptureEngine::list_displays()
+            .map_err(|e| TakaError::Internal(e.to_string()))?;
+        displays
+            .iter()
+            .find(|d| d.display_id == did)
+            .map(|d| (d.width as u32, d.height as u32))
+            .unwrap_or((1920, 1080))
+    } else if let Some((_, _, w, h)) = region {
+        (w as u32, h as u32)
+    } else {
+        (1920, 1080)
+    };
+
+    let config = NativeRecordingConfig {
+        width,
+        height,
+        fps: opts.fps.unwrap_or(60),
+        bitrate: opts.bitrate.unwrap_or(20_000_000),
+        keyframe_interval: opts.keyframe_interval.unwrap_or(60),
+        codec,
+        capture_cursor: opts.capture_cursor.unwrap_or(true),
+        capture_audio: opts.capture_audio.unwrap_or(false),
+        scale_factor: if opts.retina_capture.unwrap_or(true) { 2.0 } else { 1.0 },
+    };
+
+    // Create the recording record
+    let new_recording = NewRecording {
+        test_id,
+        name: name.unwrap_or_else(|| format!("Recording {}", timestamp)),
+    };
+
+    let recording = recording_repo.create(new_recording).await?;
+
+    // Start native recording
+    {
+        let engine_guard = native_state.engine.lock().unwrap();
+        if let Some(ref engine) = *engine_guard {
+            if let Some(wid) = window_id {
+                engine
+                    .start_window_recording(wid, &recording_path, &config)
+                    .map_err(|e| TakaError::Internal(e.to_string()))?;
+            } else if let Some(did) = display_id {
+                if let Some((x, y, w, h)) = region {
+                    engine
+                        .start_region_recording(did, x, y, w, h, &recording_path, &config)
+                        .map_err(|e| TakaError::Internal(e.to_string()))?;
+                } else {
+                    engine
+                        .start_display_recording(did, &recording_path, &config)
+                        .map_err(|e| TakaError::Internal(e.to_string()))?;
+                }
+            } else {
+                // Default to main display
+                let displays = NativeCaptureEngine::list_displays()
+                    .map_err(|e| TakaError::Internal(e.to_string()))?;
+                let main_display = displays
+                    .iter()
+                    .find(|d| d.is_main)
+                    .or_else(|| displays.first())
+                    .ok_or_else(|| TakaError::Internal("No displays found".into()))?;
+
+                engine
+                    .start_display_recording(main_display.display_id, &recording_path, &config)
+                    .map_err(|e| TakaError::Internal(e.to_string()))?;
+            }
+        } else {
+            return Err(TakaError::Internal("Native capture engine not available".into()));
+        }
+    }
+
+    // Store recording state
+    let start_time = Utc::now().timestamp_millis();
+    *native_state.current_recording_id.lock().await = Some(recording.id.clone());
+    *native_state.start_time.lock().await = Some(start_time);
+
+    // Update recording with path and status
+    let updates = UpdateRecording {
+        name: None,
+        status: Some("recording".into()),
+        recording_path: Some(recording_path.to_string_lossy().to_string()),
+        duration_ms: None,
+        thumbnail_path: None,
+    };
+
+    recording_repo.update(&recording.id, updates).await
+}
+
+/// Stop native screen recording
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn stop_native_recording(
+    recording_repo: State<'_, RecordingRepository>,
+    native_state: State<'_, NativeCaptureState>,
+) -> Result<Recording, TakaError> {
+    let recording_id = native_state
+        .current_recording_id
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| TakaError::Internal("No recording in progress".into()))?;
+
+    let start_time = native_state.start_time.lock().await.clone();
+
+    // Stop native recording
+    let recording_path = {
+        let engine_guard = native_state.engine.lock().unwrap();
+        if let Some(ref engine) = *engine_guard {
+            engine
+                .stop_recording()
+                .map_err(|e| TakaError::Internal(e.to_string()))?
+        } else {
+            return Err(TakaError::Internal("Native capture engine not available".into()));
+        }
+    };
+
+    // Calculate duration
+    let duration_ms = start_time.map(|start| {
+        let end = Utc::now().timestamp_millis();
+        end - start
+    });
+
+    // Reset state
+    *native_state.current_recording_id.lock().await = None;
+    *native_state.start_time.lock().await = None;
+
+    // Update recording status
+    let updates = UpdateRecording {
+        name: None,
+        status: Some("completed".into()),
+        recording_path: Some(recording_path),
+        duration_ms,
+        thumbnail_path: None,
+    };
+
+    recording_repo.update(&recording_id, updates).await
+}
+
+/// Cancel native screen recording without saving
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn cancel_native_recording(
+    recording_repo: State<'_, RecordingRepository>,
+    native_state: State<'_, NativeCaptureState>,
+) -> Result<(), TakaError> {
+    let recording_id = native_state.current_recording_id.lock().await.clone();
+
+    // Cancel native recording
+    {
+        let engine_guard = native_state.engine.lock().unwrap();
+        if let Some(ref engine) = *engine_guard {
+            engine
+                .cancel_recording()
+                .map_err(|e| TakaError::Internal(e.to_string()))?;
+        }
+    }
+
+    // Reset state
+    *native_state.current_recording_id.lock().await = None;
+    *native_state.start_time.lock().await = None;
+
+    // Delete recording record if it exists
+    if let Some(id) = recording_id {
+        recording_repo.delete(&id).await?;
+    }
+
+    Ok(())
+}
+
+/// Check if native recording is in progress
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn is_native_recording(
+    native_state: State<'_, NativeCaptureState>,
+) -> Result<bool, TakaError> {
+    let engine_guard = native_state.engine.lock().unwrap();
+    if let Some(ref engine) = *engine_guard {
+        Ok(engine.is_recording())
+    } else {
+        Ok(false)
+    }
+}
+
+/// Get current native recording ID
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn get_native_recording_id(
+    native_state: State<'_, NativeCaptureState>,
+) -> Result<Option<String>, TakaError> {
+    Ok(native_state.current_recording_id.lock().await.clone())
+}
+
+/// Get current native recording duration in milliseconds
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn get_native_recording_duration(
+    native_state: State<'_, NativeCaptureState>,
+) -> Result<i64, TakaError> {
+    let engine_guard = native_state.engine.lock().unwrap();
+    if let Some(ref engine) = *engine_guard {
+        Ok(engine.recording_duration_ms())
+    } else {
+        Ok(0)
+    }
+}
+
+/// Capture native screenshot with ScreenCaptureKit
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn capture_native_screenshot(
+    test_id: Option<String>,
+    title: Option<String>,
+    window_id: Option<u32>,
+    display_id: Option<u32>,
+    region: Option<(i32, i32, i32, i32)>, // x, y, width, height
+    options: Option<NativeScreenshotOptions>,
+    app: AppHandle,
+    screenshot_repo: State<'_, ScreenshotRepository>,
+) -> Result<Screenshot, TakaError> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| TakaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+
+    let screenshots_dir = data_dir.join("screenshots");
+    std::fs::create_dir_all(&screenshots_dir).map_err(TakaError::Io)?;
+
+    let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+    let filename = format!("screenshot_{}.png", timestamp);
+    let screenshot_path = screenshots_dir.join(&filename);
+
+    let opts = options.unwrap_or(NativeScreenshotOptions {
+        retina_capture: None,
+        capture_cursor: None,
+    });
+
+    let config = NativeScreenshotConfig {
+        scale_factor: if opts.retina_capture.unwrap_or(true) { 2.0 } else { 1.0 },
+        capture_cursor: opts.capture_cursor.unwrap_or(false),
+    };
+
+    // Capture screenshot
+    if let Some(wid) = window_id {
+        crate::native::screenshot_window(wid, &screenshot_path, &config)
+            .await
+            .map_err(|e| TakaError::Internal(e.to_string()))?;
+    } else if let Some(did) = display_id {
+        if let Some((x, y, w, h)) = region {
+            crate::native::screenshot_region(did, x, y, w, h, &screenshot_path, &config)
+                .await
+                .map_err(|e| TakaError::Internal(e.to_string()))?;
+        } else {
+            crate::native::screenshot_display(did, &screenshot_path, &config)
+                .await
+                .map_err(|e| TakaError::Internal(e.to_string()))?;
+        }
+    } else {
+        // Default to main display
+        let displays = NativeCaptureEngine::list_displays()
+            .map_err(|e| TakaError::Internal(e.to_string()))?;
+        let main_display = displays
+            .iter()
+            .find(|d| d.is_main)
+            .or_else(|| displays.first())
+            .ok_or_else(|| TakaError::Internal("No displays found".into()))?;
+
+        crate::native::screenshot_display(main_display.display_id, &screenshot_path, &config)
+            .await
+            .map_err(|e| TakaError::Internal(e.to_string()))?;
+    }
+
+    // Create screenshot record
+    let new_screenshot = NewScreenshot {
+        test_id,
+        title: title.unwrap_or_else(|| format!("Screenshot {}", timestamp)),
+        description: None,
+        image_path: screenshot_path.to_string_lossy().to_string(),
+    };
+
+    screenshot_repo.create(new_screenshot).await
 }

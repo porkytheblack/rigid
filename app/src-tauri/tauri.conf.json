@@ -36,7 +36,9 @@
     "targets": "all",
     "icon": [],
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "12.3",
+      "entitlements": "./Entitlements.plist",
+      "infoPlist": "./Info.plist"
     }
   },
   "plugins": {}

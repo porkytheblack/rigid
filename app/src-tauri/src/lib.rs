@@ -5,11 +5,14 @@ mod commands;
 mod db;
 mod error;
 mod models;
+mod native;
 mod repositories;
 mod services;
 mod utils;
 
 use commands::RecordingState;
+#[cfg(target_os = "macos")]
+use commands::NativeCaptureState;
 use repositories::{
     AppRepository, TestRepository, RecordingRepository, IssueRepository,
     ChecklistRepository, ScreenshotRepository, TagRepository, SettingsRepository,
@@ -62,6 +65,10 @@ pub fn run() {
 
                 // Initialize recording state
                 app_handle.manage(RecordingState::new());
+
+                // Initialize native capture state (macOS only)
+                #[cfg(target_os = "macos")]
+                app_handle.manage(NativeCaptureState::new());
             });
 
             #[cfg(debug_assertions)]
@@ -157,6 +164,25 @@ pub fn run() {
             commands::cancel_recording,
             commands::export_asset,
             commands::open_privacy_settings,
+            // Native capture commands (ScreenCaptureKit)
+            commands::check_native_capture_permission,
+            commands::request_native_capture_permission,
+            commands::list_windows_native,
+            commands::list_displays_native,
+            #[cfg(target_os = "macos")]
+            commands::start_native_recording,
+            #[cfg(target_os = "macos")]
+            commands::stop_native_recording,
+            #[cfg(target_os = "macos")]
+            commands::cancel_native_recording,
+            #[cfg(target_os = "macos")]
+            commands::is_native_recording,
+            #[cfg(target_os = "macos")]
+            commands::get_native_recording_id,
+            #[cfg(target_os = "macos")]
+            commands::get_native_recording_duration,
+            #[cfg(target_os = "macos")]
+            commands::capture_native_screenshot,
             // Tag commands
             commands::create_tag,
             commands::get_tag,

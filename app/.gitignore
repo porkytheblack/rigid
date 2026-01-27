@@ -36,5 +36,5 @@ pnpm-debug.log*
 dist/
 build/
 
-# Misc
-*.pem
+# Misc *.pem
+.build/

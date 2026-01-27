@@ -729,3 +729,58 @@ export interface ArchitectureDocWithBlocks {
   doc: ArchitectureDoc;
   blocks: ArchitectureDocBlock[];
 }
+
+// =============================================================================
+// Native Capture Types (ScreenCaptureKit on macOS)
+// =============================================================================
+
+/** Video codec for native recording */
+export type NativeVideoCodec = 'h264' | 'hevc' | 'prores422' | 'prores422hq';
+
+/** Native recording configuration options */
+export interface NativeRecordingOptions {
+  /** Video codec: "h264", "hevc", "prores422", "prores422hq" (default: hevc) */
+  codec?: NativeVideoCodec | null;
+  /** Bitrate in bits per second (e.g., 20000000 for 20 Mbps) */
+  bitrate?: number | null;
+  /** Frames per second (default: 60) */
+  fps?: number | null;
+  /** Keyframe interval in frames (default: 60 = 1 second at 60fps) */
+  keyframeInterval?: number | null;
+  /** Capture at retina resolution (default: true) */
+  retinaCapture?: boolean | null;
+  /** Include cursor in capture (default: true) */
+  captureCursor?: boolean | null;
+  /** Include audio (default: false) */
+  captureAudio?: boolean | null;
+}
+
+/** Native screenshot configuration options */
+export interface NativeScreenshotOptions {
+  /** Capture at retina resolution (default: true) */
+  retinaCapture?: boolean | null;
+  /** Include cursor in capture (default: false) */
+  captureCursor?: boolean | null;
+}
+
+/** Window info from native ScreenCaptureKit */
+export interface NativeWindowInfo {
+  window_id: number;
+  title: string;
+  owner_name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  backing_scale_factor: number;
+}
+
+/** Display info from native ScreenCaptureKit */
+export interface NativeDisplayInfo {
+  display_id: number;
+  name: string;
+  width: number;
+  height: number;
+  backing_scale_factor: number;
+  is_main: boolean;
+}
