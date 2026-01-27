@@ -74,6 +74,7 @@ export function getBlockTypeName(type: BlockType): string {
     quote: 'Quote',
     callout: 'Callout',
     code: 'Code',
+    mermaid: 'Mermaid Diagram',
     image: 'Image',
     video: 'Video',
     file: 'File',

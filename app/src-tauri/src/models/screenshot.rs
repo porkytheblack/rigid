@@ -27,6 +27,7 @@ pub struct UpdateScreenshot {
 #[derive(Debug, Deserialize, Default)]
 pub struct ScreenshotFilter {
     pub test_id: Option<String>,
+    pub app_id: Option<String>,
     pub limit: Option<i32>,
 }
 

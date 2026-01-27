@@ -326,3 +326,48 @@ th {
 tr:hover td {
   background: var(--surface-secondary);
 }
+
+/* React Flow custom styles */
+.react-flow__controls {
+  background: var(--surface-secondary) !important;
+  border: 1px solid var(--border-default) !important;
+  box-shadow: none !important;
+}
+
+.react-flow__controls-button {
+  background: var(--surface-secondary) !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border-default) !important;
+  fill: var(--text-secondary) !important;
+  color: var(--text-secondary) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--surface-hover) !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls-button svg {
+  fill: var(--text-secondary) !important;
+}
+
+.react-flow__controls-button:hover svg {
+  fill: var(--text-primary) !important;
+}
+
+/* React Flow edge styles */
+.react-flow__edge-path {
+  stroke: var(--border-strong) !important;
+}
+
+.react-flow__handle {
+  transition: all 0.15s ease;
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.3);
+  background: var(--text-primary) !important;
+}

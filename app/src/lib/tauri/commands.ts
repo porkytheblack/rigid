@@ -49,6 +49,26 @@ import type {
   Message,
   CompletionOptions,
   AIResponse,
+  Diagram,
+  NewDiagram,
+  UpdateDiagram,
+  DiagramFilter,
+  DiagramWithData,
+  DiagramNode,
+  NewDiagramNode,
+  UpdateDiagramNode,
+  DiagramEdge,
+  NewDiagramEdge,
+  UpdateDiagramEdge,
+  NodeAttachment,
+  NewNodeAttachment,
+  ArchitectureDoc,
+  NewArchitectureDoc,
+  UpdateArchitectureDoc,
+  ArchitectureDocWithBlocks,
+  ArchitectureDocBlock,
+  NewArchitectureDocBlock,
+  UpdateArchitectureDocBlock,
 } from './types';
 
 // App commands
@@ -533,4 +553,134 @@ export const video = {
 
   cut: (sourcePath: string, outputPath: string, startMs: number, endMs: number) =>
     invoke<string>('cut_video', { sourcePath, outputPath, startMs, endMs }),
+};
+
+// Diagram commands (mind maps, user flows, dependency graphs)
+export const diagrams = {
+  create: (newDiagram: NewDiagram) =>
+    invoke<Diagram>('create_diagram', { newDiagram }),
+
+  get: (id: string) =>
+    invoke<Diagram>('get_diagram', { id }),
+
+  getWithData: (id: string) =>
+    invoke<DiagramWithData>('get_diagram_with_data', { id }),
+
+  list: (filter: DiagramFilter = {}) =>
+    invoke<Diagram[]>('list_diagrams', { filter }),
+
+  listByTest: (testId: string) =>
+    invoke<Diagram[]>('list_diagrams_by_test', { testId }),
+
+  listByArchitectureDoc: (docId: string) =>
+    invoke<Diagram[]>('list_diagrams_by_architecture_doc', { docId }),
+
+  update: (id: string, updates: UpdateDiagram) =>
+    invoke<Diagram>('update_diagram', { id, updates }),
+
+  delete: (id: string) =>
+    invoke<void>('delete_diagram', { id }),
+
+  countByTest: (testId: string) =>
+    invoke<number>('count_diagrams_by_test', { testId }),
+
+  // Node operations
+  createNode: (newNode: NewDiagramNode) =>
+    invoke<DiagramNode>('create_diagram_node', { newNode }),
+
+  getNode: (id: string) =>
+    invoke<DiagramNode>('get_diagram_node', { id }),
+
+  listNodes: (diagramId: string) =>
+    invoke<DiagramNode[]>('list_diagram_nodes', { diagramId }),
+
+  updateNode: (id: string, updates: UpdateDiagramNode) =>
+    invoke<DiagramNode>('update_diagram_node', { id, updates }),
+
+  deleteNode: (id: string) =>
+    invoke<void>('delete_diagram_node', { id }),
+
+  bulkUpdateNodes: (updates: [string, UpdateDiagramNode][]) =>
+    invoke<void>('bulk_update_diagram_nodes', { updates }),
+
+  // Edge operations
+  createEdge: (newEdge: NewDiagramEdge) =>
+    invoke<DiagramEdge>('create_diagram_edge', { newEdge }),
+
+  getEdge: (id: string) =>
+    invoke<DiagramEdge>('get_diagram_edge', { id }),
+
+  listEdges: (diagramId: string) =>
+    invoke<DiagramEdge[]>('list_diagram_edges', { diagramId }),
+
+  updateEdge: (id: string, updates: UpdateDiagramEdge) =>
+    invoke<DiagramEdge>('update_diagram_edge', { id, updates }),
+
+  deleteEdge: (id: string) =>
+    invoke<void>('delete_diagram_edge', { id }),
+
+  // Attachment operations
+  createAttachment: (newAttachment: NewNodeAttachment) =>
+    invoke<NodeAttachment>('create_node_attachment', { newAttachment }),
+
+  getAttachment: (id: string) =>
+    invoke<NodeAttachment>('get_node_attachment', { id }),
+
+  listAttachments: (nodeId: string) =>
+    invoke<NodeAttachment[]>('list_node_attachments', { nodeId }),
+
+  deleteAttachment: (id: string) =>
+    invoke<void>('delete_node_attachment', { id }),
+
+  deleteAllAttachments: (nodeId: string) =>
+    invoke<void>('delete_all_node_attachments', { nodeId }),
+};
+
+// Architecture document commands
+export const architectureDocs = {
+  create: (newDoc: NewArchitectureDoc) =>
+    invoke<ArchitectureDoc>('create_architecture_doc', { newDoc }),
+
+  get: (id: string) =>
+    invoke<ArchitectureDoc>('get_architecture_doc', { id }),
+
+  getWithBlocks: (id: string) =>
+    invoke<ArchitectureDocWithBlocks>('get_architecture_doc_with_blocks', { id }),
+
+  list: (appId: string) =>
+    invoke<ArchitectureDoc[]>('list_architecture_docs', { appId }),
+
+  update: (id: string, updates: UpdateArchitectureDoc) =>
+    invoke<ArchitectureDoc>('update_architecture_doc', { id, updates }),
+
+  delete: (id: string) =>
+    invoke<void>('delete_architecture_doc', { id }),
+
+  count: (appId: string) =>
+    invoke<number>('count_architecture_docs', { appId }),
+
+  reorder: (docIds: string[]) =>
+    invoke<void>('reorder_architecture_docs', { docIds }),
+
+  // Block operations
+  createBlock: (newBlock: NewArchitectureDocBlock) =>
+    invoke<ArchitectureDocBlock>('create_architecture_doc_block', { newBlock }),
+
+  getBlock: (id: string) =>
+    invoke<ArchitectureDocBlock>('get_architecture_doc_block', { id }),
+
+  listBlocks: (docId: string) =>
+    invoke<ArchitectureDocBlock[]>('list_architecture_doc_blocks', { docId }),
+
+  updateBlock: (id: string, updates: UpdateArchitectureDocBlock) =>
+    invoke<ArchitectureDocBlock>('update_architecture_doc_block', { id, updates }),
+
+  deleteBlock: (id: string) =>
+    invoke<void>('delete_architecture_doc_block', { id }),
+
+  deleteAllBlocks: (docId: string) =>
+    invoke<void>('delete_all_architecture_doc_blocks', { docId }),
+
+  bulkReplaceBlocks: (docId: string, blocks: NewArchitectureDocBlock[]) =>
+    invoke<ArchitectureDocBlock[]>('bulk_replace_architecture_doc_blocks', { docId, blocks }),
 };

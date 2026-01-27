@@ -227,3 +227,103 @@ CREATE INDEX IF NOT EXISTS idx_annotations_recording ON annotations(recording_id
 CREATE INDEX IF NOT EXISTS idx_annotations_timestamp ON annotations(timestamp_ms);
 
 CREATE INDEX IF NOT EXISTS idx_taggables_type_id ON taggables(taggable_type, taggable_id);
+
+-- Diagrams (mind maps, user flows, dependency graphs)
+-- Can belong to either a test/exploration OR an architecture doc
+CREATE TABLE IF NOT EXISTS diagrams (
+    id TEXT PRIMARY KEY,
+    test_id TEXT REFERENCES tests(id) ON DELETE CASCADE,
+    architecture_doc_id TEXT REFERENCES architecture_docs(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    diagram_type TEXT NOT NULL, -- 'mindmap' | 'userflow' | 'dependency'
+    viewport_x REAL NOT NULL DEFAULT 0,
+    viewport_y REAL NOT NULL DEFAULT 0,
+    viewport_zoom REAL NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Diagram nodes
+CREATE TABLE IF NOT EXISTS diagram_nodes (
+    id TEXT PRIMARY KEY,
+    diagram_id TEXT NOT NULL REFERENCES diagrams(id) ON DELETE CASCADE,
+    node_type TEXT NOT NULL, -- varies by diagram type
+    label TEXT NOT NULL DEFAULT '',
+    notes TEXT,
+    position_x REAL NOT NULL DEFAULT 0,
+    position_y REAL NOT NULL DEFAULT 0,
+    width REAL,
+    height REAL,
+    style_data TEXT, -- JSON for colors, icons, etc.
+    parent_id TEXT REFERENCES diagram_nodes(id) ON DELETE SET NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Diagram edges (connections between nodes)
+CREATE TABLE IF NOT EXISTS diagram_edges (
+    id TEXT PRIMARY KEY,
+    diagram_id TEXT NOT NULL REFERENCES diagrams(id) ON DELETE CASCADE,
+    source_node_id TEXT NOT NULL REFERENCES diagram_nodes(id) ON DELETE CASCADE,
+    target_node_id TEXT NOT NULL REFERENCES diagram_nodes(id) ON DELETE CASCADE,
+    edge_type TEXT NOT NULL DEFAULT 'default', -- 'default', 'conditional', 'dependency'
+    label TEXT,
+    style_data TEXT, -- JSON for line style, color, animated
+    created_at TEXT NOT NULL
+);
+
+-- Node attachments (link screenshots/recordings to nodes)
+CREATE TABLE IF NOT EXISTS node_attachments (
+    id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL REFERENCES diagram_nodes(id) ON DELETE CASCADE,
+    attachment_type TEXT NOT NULL, -- 'screenshot' | 'recording'
+    screenshot_id TEXT REFERENCES screenshots(id) ON DELETE CASCADE,
+    recording_id TEXT REFERENCES recordings(id) ON DELETE CASCADE,
+    timestamp_ms INTEGER, -- For recordings, specific timestamp
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+-- Architecture documents (app-level, not exploration-level)
+CREATE TABLE IF NOT EXISTS architecture_docs (
+    id TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    icon TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Architecture document blocks (reuses same structure as document_blocks)
+CREATE TABLE IF NOT EXISTS architecture_doc_blocks (
+    id TEXT PRIMARY KEY,
+    doc_id TEXT NOT NULL REFERENCES architecture_docs(id) ON DELETE CASCADE,
+    block_type TEXT NOT NULL, -- Same types as document_blocks + 'mermaid'
+    content TEXT NOT NULL DEFAULT '',
+    checked INTEGER,
+    language TEXT,
+    callout_type TEXT,
+    image_path TEXT,
+    image_caption TEXT,
+    collapsed INTEGER,
+    mermaid_code TEXT, -- For mermaid blocks
+    indent_level INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Indexes for diagrams
+CREATE INDEX IF NOT EXISTS idx_diagrams_test ON diagrams(test_id);
+CREATE INDEX IF NOT EXISTS idx_diagrams_arch_doc ON diagrams(architecture_doc_id);
+CREATE INDEX IF NOT EXISTS idx_diagrams_type ON diagrams(diagram_type);
+CREATE INDEX IF NOT EXISTS idx_diagram_nodes_diagram ON diagram_nodes(diagram_id);
+CREATE INDEX IF NOT EXISTS idx_diagram_nodes_parent ON diagram_nodes(parent_id);
+CREATE INDEX IF NOT EXISTS idx_diagram_edges_diagram ON diagram_edges(diagram_id);
+CREATE INDEX IF NOT EXISTS idx_diagram_edges_source ON diagram_edges(source_node_id);
+CREATE INDEX IF NOT EXISTS idx_diagram_edges_target ON diagram_edges(target_node_id);
+CREATE INDEX IF NOT EXISTS idx_node_attachments_node ON node_attachments(node_id);
+CREATE INDEX IF NOT EXISTS idx_architecture_docs_app ON architecture_docs(app_id);
+CREATE INDEX IF NOT EXISTS idx_architecture_doc_blocks_doc ON architecture_doc_blocks(doc_id);

@@ -13,7 +13,7 @@ use commands::RecordingState;
 use repositories::{
     AppRepository, TestRepository, RecordingRepository, IssueRepository,
     ChecklistRepository, ScreenshotRepository, TagRepository, SettingsRepository,
-    DocumentRepository,
+    DocumentRepository, DiagramRepository, ArchitectureDocRepository,
 };
 use services::AIService;
 
@@ -53,7 +53,9 @@ pub fn run() {
                 app_handle.manage(ScreenshotRepository::new(pool.clone()));
                 app_handle.manage(TagRepository::new(pool.clone()));
                 app_handle.manage(SettingsRepository::new(pool.clone()));
-                app_handle.manage(DocumentRepository::new(pool));
+                app_handle.manage(DocumentRepository::new(pool.clone()));
+                app_handle.manage(DiagramRepository::new(pool.clone()));
+                app_handle.manage(ArchitectureDocRepository::new(pool));
 
                 // Initialize AI service
                 app_handle.manage(AIService::new());
@@ -203,6 +205,52 @@ pub fn run() {
             commands::delete_exploration_todo,
             commands::delete_all_exploration_todos,
             commands::bulk_replace_exploration_todos,
+            // Diagram commands
+            commands::create_diagram,
+            commands::get_diagram,
+            commands::get_diagram_with_data,
+            commands::list_diagrams,
+            commands::list_diagrams_by_test,
+            commands::list_diagrams_by_architecture_doc,
+            commands::update_diagram,
+            commands::delete_diagram,
+            commands::count_diagrams_by_test,
+            // Diagram node commands
+            commands::create_diagram_node,
+            commands::get_diagram_node,
+            commands::list_diagram_nodes,
+            commands::update_diagram_node,
+            commands::delete_diagram_node,
+            commands::bulk_update_diagram_nodes,
+            // Diagram edge commands
+            commands::create_diagram_edge,
+            commands::get_diagram_edge,
+            commands::list_diagram_edges,
+            commands::update_diagram_edge,
+            commands::delete_diagram_edge,
+            // Node attachment commands
+            commands::create_node_attachment,
+            commands::get_node_attachment,
+            commands::list_node_attachments,
+            commands::delete_node_attachment,
+            commands::delete_all_node_attachments,
+            // Architecture doc commands
+            commands::create_architecture_doc,
+            commands::get_architecture_doc,
+            commands::get_architecture_doc_with_blocks,
+            commands::list_architecture_docs,
+            commands::update_architecture_doc,
+            commands::delete_architecture_doc,
+            commands::count_architecture_docs,
+            commands::reorder_architecture_docs,
+            // Architecture doc block commands
+            commands::create_architecture_doc_block,
+            commands::get_architecture_doc_block,
+            commands::list_architecture_doc_blocks,
+            commands::update_architecture_doc_block,
+            commands::delete_architecture_doc_block,
+            commands::delete_all_architecture_doc_blocks,
+            commands::bulk_replace_architecture_doc_blocks,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

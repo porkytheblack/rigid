@@ -97,6 +97,7 @@ export interface UpdateRecording {
 
 export interface RecordingFilter {
   test_id?: string | null;
+  app_id?: string | null;
   status?: RecordingStatus | null;
   limit?: number | null;
 }
@@ -236,6 +237,7 @@ export interface UpdateScreenshot {
 
 export interface ScreenshotFilter {
   test_id?: string | null;
+  app_id?: string | null;
   limit?: number | null;
 }
 
@@ -491,4 +493,239 @@ export interface UpdateExplorationTodo {
   content?: string | null;
   checked?: boolean | null;
   sort_order?: number | null;
+}
+
+// Diagram types (mind maps, user flows, dependency graphs)
+export type DiagramType = 'mindmap' | 'userflow' | 'dependency';
+
+export interface Diagram {
+  id: string;
+  test_id: string | null;
+  architecture_doc_id: string | null;
+  name: string;
+  diagram_type: DiagramType;
+  viewport_x: number;
+  viewport_y: number;
+  viewport_zoom: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDiagram {
+  test_id?: string | null;
+  architecture_doc_id?: string | null;
+  name: string;
+  diagram_type: DiagramType;
+  viewport_x?: number | null;
+  viewport_y?: number | null;
+  viewport_zoom?: number | null;
+}
+
+export interface UpdateDiagram {
+  name?: string | null;
+  viewport_x?: number | null;
+  viewport_y?: number | null;
+  viewport_zoom?: number | null;
+}
+
+export interface DiagramFilter {
+  test_id?: string | null;
+  architecture_doc_id?: string | null;
+  diagram_type?: DiagramType | null;
+}
+
+// Diagram node types
+export interface DiagramNode {
+  id: string;
+  diagram_id: string;
+  node_type: string;
+  label: string;
+  notes: string | null;
+  position_x: number;
+  position_y: number;
+  width: number | null;
+  height: number | null;
+  style_data: string | null; // JSON
+  parent_id: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDiagramNode {
+  diagram_id: string;
+  node_type: string;
+  label?: string | null;
+  notes?: string | null;
+  position_x?: number | null;
+  position_y?: number | null;
+  width?: number | null;
+  height?: number | null;
+  style_data?: string | null;
+  parent_id?: string | null;
+  sort_order?: number | null;
+}
+
+export interface UpdateDiagramNode {
+  node_type?: string | null;
+  label?: string | null;
+  notes?: string | null;
+  position_x?: number | null;
+  position_y?: number | null;
+  width?: number | null;
+  height?: number | null;
+  style_data?: string | null;
+  parent_id?: string | null;
+  sort_order?: number | null;
+}
+
+// Diagram edge types
+export interface DiagramEdge {
+  id: string;
+  diagram_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  edge_type: string;
+  label: string | null;
+  style_data: string | null; // JSON
+  created_at: string;
+}
+
+export interface NewDiagramEdge {
+  diagram_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  edge_type?: string | null;
+  label?: string | null;
+  style_data?: string | null;
+}
+
+export interface UpdateDiagramEdge {
+  edge_type?: string | null;
+  label?: string | null;
+  style_data?: string | null;
+}
+
+// Node attachment types (screenshots/recordings linked to nodes)
+export type AttachmentType = 'screenshot' | 'recording';
+
+export interface NodeAttachment {
+  id: string;
+  node_id: string;
+  attachment_type: AttachmentType;
+  screenshot_id: string | null;
+  recording_id: string | null;
+  timestamp_ms: number | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface NewNodeAttachment {
+  node_id: string;
+  attachment_type: AttachmentType;
+  screenshot_id?: string | null;
+  recording_id?: string | null;
+  timestamp_ms?: number | null;
+  sort_order?: number | null;
+}
+
+// Diagram with data (full diagram including nodes and edges)
+export interface DiagramWithData {
+  diagram: Diagram;
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+}
+
+// Architecture document types
+export interface ArchitectureDoc {
+  id: string;
+  app_id: string;
+  name: string;
+  icon: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewArchitectureDoc {
+  app_id: string;
+  name: string;
+  icon?: string | null;
+  sort_order?: number | null;
+}
+
+export interface UpdateArchitectureDoc {
+  name?: string | null;
+  icon?: string | null;
+  sort_order?: number | null;
+}
+
+// Architecture document block types (similar to DocumentBlock but with mermaid support)
+export type ArchitectureDocBlockType =
+  | 'paragraph'
+  | 'heading1'
+  | 'heading2'
+  | 'heading3'
+  | 'quote'
+  | 'bulletList'
+  | 'numberedList'
+  | 'todo'
+  | 'code'
+  | 'image'
+  | 'divider'
+  | 'callout'
+  | 'toggle'
+  | 'mermaid';
+
+export interface ArchitectureDocBlock {
+  id: string;
+  doc_id: string;
+  block_type: ArchitectureDocBlockType;
+  content: string;
+  checked: number | null;
+  language: string | null;
+  callout_type: DocumentCalloutType | null;
+  image_path: string | null;
+  image_caption: string | null;
+  collapsed: number | null;
+  mermaid_code: string | null;
+  indent_level: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewArchitectureDocBlock {
+  doc_id: string;
+  block_type: ArchitectureDocBlockType;
+  content?: string | null;
+  checked?: boolean | null;
+  language?: string | null;
+  callout_type?: DocumentCalloutType | null;
+  image_path?: string | null;
+  image_caption?: string | null;
+  collapsed?: boolean | null;
+  mermaid_code?: string | null;
+  indent_level?: number | null;
+  sort_order?: number | null;
+}
+
+export interface UpdateArchitectureDocBlock {
+  block_type?: ArchitectureDocBlockType | null;
+  content?: string | null;
+  checked?: boolean | null;
+  language?: string | null;
+  callout_type?: DocumentCalloutType | null;
+  image_path?: string | null;
+  image_caption?: string | null;
+  collapsed?: boolean | null;
+  mermaid_code?: string | null;
+  indent_level?: number | null;
+  sort_order?: number | null;
+}
+
+// Architecture doc with blocks
+export interface ArchitectureDocWithBlocks {
+  doc: ArchitectureDoc;
+  blocks: ArchitectureDocBlock[];
 }

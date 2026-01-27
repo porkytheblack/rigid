@@ -6,7 +6,7 @@ use crate::error::TakaError;
 pub type DbPool = SqlitePool;
 
 const SCHEMA: &str = include_str!("schema.sql");
-const CURRENT_VERSION: i32 = 4;
+const CURRENT_VERSION: i32 = 7;
 
 /// Initialize the database connection and run migrations
 pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, TakaError> {
@@ -78,9 +78,24 @@ async fn run_migrations(pool: &DbPool) -> Result<(), TakaError> {
             run_v2_to_v3_migration(pool).await?;
             // Then run v3 to v4 migration
             run_v3_to_v4_migration(pool).await?;
+            // Then run v4 to v5 migration
+            run_v4_to_v5_migration(pool).await?;
         } else if current_version == 3 {
-            // Run v3 to v4 migration only
+            // Run v3 to v4 migration, then v4 to v5
             run_v3_to_v4_migration(pool).await?;
+            run_v4_to_v5_migration(pool).await?;
+        } else if current_version == 4 {
+            // Run v4 to v5 migration, then v5 to v6, then v6 to v7
+            run_v4_to_v5_migration(pool).await?;
+            run_v5_to_v6_migration(pool).await?;
+            run_v6_to_v7_migration(pool).await?;
+        } else if current_version == 5 {
+            // Run v5 to v6 migration, then v6 to v7
+            run_v5_to_v6_migration(pool).await?;
+            run_v6_to_v7_migration(pool).await?;
+        } else if current_version == 6 {
+            // Run v6 to v7 migration only (fix test_id nullable)
+            run_v6_to_v7_migration(pool).await?;
         } else {
             // Fresh install or from v1 - apply full schema
             for statement in SCHEMA.split(';') {
@@ -225,6 +240,232 @@ async fn run_v3_to_v4_migration(pool: &DbPool) -> Result<(), TakaError> {
         .execute(pool)
         .await
         .ok(); // Ignore error if column already exists
+
+    Ok(())
+}
+
+/// Migration from v4 to v5: Add diagrams, nodes, edges, attachments, and architecture docs tables
+async fn run_v4_to_v5_migration(pool: &DbPool) -> Result<(), TakaError> {
+    // Diagrams table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS diagrams (
+            id TEXT PRIMARY KEY,
+            test_id TEXT NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            diagram_type TEXT NOT NULL,
+            viewport_x REAL NOT NULL DEFAULT 0,
+            viewport_y REAL NOT NULL DEFAULT 0,
+            viewport_zoom REAL NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Diagram nodes table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS diagram_nodes (
+            id TEXT PRIMARY KEY,
+            diagram_id TEXT NOT NULL REFERENCES diagrams(id) ON DELETE CASCADE,
+            node_type TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            notes TEXT,
+            position_x REAL NOT NULL DEFAULT 0,
+            position_y REAL NOT NULL DEFAULT 0,
+            width REAL,
+            height REAL,
+            style_data TEXT,
+            parent_id TEXT REFERENCES diagram_nodes(id) ON DELETE SET NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Diagram edges table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS diagram_edges (
+            id TEXT PRIMARY KEY,
+            diagram_id TEXT NOT NULL REFERENCES diagrams(id) ON DELETE CASCADE,
+            source_node_id TEXT NOT NULL REFERENCES diagram_nodes(id) ON DELETE CASCADE,
+            target_node_id TEXT NOT NULL REFERENCES diagram_nodes(id) ON DELETE CASCADE,
+            edge_type TEXT NOT NULL DEFAULT 'default',
+            label TEXT,
+            style_data TEXT,
+            created_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Node attachments table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS node_attachments (
+            id TEXT PRIMARY KEY,
+            node_id TEXT NOT NULL REFERENCES diagram_nodes(id) ON DELETE CASCADE,
+            attachment_type TEXT NOT NULL,
+            screenshot_id TEXT REFERENCES screenshots(id) ON DELETE CASCADE,
+            recording_id TEXT REFERENCES recordings(id) ON DELETE CASCADE,
+            timestamp_ms INTEGER,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Architecture docs table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS architecture_docs (
+            id TEXT PRIMARY KEY,
+            app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            icon TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Architecture doc blocks table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS architecture_doc_blocks (
+            id TEXT PRIMARY KEY,
+            doc_id TEXT NOT NULL REFERENCES architecture_docs(id) ON DELETE CASCADE,
+            block_type TEXT NOT NULL,
+            content TEXT NOT NULL DEFAULT '',
+            checked INTEGER,
+            language TEXT,
+            callout_type TEXT,
+            image_path TEXT,
+            image_caption TEXT,
+            collapsed INTEGER,
+            mermaid_code TEXT,
+            indent_level INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Create indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagrams_test ON diagrams(test_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagrams_type ON diagrams(diagram_type)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagram_nodes_diagram ON diagram_nodes(diagram_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagram_nodes_parent ON diagram_nodes(parent_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagram_edges_diagram ON diagram_edges(diagram_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagram_edges_source ON diagram_edges(source_node_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagram_edges_target ON diagram_edges(target_node_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_node_attachments_node ON node_attachments(node_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_architecture_docs_app ON architecture_docs(app_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_architecture_doc_blocks_doc ON architecture_doc_blocks(doc_id)")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Migration from v5 to v6: Add architecture_doc_id to diagrams
+async fn run_v5_to_v6_migration(pool: &DbPool) -> Result<(), TakaError> {
+    // Add architecture_doc_id column to diagrams table
+    sqlx::query("ALTER TABLE diagrams ADD COLUMN architecture_doc_id TEXT REFERENCES architecture_docs(id) ON DELETE CASCADE")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    // Create index for the new column
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagrams_arch_doc ON diagrams(architecture_doc_id)")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Migration from v6 to v7: Make test_id nullable in diagrams table
+/// SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+async fn run_v6_to_v7_migration(pool: &DbPool) -> Result<(), TakaError> {
+    // Check if test_id is still NOT NULL (needs migration)
+    let test_id_info: Option<(i32,)> = sqlx::query_as(
+        "SELECT \"notnull\" FROM pragma_table_info('diagrams') WHERE name = 'test_id'"
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    // If test_id notnull = 0 (nullable), we don't need to do anything
+    let needs_table_recreation = test_id_info.map(|(notnull,)| notnull == 1).unwrap_or(false);
+
+    if !needs_table_recreation {
+        return Ok(());
+    }
+
+    // Create new table with nullable test_id
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS diagrams_new (
+            id TEXT PRIMARY KEY,
+            test_id TEXT REFERENCES tests(id) ON DELETE CASCADE,
+            architecture_doc_id TEXT REFERENCES architecture_docs(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            diagram_type TEXT NOT NULL,
+            viewport_x REAL NOT NULL DEFAULT 0,
+            viewport_y REAL NOT NULL DEFAULT 0,
+            viewport_zoom REAL NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Copy existing data (architecture_doc_id should exist from v6 migration)
+    sqlx::query(
+        "INSERT INTO diagrams_new (id, test_id, architecture_doc_id, name, diagram_type, viewport_x, viewport_y, viewport_zoom, created_at, updated_at)
+         SELECT id, test_id, architecture_doc_id, name, diagram_type, viewport_x, viewport_y, viewport_zoom, created_at, updated_at FROM diagrams"
+    )
+    .execute(pool)
+    .await?;
+
+    // Drop old table
+    sqlx::query("DROP TABLE diagrams")
+        .execute(pool)
+        .await?;
+
+    // Rename new table
+    sqlx::query("ALTER TABLE diagrams_new RENAME TO diagrams")
+        .execute(pool)
+        .await?;
+
+    // Recreate indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagrams_test ON diagrams(test_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagrams_arch_doc ON diagrams(architecture_doc_id)")
+        .execute(pool)
+        .await?;
 
     Ok(())
 }

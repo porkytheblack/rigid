@@ -16,6 +16,7 @@ interface RecordingsState {
 interface RecordingsActions {
   load: () => Promise<void>;
   loadByExploration: (explorationId: string) => Promise<void>;
+  loadByApp: (appId: string) => Promise<void>;
   loadByTest: (testId: string) => Promise<void>;  // Legacy alias
   setFilter: (filter: RecordingFilter) => void;
   select: (id: string | null) => void;
@@ -74,6 +75,27 @@ export const useRecordingsStore = create<RecordingsStore>()(
 
       try {
         const items = await recordingCommands.listByTest(explorationId);
+        set((state) => {
+          state.items = items;
+          state.loading = false;
+        });
+      } catch (error) {
+        set((state) => {
+          state.error = error instanceof Error ? error.message : String(error);
+          state.loading = false;
+        });
+      }
+    },
+
+    loadByApp: async (appId: string) => {
+      set((state) => {
+        state.loading = true;
+        state.error = null;
+        state.filter = { app_id: appId };
+      });
+
+      try {
+        const items = await recordingCommands.list({ app_id: appId });
         set((state) => {
           state.items = items;
           state.loading = false;

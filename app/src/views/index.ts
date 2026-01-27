@@ -3,4 +3,7 @@ export { AppView } from './AppView';
 export { ExplorationView } from './ExplorationView';
 export { ScreenshotEditorView } from './ScreenshotEditorView';
 export { VideoEditorView } from './VideoEditorView';
+export { DiagramEditorView } from './DiagramEditorView';
+export { ArchitectureDocView } from './ArchitectureDocView';
+export { ArchitectureDiagramEditorView } from './ArchitectureDiagramEditorView';
 export { SettingsView } from './SettingsView';

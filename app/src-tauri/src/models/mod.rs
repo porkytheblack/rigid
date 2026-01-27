@@ -7,6 +7,8 @@ pub mod screenshot;
 pub mod tag;
 pub mod settings;
 pub mod document;
+pub mod diagram;
+pub mod architecture_doc;
 
 pub use app::*;
 pub use test::*;
@@ -17,3 +19,5 @@ pub use screenshot::*;
 pub use tag::*;
 pub use settings::*;
 pub use document::*;
+pub use diagram::*;
+pub use architecture_doc::*;

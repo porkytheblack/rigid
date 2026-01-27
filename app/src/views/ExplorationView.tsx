@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { ArrowLeft, Camera, Video, Square, Image as ImageIcon, Settings, Clock, FileText, CheckCircle, AlertCircle, Trash2, Play, Monitor, X, Loader2, RefreshCw, Download, Mic, MicOff, MousePointer2, Bug, MessageSquare, ChevronLeft, ChevronRight, CheckSquare, Film, Upload } from "lucide-react";
-import { useAppsStore, useExplorationsStore, useRecordingsStore, useScreenshotsStore, useRouterStore, useSettingsStore } from "@/lib/stores";
+import { ArrowLeft, Camera, Video, Square, Image as ImageIcon, Settings, Clock, FileText, CheckCircle, AlertCircle, Trash2, Play, Monitor, X, Loader2, RefreshCw, Download, Mic, MicOff, MousePointer2, Bug, MessageSquare, ChevronLeft, ChevronRight, CheckSquare, Film, Upload, GitBranch, Plus } from "lucide-react";
+import { useAppsStore, useExplorationsStore, useRecordingsStore, useScreenshotsStore, useRouterStore, useSettingsStore, useDiagramsStore } from "@/lib/stores";
 import { capture as captureCommands, screenshots as screenshotsApi, recordings as recordingsApi, documentBlocks as documentBlocksApi, explorationTodos as explorationTodosApi, annotations as annotationsApi, type WindowInfo, type DisplayInfo, type AudioDevice } from "@/lib/tauri/commands";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -12,6 +12,8 @@ import type { UpdateExploration, ScreenshotMarker, Annotation } from "@/lib/taur
 import { Editor as BlockEditor, type Block } from "@/components/editor";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
+import { ExplorationCommandPalette, useExplorationCommandPalette } from "@/components/explorations";
+import { useArchitectureDocsStore } from "@/lib/stores";
 
 type ExplorationStatus = "draft" | "in_progress" | "passed" | "failed";
 
@@ -22,7 +24,7 @@ const statusConfig: Record<ExplorationStatus, { icon: typeof Clock; color: strin
   failed: { icon: AlertCircle, color: "var(--accent-error)", label: "Issues Found" },
 };
 
-type Tab = "doc" | "checklist" | "annotations" | "screenshots" | "recordings";
+type Tab = "doc" | "checklist" | "annotations" | "screenshots" | "recordings" | "diagrams";
 type PickerMode = "screenshot" | "recording";
 type AnnotationSeverity = "info" | "warning" | "error" | "success";
 
@@ -36,7 +38,7 @@ const annotationSeverityConfig: Record<AnnotationSeverity, { color: string; bgCo
 interface ExplorationViewProps {
   appId: string;
   explorationId: string;
-  initialTab?: 'doc' | 'annotations' | 'screenshots' | 'recordings';
+  initialTab?: 'doc' | 'annotations' | 'screenshots' | 'recordings' | 'diagrams';
 }
 
 export function ExplorationView({ appId, explorationId, initialTab }: ExplorationViewProps) {
@@ -53,6 +55,11 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
   const { items: recordings, isRecording, loadByExploration: loadRecordings, startRecording, stopRecording, cancelRecording, checkRecordingStatus, delete: deleteRecording } = useRecordingsStore();
 
   const { items: screenshots, loading: screenshotsLoading, load: loadScreenshots, delete: deleteScreenshot } = useScreenshotsStore();
+  const { items: diagrams, loading: diagramsLoading, loadByExploration: loadDiagrams, create: createDiagram, delete: deleteDiagram } = useDiagramsStore();
+  const { create: createArchitectureDoc } = useArchitectureDocsStore();
+
+  // Command palette for quick creation
+  const { isOpen: isCommandPaletteOpen, open: openCommandPalette, close: closeCommandPalette } = useExplorationCommandPalette();
 
   // Screenshot markers from database
   const [screenshotMarkers, setScreenshotMarkers] = useState<ScreenshotMarker[]>([]);
@@ -323,8 +330,9 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
     if (explorationId) {
       loadRecordings(explorationId);
       loadScreenshots({ test_id: explorationId });
+      loadDiagrams(explorationId);
     }
-  }, [explorationId, loadRecordings, loadScreenshots]);
+  }, [explorationId, loadRecordings, loadScreenshots, loadDiagrams]);
 
   const loadWindows = async () => {
     setLoadingWindows(true);
@@ -637,6 +645,32 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
     }
   };
 
+  // Handle creating graph from command palette
+  const handleCreateGraph = useCallback(async (name: string, _nodeType: string) => {
+    try {
+      const diagram = await createDiagram({ test_id: explorationId, name, diagram_type: "mindmap" });
+      addToast({ type: "success", title: "Graph created", description: `"${name}" has been created.` });
+      // Navigate to the new diagram
+      navigate({ name: "diagram-editor", appId, explorationId, diagramId: diagram.id });
+    } catch (err) {
+      console.error("Failed to create graph:", err);
+      addToast({ type: "error", title: "Failed to create graph", description: "Please try again." });
+    }
+  }, [createDiagram, explorationId, appId, navigate, addToast]);
+
+  // Handle creating architecture doc from command palette
+  const handleCreateArchitectureDoc = useCallback(async (name: string) => {
+    try {
+      const doc = await createArchitectureDoc({ app_id: appId, name });
+      addToast({ type: "success", title: "Architecture doc created", description: `"${name}" has been created.` });
+      // Navigate to the new doc
+      navigate({ name: "architecture-doc", appId, docId: doc.id });
+    } catch (err) {
+      console.error("Failed to create architecture doc:", err);
+      addToast({ type: "error", title: "Failed to create doc", description: "Please try again." });
+    }
+  }, [createArchitectureDoc, appId, navigate, addToast]);
+
   const formatDuration = (ms: number | null | undefined) => {
     if (!ms) return "0:00";
     const seconds = Math.floor(ms / 1000);
@@ -674,6 +708,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
 
   const navItems = [
     { id: "doc" as Tab, icon: FileText, label: "Document" },
+    { id: "diagrams" as Tab, icon: GitBranch, label: "Diagrams", count: diagrams.length },
     { id: "annotations" as Tab, icon: Bug, label: "Annotations" },
     { id: "screenshots" as Tab, icon: ImageIcon, label: "Screenshots", count: screenshots.length },
     { id: "recordings" as Tab, icon: Film, label: "Recordings", count: completedRecordings.length },
@@ -1127,6 +1162,90 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
               )}
             </div>
           )}
+
+          {/* Diagrams Tab */}
+          {activeTab === "diagrams" && (
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-[var(--text-heading-sm)] font-semibold text-[var(--text-primary)]">Graphs</h2>
+                <button
+                  onClick={openCommandPalette}
+                  className="flex items-center gap-2 px-3 py-2 bg-[var(--text-primary)] text-[var(--text-inverse)] text-[var(--text-body-sm)] font-medium hover:opacity-90 transition-opacity"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Graph
+                </button>
+              </div>
+
+              {diagramsLoading ? (
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {[1, 2, 3, 4].map((i) => <div key={i} className="aspect-video bg-[var(--surface-secondary)] border border-[var(--border-default)] animate-pulse" />)}
+                </div>
+              ) : diagrams.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <GitBranch className="w-12 h-12 text-[var(--text-tertiary)] mb-4" />
+                  <h3 className="text-[var(--text-body-md)] font-medium text-[var(--text-primary)] mb-2">No graphs yet</h3>
+                  <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)] mb-4 max-w-md">
+                    Create graphs to map out ideas, document flows, and visualize relationships between concepts.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {diagrams.map((diagram) => {
+                    const isDeleting = deletingIds.has(diagram.id);
+                    return (
+                      <div
+                        key={diagram.id}
+                        onClick={() => !isDeleting && navigate({ name: "diagram-editor", appId, explorationId, diagramId: diagram.id })}
+                        className={`group relative aspect-video bg-[var(--surface-secondary)] border border-[var(--border-default)] overflow-hidden transition-all ${isDeleting ? 'opacity-50 cursor-wait' : 'hover:border-[var(--border-strong)] cursor-pointer'}`}
+                      >
+                        <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
+                          <GitBranch className="w-8 h-8 text-[var(--text-tertiary)] mb-2" />
+                          <p className="text-[var(--text-body-sm)] font-medium text-[var(--text-primary)] text-center truncate max-w-full">{diagram.name}</p>
+                          <p className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Graph</p>
+                        </div>
+                        {isDeleting && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                            <Loader2 className="w-6 h-6 text-white animate-spin" />
+                          </div>
+                        )}
+                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (deletingIds.has(diagram.id)) return;
+                              const confirmed = await confirm({
+                                title: "Delete Diagram",
+                                description: "Are you sure you want to delete this diagram? This action cannot be undone.",
+                                confirmLabel: "Delete",
+                                cancelLabel: "Cancel",
+                                variant: "destructive",
+                              });
+                              if (!confirmed) return;
+                              setDeletingIds(prev => new Set(prev).add(diagram.id));
+                              try {
+                                await deleteDiagram(diagram.id);
+                                addToast({ type: "success", title: "Diagram deleted", description: "The diagram has been removed." });
+                              } catch (err) {
+                                console.error("Failed to delete diagram:", err);
+                                addToast({ type: "error", title: "Failed to delete", description: "Could not delete the diagram. Please try again." });
+                              } finally {
+                                setDeletingIds(prev => { const next = new Set(prev); next.delete(diagram.id); return next; });
+                              }
+                            }}
+                            disabled={isDeleting}
+                            className="p-1.5 bg-black/50 text-white hover:bg-black/70 disabled:cursor-wait"
+                          >
+                            {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </main>
       </div>
 
@@ -1368,6 +1487,14 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
           </div>
         </div>
       )}
+
+      {/* Command Palette for creating graphs and docs */}
+      <ExplorationCommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={closeCommandPalette}
+        onCreateGraph={handleCreateGraph}
+        onCreateArchitectureDoc={handleCreateArchitectureDoc}
+      />
     </div>
   );
 }

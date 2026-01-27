@@ -13,6 +13,8 @@ pub mod capture;
 pub mod ai;
 pub mod video;
 pub mod documents;
+pub mod diagrams;
+pub mod architecture_docs;
 
 // Re-export all commands
 pub use apps::*;
@@ -27,6 +29,8 @@ pub use capture::*;
 pub use ai::*;
 pub use video::*;
 pub use documents::*;
+pub use diagrams::*;
+pub use architecture_docs::*;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppInfo {

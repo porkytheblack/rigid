@@ -7,6 +7,8 @@ mod screenshot_repo;
 mod tag_repo;
 mod settings_repo;
 mod document_repo;
+mod diagram_repo;
+mod architecture_doc_repo;
 
 pub use app_repo::AppRepository;
 pub use test_repo::TestRepository;
@@ -17,3 +19,5 @@ pub use screenshot_repo::ScreenshotRepository;
 pub use tag_repo::TagRepository;
 pub use settings_repo::SettingsRepository;
 pub use document_repo::DocumentRepository;
+pub use diagram_repo::DiagramRepository;
+pub use architecture_doc_repo::ArchitectureDocRepository;

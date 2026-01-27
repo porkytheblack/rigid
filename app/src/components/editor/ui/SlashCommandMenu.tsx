@@ -15,6 +15,7 @@ import {
   Image,
   Minus,
   MessageSquare,
+  GitBranch,
 } from "lucide-react";
 import { BlockType } from "../types";
 
@@ -46,6 +47,7 @@ const COMMANDS: SlashCommand[] = [
   { id: 'quote', type: 'quote', label: 'Quote', description: 'Capture a quote', icon: Quote, keywords: ['quote', 'blockquote', 'citation'], category: 'advanced' },
   { id: 'callout', type: 'callout', label: 'Callout', description: 'Highlight important information', icon: MessageSquare, keywords: ['callout', 'info', 'warning', 'alert', 'note'], category: 'advanced' },
   { id: 'code', type: 'code', label: 'Code', description: 'Capture a code snippet', icon: Code, keywords: ['code', 'snippet', 'programming'], category: 'advanced' },
+  { id: 'mermaid', type: 'mermaid', label: 'Mermaid Diagram', description: 'Create flowcharts, sequence diagrams, and more', icon: GitBranch, keywords: ['mermaid', 'diagram', 'flowchart', 'chart', 'graph', 'sequence'], category: 'advanced' },
   { id: 'divider', type: 'divider', label: 'Divider', description: 'Visually divide blocks', icon: Minus, keywords: ['divider', 'hr', 'line', 'separator'], category: 'advanced' },
 ];
 

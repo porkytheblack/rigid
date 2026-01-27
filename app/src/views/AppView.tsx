@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { ArrowLeft, Plus, Search, Settings, MoreHorizontal, Trash2, Pencil, FileText, CheckCircle, Clock, AlertCircle, X, Command, Compass } from "lucide-react";
-import { useAppsStore, useExplorationsStore, useRouterStore } from "@/lib/stores";
-import type { NewExploration } from "@/lib/tauri/types";
+import { ArrowLeft, Plus, Search, Settings, MoreHorizontal, Trash2, Pencil, FileText, CheckCircle, Clock, AlertCircle, X, Command, Compass, BookOpen } from "lucide-react";
+import { useAppsStore, useExplorationsStore, useRouterStore, useArchitectureDocsStore } from "@/lib/stores";
+import type { NewExploration, NewArchitectureDoc } from "@/lib/tauri/types";
 
 type ExplorationStatus = "draft" | "in_progress" | "passed" | "failed";
 
@@ -22,12 +22,16 @@ export function AppView({ appId }: AppViewProps) {
   const { navigate } = useRouterStore();
   const { items: apps, load: loadApps, getById: getAppById } = useAppsStore();
   const { items: explorations, loading, loadByApp, create, delete: deleteExploration } = useExplorationsStore();
+  const { items: archDocs, loading: archDocsLoading, loadByApp: loadArchDocs, create: createArchDoc, delete: deleteArchDoc } = useArchitectureDocsStore();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const [showCreateArchDocModal, setShowCreateArchDocModal] = useState(false);
   const [newExplorationData, setNewExplorationData] = useState<NewExploration>({ app_id: appId, name: "" });
+  const [newArchDocData, setNewArchDocData] = useState<NewArchitectureDoc>({ app_id: appId, name: "" });
   const [contextMenuExploration, setContextMenuExploration] = useState<string | null>(null);
+  const [contextMenuArchDoc, setContextMenuArchDoc] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const app = getAppById(appId);
@@ -39,9 +43,11 @@ export function AppView({ appId }: AppViewProps) {
   useEffect(() => {
     if (appId) {
       loadByApp(appId);
+      loadArchDocs(appId);
       setNewExplorationData((prev) => ({ ...prev, app_id: appId }));
+      setNewArchDocData((prev) => ({ ...prev, app_id: appId }));
     }
-  }, [appId, loadByApp]);
+  }, [appId, loadByApp, loadArchDocs]);
 
   useEffect(() => {
     if (showSearchModal && searchInputRef.current) {
@@ -69,6 +75,10 @@ export function AppView({ appId }: AppViewProps) {
       exploration.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const filteredArchDocs = archDocs.filter(
+    (doc) => doc.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   const handleCreateExploration = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newExplorationData.name.trim()) return;
@@ -94,10 +104,41 @@ export function AppView({ appId }: AppViewProps) {
     }
   };
 
+  const handleCreateArchDoc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newArchDocData.name.trim()) return;
+
+    try {
+      const doc = await createArchDoc(newArchDocData);
+      setShowCreateArchDocModal(false);
+      setNewArchDocData({ app_id: appId, name: "" });
+      navigate({ name: "architecture-doc", appId, docId: doc.id });
+    } catch (err) {
+      console.error("Failed to create architecture doc:", err);
+    }
+  };
+
+  const handleDeleteArchDoc = async (id: string) => {
+    if (confirm("Delete this architecture document?")) {
+      try {
+        await deleteArchDoc(id);
+        setContextMenuArchDoc(null);
+      } catch (err) {
+        console.error("Failed to delete architecture doc:", err);
+      }
+    }
+  };
+
   const handleSearchSelect = (explorationId: string) => {
     setShowSearchModal(false);
     setSearchQuery("");
     navigate({ name: "exploration", appId, explorationId });
+  };
+
+  const handleSearchSelectArchDoc = (docId: string) => {
+    setShowSearchModal(false);
+    setSearchQuery("");
+    navigate({ name: "architecture-doc", appId, docId });
   };
 
   const formatDate = (dateStr: string) => {
@@ -241,6 +282,80 @@ export function AppView({ appId }: AppViewProps) {
               <p className="text-[var(--text-body-md)] text-[var(--text-secondary)]">Try adjusting your search</p>
             </div>
           )}
+
+          {/* Architecture Documentation Section */}
+          <div className="mt-24">
+            <h2 className="text-[var(--text-display-md)] font-bold text-[var(--text-primary)] tracking-tight mb-4">Architecture</h2>
+            <p className="text-[var(--text-body-lg)] text-[var(--text-secondary)] mb-16 max-w-2xl">
+              Document your application's architecture, system design, and technical decisions with rich text and diagrams.
+            </p>
+
+            {archDocsLoading && archDocs.length === 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-40 bg-[var(--surface-secondary)] border border-[var(--border-default)] animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* Existing Architecture Docs */}
+                {archDocs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    onClick={() => navigate({ name: "architecture-doc", appId, docId: doc.id })}
+                    className="group relative bg-[var(--surface-secondary)] border border-[var(--border-default)] p-6 hover:border-[var(--border-strong)] transition-all cursor-pointer"
+                  >
+                    {/* Icon Badge */}
+                    <div className="inline-flex items-center justify-center w-10 h-10 bg-[var(--surface-hover)] text-[var(--text-secondary)] mb-4">
+                      <BookOpen className="w-5 h-5" />
+                    </div>
+
+                    {/* Doc Info */}
+                    <h3 className="text-[var(--text-heading-sm)] font-semibold text-[var(--text-primary)] mb-2 tracking-tight line-clamp-2">
+                      {doc.name}
+                    </h3>
+
+                    {/* Metadata */}
+                    <div className="mt-auto pt-4 border-t border-[var(--border-subtle)]">
+                      <p className="text-[var(--text-caption)] text-[var(--text-tertiary)] uppercase tracking-wide">
+                        Updated {formatDate(doc.updated_at)}
+                      </p>
+                    </div>
+
+                    {/* Context Menu Button */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setContextMenuArchDoc(contextMenuArchDoc === doc.id ? null : doc.id); }}
+                      className="absolute top-4 right-4 p-2 opacity-0 group-hover:opacity-100 hover:bg-[var(--surface-hover)] text-[var(--text-tertiary)] transition-all"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+
+                    {/* Context Menu Dropdown */}
+                    {contextMenuArchDoc === doc.id && (
+                      <div className="absolute top-12 right-4 w-44 bg-[var(--surface-elevated)] border border-[var(--border-default)] shadow-lg py-1 z-10" onClick={(e) => e.stopPropagation()}>
+                        <button className="w-full px-4 py-2.5 text-left text-[var(--text-body-sm)] text-[var(--accent-error)] hover:bg-[var(--surface-hover)] flex items-center gap-3" onClick={() => handleDeleteArchDoc(doc.id)}>
+                          <Trash2 className="w-4 h-4" />Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* Create New Architecture Doc Card */}
+                <button
+                  onClick={() => setShowCreateArchDocModal(true)}
+                  className="h-full min-h-40 border-2 border-dashed border-[var(--border-default)] hover:border-[var(--text-primary)] hover:bg-[var(--surface-secondary)] transition-all flex flex-col items-center justify-center gap-4 group"
+                >
+                  <div className="w-12 h-12 border-2 border-[var(--border-default)] group-hover:border-[var(--text-primary)] group-hover:bg-[var(--text-primary)] flex items-center justify-center transition-all">
+                    <Plus className="w-6 h-6 text-[var(--text-tertiary)] group-hover:text-[var(--text-inverse)] transition-colors" />
+                  </div>
+                  <span className="text-[var(--text-body-md)] font-semibold text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">
+                    New Architecture Doc
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </main>
 
@@ -277,7 +392,7 @@ export function AppView({ appId }: AppViewProps) {
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search explorations..."
+                placeholder="Search explorations, architecture docs..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none text-[var(--text-body-lg)]"
@@ -287,32 +402,63 @@ export function AppView({ appId }: AppViewProps) {
               </button>
             </div>
             <div className="max-h-96 overflow-auto">
-              {filteredExplorations.length === 0 ? (
+              {filteredExplorations.length === 0 && filteredArchDocs.length === 0 ? (
                 <div className="px-5 py-12 text-center">
                   <p className="text-[var(--text-body-md)] text-[var(--text-secondary)]">
-                    {searchQuery ? "No explorations found" : "Start typing to search"}
+                    {searchQuery ? "No results found" : "Start typing to search"}
                   </p>
                 </div>
               ) : (
                 <div className="py-2">
-                  {filteredExplorations.map((exploration) => {
-                    const status = getStatusConfig(exploration.status);
-                    const StatusIcon = status.icon;
-                    return (
-                      <button
-                        key={exploration.id}
-                        onClick={() => handleSearchSelect(exploration.id)}
-                        className="w-full px-5 py-4 flex items-center gap-4 hover:bg-[var(--surface-hover)] transition-colors text-left border-b border-[var(--border-subtle)] last:border-b-0"
-                      >
-                        <div className="w-10 h-10 flex items-center justify-center flex-shrink-0" style={{ backgroundColor: status.bgColor }}>
-                          <StatusIcon className="w-5 h-5" style={{ color: status.color }} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-[var(--text-primary)] truncate">{exploration.name}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
+                  {/* Architecture Docs Section */}
+                  {filteredArchDocs.length > 0 && (
+                    <>
+                      <div className="px-5 py-2 text-[var(--text-caption)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wide">
+                        Architecture Docs
+                      </div>
+                      {filteredArchDocs.map((doc) => (
+                        <button
+                          key={doc.id}
+                          onClick={() => handleSearchSelectArchDoc(doc.id)}
+                          className="w-full px-5 py-4 flex items-center gap-4 hover:bg-[var(--surface-hover)] transition-colors text-left border-b border-[var(--border-subtle)] last:border-b-0"
+                        >
+                          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 bg-[var(--surface-hover)]">
+                            <BookOpen className="w-5 h-5 text-[var(--text-secondary)]" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-[var(--text-primary)] truncate">{doc.name}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Explorations Section */}
+                  {filteredExplorations.length > 0 && (
+                    <>
+                      <div className="px-5 py-2 text-[var(--text-caption)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wide">
+                        Explorations
+                      </div>
+                      {filteredExplorations.map((exploration) => {
+                        const status = getStatusConfig(exploration.status);
+                        const StatusIcon = status.icon;
+                        return (
+                          <button
+                            key={exploration.id}
+                            onClick={() => handleSearchSelect(exploration.id)}
+                            className="w-full px-5 py-4 flex items-center gap-4 hover:bg-[var(--surface-hover)] transition-colors text-left border-b border-[var(--border-subtle)] last:border-b-0"
+                          >
+                            <div className="w-10 h-10 flex items-center justify-center flex-shrink-0" style={{ backgroundColor: status.bgColor }}>
+                              <StatusIcon className="w-5 h-5" style={{ color: status.color }} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-[var(--text-primary)] truncate">{exploration.name}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -370,6 +516,49 @@ export function AppView({ appId }: AppViewProps) {
       )}
 
       {contextMenuExploration && <div className="fixed inset-0 z-0" onClick={() => setContextMenuExploration(null)} />}
+      {contextMenuArchDoc && <div className="fixed inset-0 z-0" onClick={() => setContextMenuArchDoc(null)} />}
+
+      {/* Create Architecture Doc Modal */}
+      {showCreateArchDocModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8" onClick={() => setShowCreateArchDocModal(false)}>
+          <div className="w-full max-w-lg bg-[var(--surface-secondary)] border border-[var(--border-default)] shadow-xl animate-scale-in" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-5 border-b border-[var(--border-default)]">
+              <h2 className="text-[var(--text-heading-md)] font-bold text-[var(--text-primary)] tracking-tight">New Architecture Document</h2>
+            </div>
+            <form onSubmit={handleCreateArchDoc} className="p-6 space-y-6">
+              <div>
+                <label className="block text-[var(--text-caption)] font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-2">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  value={newArchDocData.name}
+                  onChange={(e) => setNewArchDocData({ ...newArchDocData, name: e.target.value })}
+                  placeholder="System Architecture Overview"
+                  autoFocus
+                  className="w-full h-12 px-4 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--text-primary)] focus:border-2 transition-all"
+                />
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateArchDocModal(false)}
+                  className="flex-1 h-12 border border-[var(--border-strong)] text-[var(--text-primary)] font-semibold hover:bg-[var(--surface-hover)] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newArchDocData.name.trim()}
+                  className="flex-1 h-12 bg-[var(--text-primary)] text-[var(--text-inverse)] font-semibold hover:bg-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Create & Open
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

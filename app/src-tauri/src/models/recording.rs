@@ -31,6 +31,7 @@ pub struct UpdateRecording {
 #[derive(Debug, Deserialize, Default)]
 pub struct RecordingFilter {
     pub test_id: Option<String>,
+    pub app_id: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i32>,
 }

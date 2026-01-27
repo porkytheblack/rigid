@@ -3,9 +3,12 @@ import { create } from 'zustand';
 export type Route =
   | { name: 'home' }
   | { name: 'app'; appId: string }
-  | { name: 'exploration'; appId: string; explorationId: string; tab?: 'doc' | 'annotations' | 'screenshots' | 'recordings' }
+  | { name: 'exploration'; appId: string; explorationId: string; tab?: 'doc' | 'annotations' | 'screenshots' | 'recordings' | 'diagrams' }
   | { name: 'screenshot-editor'; appId: string; explorationId: string; screenshotId: string }
   | { name: 'video-editor'; appId: string; explorationId: string; recordingId: string; timestamp?: number }
+  | { name: 'diagram-editor'; appId: string; explorationId: string; diagramId: string }
+  | { name: 'architecture-doc'; appId: string; docId: string }
+  | { name: 'architecture-diagram-editor'; appId: string; docId: string; diagramId: string }
   | { name: 'settings' };
 
 interface RouterState {

@@ -12,6 +12,7 @@ export type BlockType =
   | 'quote'
   | 'callout'
   | 'code'
+  | 'mermaid'
   | 'image'
   | 'video'
   | 'file'
@@ -48,6 +49,8 @@ export interface BlockMeta {
   calloutIcon?: string;
   // For code blocks
   language?: string;
+  // For mermaid blocks
+  mermaidCode?: string;
   // For image/video/file blocks
   src?: string;
   alt?: string;
@@ -156,6 +159,8 @@ export function getBlockPlaceholder(type: BlockType): string {
       return 'Callout';
     case 'code':
       return 'Write code...';
+    case 'mermaid':
+      return 'Write mermaid code...';
     case 'todo':
       return 'To-do';
     case 'bulletList':

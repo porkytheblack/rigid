@@ -13,6 +13,7 @@ import { ListBlock } from "./blocks/ListBlock";
 import { TodoBlock } from "./blocks/TodoBlock";
 import { ToggleBlock } from "./blocks/ToggleBlock";
 import { CodeBlock } from "./blocks/CodeBlock";
+import { MermaidBlock } from "./blocks/MermaidBlock";
 import { ImageBlock } from "./blocks/ImageBlock";
 import { DividerBlock } from "./blocks/DividerBlock";
 
@@ -268,6 +269,14 @@ export function Editor({
       case 'code':
         BlockComponent = (
           <CodeBlock
+            {...commonProps}
+          />
+        );
+        break;
+
+      case 'mermaid':
+        BlockComponent = (
+          <MermaidBlock
             {...commonProps}
           />
         );

@@ -7,6 +7,9 @@ import {
   ExplorationView,
   ScreenshotEditorView,
   VideoEditorView,
+  DiagramEditorView,
+  ArchitectureDocView,
+  ArchitectureDiagramEditorView,
   SettingsView,
 } from "@/views";
 
@@ -35,6 +38,29 @@ export default function App() {
           explorationId={route.explorationId}
           recordingId={route.recordingId}
           initialTimestamp={route.timestamp}
+        />
+      );
+    case "diagram-editor":
+      return (
+        <DiagramEditorView
+          appId={route.appId}
+          explorationId={route.explorationId}
+          diagramId={route.diagramId}
+        />
+      );
+    case "architecture-doc":
+      return (
+        <ArchitectureDocView
+          appId={route.appId}
+          docId={route.docId}
+        />
+      );
+    case "architecture-diagram-editor":
+      return (
+        <ArchitectureDiagramEditorView
+          appId={route.appId}
+          docId={route.docId}
+          diagramId={route.diagramId}
         />
       );
     case "settings":

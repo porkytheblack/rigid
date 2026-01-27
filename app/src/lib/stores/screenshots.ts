@@ -13,6 +13,7 @@ interface ScreenshotsState {
 
 interface ScreenshotsActions {
   load: (filter?: ScreenshotFilter) => Promise<void>;
+  loadByApp: (appId: string) => Promise<void>;
   setFilter: (filter: ScreenshotFilter) => void;
   select: (id: string | null) => void;
   create: (data: NewScreenshot) => Promise<Screenshot>;
@@ -49,6 +50,27 @@ export const useScreenshotsStore = create<ScreenshotsStore>()(
 
       try {
         const items = await screenshotCommands.list(filter || get().filter);
+        set((state) => {
+          state.items = items;
+          state.loading = false;
+        });
+      } catch (error) {
+        set((state) => {
+          state.error = error instanceof Error ? error.message : String(error);
+          state.loading = false;
+        });
+      }
+    },
+
+    loadByApp: async (appId: string) => {
+      set((state) => {
+        state.loading = true;
+        state.error = null;
+        state.filter = { app_id: appId };
+      });
+
+      try {
+        const items = await screenshotCommands.list({ app_id: appId });
         set((state) => {
           state.items = items;
           state.loading = false;
