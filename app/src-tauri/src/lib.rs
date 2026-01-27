@@ -1,0 +1,209 @@
+use tauri::Manager;
+
+mod adapters;
+mod commands;
+mod db;
+mod error;
+mod models;
+mod repositories;
+mod services;
+mod utils;
+
+use commands::RecordingState;
+use repositories::{
+    AppRepository, TestRepository, RecordingRepository, IssueRepository,
+    ChecklistRepository, ScreenshotRepository, TagRepository, SettingsRepository,
+    DocumentRepository,
+};
+use services::AIService;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .setup(|app| {
+            // Get app data directory
+            let app_data_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+
+            // Create app directories if they don't exist
+            std::fs::create_dir_all(&app_data_dir).ok();
+            std::fs::create_dir_all(app_data_dir.join("recordings")).ok();
+            std::fs::create_dir_all(app_data_dir.join("screenshots")).ok();
+            std::fs::create_dir_all(app_data_dir.join("exports")).ok();
+            std::fs::create_dir_all(app_data_dir.join("backups")).ok();
+
+            // Initialize database
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::block_on(async move {
+                let pool = db::init_database(app_data_dir)
+                    .await
+                    .expect("Failed to initialize database");
+
+                // Create and manage repositories
+                app_handle.manage(AppRepository::new(pool.clone()));
+                app_handle.manage(TestRepository::new(pool.clone()));
+                app_handle.manage(RecordingRepository::new(pool.clone()));
+                app_handle.manage(IssueRepository::new(pool.clone()));
+                app_handle.manage(ChecklistRepository::new(pool.clone()));
+                app_handle.manage(ScreenshotRepository::new(pool.clone()));
+                app_handle.manage(TagRepository::new(pool.clone()));
+                app_handle.manage(SettingsRepository::new(pool.clone()));
+                app_handle.manage(DocumentRepository::new(pool));
+
+                // Initialize AI service
+                app_handle.manage(AIService::new());
+
+                // Initialize recording state
+                app_handle.manage(RecordingState::new());
+            });
+
+            #[cfg(debug_assertions)]
+            {
+                let window = app.get_webview_window("main").unwrap();
+                window.open_devtools();
+            }
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::greet,
+            commands::get_app_info,
+            // App commands
+            commands::create_app,
+            commands::get_app,
+            commands::list_apps,
+            commands::update_app,
+            commands::delete_app,
+            commands::count_apps,
+            // Test commands
+            commands::create_test,
+            commands::get_test,
+            commands::list_tests,
+            commands::list_tests_by_app,
+            commands::update_test,
+            commands::delete_test,
+            commands::count_tests_by_app,
+            commands::count_tests_by_status,
+            // Recording commands
+            commands::create_recording,
+            commands::get_recording,
+            commands::list_recordings,
+            commands::list_recordings_by_test,
+            commands::update_recording,
+            commands::delete_recording,
+            commands::create_annotation,
+            commands::get_annotation,
+            commands::list_annotations,
+            commands::update_annotation,
+            commands::delete_annotation,
+            // Issue commands
+            commands::create_issue,
+            commands::get_issue,
+            commands::get_issue_by_number,
+            commands::list_issues,
+            commands::update_issue,
+            commands::delete_issue,
+            commands::count_issues_by_status,
+            commands::count_issues_by_priority,
+            // Checklist commands
+            commands::create_checklist_item,
+            commands::get_checklist_item,
+            commands::list_checklist_items,
+            commands::update_checklist_item,
+            commands::delete_checklist_item,
+            commands::reorder_checklist_items,
+            commands::get_checklist_counts,
+            // Screenshot commands
+            commands::create_screenshot,
+            commands::get_screenshot,
+            commands::list_screenshots,
+            commands::update_screenshot,
+            commands::delete_screenshot,
+            // Screenshot drawing commands
+            commands::create_screenshot_drawing,
+            commands::list_screenshot_drawings,
+            commands::delete_screenshot_drawing,
+            commands::delete_all_screenshot_drawings,
+            commands::bulk_create_screenshot_drawings,
+            commands::bulk_replace_screenshot_drawings,
+            // Screenshot marker commands
+            commands::create_screenshot_marker,
+            commands::get_screenshot_marker,
+            commands::list_screenshot_markers,
+            commands::list_screenshot_markers_by_test,
+            commands::update_screenshot_marker,
+            commands::delete_screenshot_marker,
+            commands::delete_all_screenshot_markers,
+            commands::bulk_create_screenshot_markers,
+            commands::bulk_replace_screenshot_markers,
+            // Capture commands
+            commands::capture_screenshot,
+            commands::capture_fullscreen_screenshot,
+            commands::capture_window_screenshot,
+            commands::list_windows,
+            commands::list_displays,
+            commands::list_audio_devices,
+            commands::start_recording,
+            commands::stop_recording,
+            commands::is_recording,
+            commands::get_current_recording_id,
+            commands::cancel_recording,
+            commands::export_asset,
+            commands::open_privacy_settings,
+            // Tag commands
+            commands::create_tag,
+            commands::get_tag,
+            commands::list_tags,
+            commands::update_tag,
+            commands::delete_tag,
+            commands::add_tag_to_entity,
+            commands::remove_tag_from_entity,
+            commands::get_tags_for_entity,
+            // Settings commands
+            commands::get_setting,
+            commands::set_setting,
+            commands::delete_setting,
+            commands::get_all_settings,
+            commands::get_bool_setting,
+            commands::set_bool_setting,
+            commands::get_int_setting,
+            commands::set_int_setting,
+            // AI commands
+            commands::check_ai_availability,
+            commands::get_ai_status,
+            commands::configure_ai_provider,
+            commands::set_ai_api_key,
+            commands::remove_ai_api_key,
+            commands::ai_complete,
+            commands::ai_describe_screenshot,
+            commands::ai_list_models,
+            commands::ai_generate_issue_prompt,
+            commands::restore_ai_configuration,
+            // Video processing commands
+            commands::trim_video,
+            commands::cut_video,
+            // Document block commands
+            commands::create_document_block,
+            commands::get_document_block,
+            commands::list_document_blocks,
+            commands::update_document_block,
+            commands::delete_document_block,
+            commands::delete_all_document_blocks,
+            commands::bulk_replace_document_blocks,
+            // Exploration todo commands
+            commands::create_exploration_todo,
+            commands::get_exploration_todo,
+            commands::list_exploration_todos,
+            commands::update_exploration_todo,
+            commands::delete_exploration_todo,
+            commands::delete_all_exploration_todos,
+            commands::bulk_replace_exploration_todos,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
