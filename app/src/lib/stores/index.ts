@@ -10,4 +10,5 @@ export { useAIStore } from './ai';
 export { useRouterStore } from './router';
 export { useDiagramsStore } from './diagrams';
 export { useArchitectureDocsStore } from './architecture-docs';
+export { useDemosStore } from './demos';
 export type { Route } from './router';

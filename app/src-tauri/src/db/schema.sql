@@ -327,3 +327,173 @@ CREATE INDEX IF NOT EXISTS idx_diagram_edges_target ON diagram_edges(target_node
 CREATE INDEX IF NOT EXISTS idx_node_attachments_node ON node_attachments(node_id);
 CREATE INDEX IF NOT EXISTS idx_architecture_docs_app ON architecture_docs(app_id);
 CREATE INDEX IF NOT EXISTS idx_architecture_doc_blocks_doc ON architecture_doc_blocks(doc_id);
+
+-- =============================================================================
+-- Demo Video Editor Tables
+-- =============================================================================
+
+-- Demos (video demo projects)
+CREATE TABLE IF NOT EXISTS demos (
+    id TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    format TEXT NOT NULL DEFAULT 'youtube', -- youtube, youtube_4k, tiktok, square, custom
+    width INTEGER NOT NULL DEFAULT 1920,
+    height INTEGER NOT NULL DEFAULT 1080,
+    frame_rate INTEGER NOT NULL DEFAULT 60,
+    duration_ms INTEGER NOT NULL DEFAULT 60000,
+    thumbnail_path TEXT,
+    export_path TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Demo backgrounds (canvas background configuration)
+CREATE TABLE IF NOT EXISTS demo_backgrounds (
+    id TEXT PRIMARY KEY,
+    demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+    background_type TEXT NOT NULL DEFAULT 'solid', -- solid, gradient, pattern, image, video, blur
+    -- Solid color
+    color TEXT,
+    -- Gradient
+    gradient_stops TEXT, -- JSON array of { color: string, position: number }
+    gradient_direction TEXT, -- vertical, horizontal, diagonal, radial
+    gradient_angle REAL,
+    -- Pattern
+    pattern_type TEXT,
+    pattern_color TEXT,
+    pattern_scale REAL,
+    -- Image/Video
+    media_path TEXT,
+    media_scale REAL,
+    media_position_x REAL,
+    media_position_y REAL,
+    -- Unsplash/URL image
+    image_url TEXT,
+    image_attribution TEXT, -- JSON { name: string, link: string }
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Demo tracks (timeline tracks)
+CREATE TABLE IF NOT EXISTS demo_tracks (
+    id TEXT PRIMARY KEY,
+    demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+    track_type TEXT NOT NULL, -- video, image, audio, zoom, blur
+    name TEXT NOT NULL,
+    locked INTEGER NOT NULL DEFAULT 0,
+    visible INTEGER NOT NULL DEFAULT 1,
+    muted INTEGER NOT NULL DEFAULT 0,
+    volume REAL NOT NULL DEFAULT 1.0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    target_track_id TEXT REFERENCES demo_tracks(id) ON DELETE SET NULL, -- For zoom/blur tracks
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Demo clips (media clips on tracks)
+CREATE TABLE IF NOT EXISTS demo_clips (
+    id TEXT PRIMARY KEY,
+    track_id TEXT NOT NULL REFERENCES demo_tracks(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    -- Source media
+    source_path TEXT NOT NULL,
+    source_type TEXT NOT NULL, -- video, image, audio
+    source_duration_ms INTEGER,
+    -- Timeline position
+    start_time_ms INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL,
+    -- Source trim (in/out points)
+    in_point_ms INTEGER NOT NULL DEFAULT 0,
+    out_point_ms INTEGER,
+    -- Transform (for video/image)
+    position_x REAL,
+    position_y REAL,
+    scale REAL,
+    rotation REAL,
+    -- Crop
+    crop_top REAL,
+    crop_bottom REAL,
+    crop_left REAL,
+    crop_right REAL,
+    -- Appearance
+    corner_radius REAL,
+    opacity REAL,
+    -- Shadow
+    shadow_enabled INTEGER NOT NULL DEFAULT 0,
+    shadow_blur REAL,
+    shadow_offset_x REAL,
+    shadow_offset_y REAL,
+    shadow_color TEXT,
+    -- Audio
+    volume REAL NOT NULL DEFAULT 1.0,
+    muted INTEGER NOT NULL DEFAULT 0,
+    -- Linked clips (for video with audio)
+    linked_clip_id TEXT REFERENCES demo_clips(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Demo zoom clips (zoom effect clips)
+CREATE TABLE IF NOT EXISTS demo_zoom_clips (
+    id TEXT PRIMARY KEY,
+    track_id TEXT NOT NULL REFERENCES demo_tracks(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    start_time_ms INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL,
+    zoom_scale REAL NOT NULL DEFAULT 1.5,
+    zoom_center_x REAL NOT NULL DEFAULT 50.0,
+    zoom_center_y REAL NOT NULL DEFAULT 50.0,
+    ease_in_duration_ms INTEGER NOT NULL DEFAULT 300,
+    ease_out_duration_ms INTEGER NOT NULL DEFAULT 300,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Demo blur clips (blur effect clips)
+CREATE TABLE IF NOT EXISTS demo_blur_clips (
+    id TEXT PRIMARY KEY,
+    track_id TEXT NOT NULL REFERENCES demo_tracks(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    start_time_ms INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL,
+    blur_intensity REAL NOT NULL DEFAULT 20.0,
+    region_x REAL NOT NULL DEFAULT 50.0,
+    region_y REAL NOT NULL DEFAULT 50.0,
+    region_width REAL NOT NULL DEFAULT 30.0,
+    region_height REAL NOT NULL DEFAULT 30.0,
+    corner_radius REAL NOT NULL DEFAULT 0.0,
+    blur_inside INTEGER NOT NULL DEFAULT 1,
+    ease_in_duration_ms INTEGER NOT NULL DEFAULT 0,
+    ease_out_duration_ms INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Demo assets (imported media files)
+CREATE TABLE IF NOT EXISTS demo_assets (
+    id TEXT PRIMARY KEY,
+    demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    asset_type TEXT NOT NULL, -- video, image, audio
+    duration_ms INTEGER,
+    width INTEGER,
+    height INTEGER,
+    thumbnail_path TEXT,
+    file_size INTEGER,
+    has_audio INTEGER,
+    created_at TEXT NOT NULL
+);
+
+-- Demo indexes
+CREATE INDEX IF NOT EXISTS idx_demos_app ON demos(app_id);
+CREATE INDEX IF NOT EXISTS idx_demos_created ON demos(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_demo_backgrounds_demo ON demo_backgrounds(demo_id);
+CREATE INDEX IF NOT EXISTS idx_demo_tracks_demo ON demo_tracks(demo_id);
+CREATE INDEX IF NOT EXISTS idx_demo_tracks_sort ON demo_tracks(sort_order);
+CREATE INDEX IF NOT EXISTS idx_demo_clips_track ON demo_clips(track_id);
+CREATE INDEX IF NOT EXISTS idx_demo_clips_start ON demo_clips(start_time_ms);
+CREATE INDEX IF NOT EXISTS idx_demo_zoom_clips_track ON demo_zoom_clips(track_id);
+CREATE INDEX IF NOT EXISTS idx_demo_blur_clips_track ON demo_blur_clips(track_id);
+CREATE INDEX IF NOT EXISTS idx_demo_assets_demo ON demo_assets(demo_id);

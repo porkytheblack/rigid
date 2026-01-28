@@ -16,7 +16,7 @@ use commands::NativeCaptureState;
 use repositories::{
     AppRepository, TestRepository, RecordingRepository, IssueRepository,
     ChecklistRepository, ScreenshotRepository, TagRepository, SettingsRepository,
-    DocumentRepository, DiagramRepository, ArchitectureDocRepository,
+    DocumentRepository, DiagramRepository, ArchitectureDocRepository, DemoRepository,
 };
 use services::AIService;
 
@@ -58,7 +58,8 @@ pub fn run() {
                 app_handle.manage(SettingsRepository::new(pool.clone()));
                 app_handle.manage(DocumentRepository::new(pool.clone()));
                 app_handle.manage(DiagramRepository::new(pool.clone()));
-                app_handle.manage(ArchitectureDocRepository::new(pool));
+                app_handle.manage(ArchitectureDocRepository::new(pool.clone()));
+                app_handle.manage(DemoRepository::new(pool));
 
                 // Initialize AI service
                 app_handle.manage(AIService::new());
@@ -215,6 +216,8 @@ pub fn run() {
             // Video processing commands
             commands::trim_video,
             commands::cut_video,
+            commands::render_demo,
+            commands::probe_media,
             // Document block commands
             commands::create_document_block,
             commands::get_document_block,
@@ -277,6 +280,44 @@ pub fn run() {
             commands::delete_architecture_doc_block,
             commands::delete_all_architecture_doc_blocks,
             commands::bulk_replace_architecture_doc_blocks,
+            // Demo commands
+            commands::demos_list,
+            commands::demos_get,
+            commands::demos_get_with_data,
+            commands::demos_create,
+            commands::demos_update,
+            commands::demos_delete,
+            // Demo background commands
+            commands::demo_backgrounds_get,
+            commands::demo_backgrounds_create,
+            commands::demo_backgrounds_update,
+            commands::demo_backgrounds_delete,
+            // Demo track commands
+            commands::demo_tracks_list,
+            commands::demo_tracks_create,
+            commands::demo_tracks_update,
+            commands::demo_tracks_delete,
+            commands::demo_tracks_reorder,
+            // Demo clip commands
+            commands::demo_clips_list,
+            commands::demo_clips_create,
+            commands::demo_clips_update,
+            commands::demo_clips_delete,
+            // Demo zoom clip commands
+            commands::demo_zoom_clips_list,
+            commands::demo_zoom_clips_create,
+            commands::demo_zoom_clips_update,
+            commands::demo_zoom_clips_delete,
+            // Demo blur clip commands
+            commands::demo_blur_clips_list,
+            commands::demo_blur_clips_create,
+            commands::demo_blur_clips_update,
+            commands::demo_blur_clips_delete,
+            // Demo asset commands
+            commands::demo_assets_list,
+            commands::demo_assets_create,
+            commands::demo_assets_update,
+            commands::demo_assets_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

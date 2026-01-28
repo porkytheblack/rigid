@@ -6,7 +6,7 @@ use crate::error::TakaError;
 pub type DbPool = SqlitePool;
 
 const SCHEMA: &str = include_str!("schema.sql");
-const CURRENT_VERSION: i32 = 7;
+const CURRENT_VERSION: i32 = 8;
 
 /// Initialize the database connection and run migrations
 pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, TakaError> {
@@ -96,6 +96,10 @@ async fn run_migrations(pool: &DbPool) -> Result<(), TakaError> {
         } else if current_version == 6 {
             // Run v6 to v7 migration only (fix test_id nullable)
             run_v6_to_v7_migration(pool).await?;
+            run_v7_to_v8_migration(pool).await?;
+        } else if current_version == 7 {
+            // Run v7 to v8 migration only (add demo tables)
+            run_v7_to_v8_migration(pool).await?;
         } else {
             // Fresh install or from v1 - apply full schema
             for statement in SCHEMA.split(';') {
@@ -464,6 +468,211 @@ async fn run_v6_to_v7_migration(pool: &DbPool) -> Result<(), TakaError> {
         .execute(pool)
         .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_diagrams_arch_doc ON diagrams(architecture_doc_id)")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Migration from v7 to v8: Add demo video editor tables
+async fn run_v7_to_v8_migration(pool: &DbPool) -> Result<(), TakaError> {
+    // Demos table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demos (
+            id TEXT PRIMARY KEY,
+            app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            format TEXT NOT NULL DEFAULT 'youtube',
+            width INTEGER NOT NULL DEFAULT 1920,
+            height INTEGER NOT NULL DEFAULT 1080,
+            frame_rate INTEGER NOT NULL DEFAULT 60,
+            duration_ms INTEGER NOT NULL DEFAULT 60000,
+            thumbnail_path TEXT,
+            export_path TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Demo backgrounds table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_backgrounds (
+            id TEXT PRIMARY KEY,
+            demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+            background_type TEXT NOT NULL DEFAULT 'solid',
+            color TEXT,
+            gradient_stops TEXT,
+            gradient_direction TEXT,
+            gradient_angle REAL,
+            pattern_type TEXT,
+            pattern_color TEXT,
+            pattern_scale REAL,
+            media_path TEXT,
+            media_scale REAL,
+            media_position_x REAL,
+            media_position_y REAL,
+            image_url TEXT,
+            image_attribution TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Demo tracks table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_tracks (
+            id TEXT PRIMARY KEY,
+            demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+            track_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            locked INTEGER NOT NULL DEFAULT 0,
+            visible INTEGER NOT NULL DEFAULT 1,
+            muted INTEGER NOT NULL DEFAULT 0,
+            volume REAL NOT NULL DEFAULT 1.0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            target_track_id TEXT REFERENCES demo_tracks(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Demo clips table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_clips (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL REFERENCES demo_tracks(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_duration_ms INTEGER,
+            start_time_ms INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL,
+            in_point_ms INTEGER NOT NULL DEFAULT 0,
+            out_point_ms INTEGER,
+            position_x REAL,
+            position_y REAL,
+            scale REAL,
+            rotation REAL,
+            crop_top REAL,
+            crop_bottom REAL,
+            crop_left REAL,
+            crop_right REAL,
+            corner_radius REAL,
+            opacity REAL,
+            shadow_enabled INTEGER NOT NULL DEFAULT 0,
+            shadow_blur REAL,
+            shadow_offset_x REAL,
+            shadow_offset_y REAL,
+            shadow_color TEXT,
+            volume REAL NOT NULL DEFAULT 1.0,
+            muted INTEGER NOT NULL DEFAULT 0,
+            linked_clip_id TEXT REFERENCES demo_clips(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Demo zoom clips table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_zoom_clips (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL REFERENCES demo_tracks(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            start_time_ms INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL,
+            zoom_scale REAL NOT NULL DEFAULT 1.5,
+            zoom_center_x REAL NOT NULL DEFAULT 50.0,
+            zoom_center_y REAL NOT NULL DEFAULT 50.0,
+            ease_in_duration_ms INTEGER NOT NULL DEFAULT 300,
+            ease_out_duration_ms INTEGER NOT NULL DEFAULT 300,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Demo blur clips table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_blur_clips (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL REFERENCES demo_tracks(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            start_time_ms INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL,
+            blur_intensity REAL NOT NULL DEFAULT 20.0,
+            region_x REAL NOT NULL DEFAULT 50.0,
+            region_y REAL NOT NULL DEFAULT 50.0,
+            region_width REAL NOT NULL DEFAULT 30.0,
+            region_height REAL NOT NULL DEFAULT 30.0,
+            corner_radius REAL NOT NULL DEFAULT 0.0,
+            blur_inside INTEGER NOT NULL DEFAULT 1,
+            ease_in_duration_ms INTEGER NOT NULL DEFAULT 0,
+            ease_out_duration_ms INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Demo assets table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_assets (
+            id TEXT PRIMARY KEY,
+            demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            asset_type TEXT NOT NULL,
+            duration_ms INTEGER,
+            width INTEGER,
+            height INTEGER,
+            thumbnail_path TEXT,
+            file_size INTEGER,
+            has_audio INTEGER,
+            created_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Create indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demos_app ON demos(app_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demos_created ON demos(created_at DESC)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_backgrounds_demo ON demo_backgrounds(demo_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_tracks_demo ON demo_tracks(demo_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_tracks_sort ON demo_tracks(sort_order)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_clips_track ON demo_clips(track_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_clips_start ON demo_clips(start_time_ms)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_zoom_clips_track ON demo_zoom_clips(track_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_blur_clips_track ON demo_blur_clips(track_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_assets_demo ON demo_assets(demo_id)")
         .execute(pool)
         .await?;
 

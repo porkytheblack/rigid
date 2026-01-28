@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { ArrowLeft, Plus, Search, Settings, MoreHorizontal, Trash2, Pencil, FileText, CheckCircle, Clock, AlertCircle, X, Command, Compass, BookOpen } from "lucide-react";
-import { useAppsStore, useExplorationsStore, useRouterStore, useArchitectureDocsStore } from "@/lib/stores";
-import type { NewExploration, NewArchitectureDoc } from "@/lib/tauri/types";
+import { ArrowLeft, Plus, Search, Settings, MoreHorizontal, Trash2, Pencil, FileText, CheckCircle, Clock, AlertCircle, X, Command, Compass, BookOpen, Video, Play } from "lucide-react";
+import { useAppsStore, useExplorationsStore, useRouterStore, useArchitectureDocsStore, useDemosStore } from "@/lib/stores";
+import type { NewExploration, NewArchitectureDoc, NewDemo, DemoFormat } from "@/lib/tauri/types";
+import { NewDemoDialog } from "@/components/demos/NewDemoDialog";
 
 type ExplorationStatus = "draft" | "in_progress" | "passed" | "failed";
 
@@ -23,15 +24,18 @@ export function AppView({ appId }: AppViewProps) {
   const { items: apps, load: loadApps, getById: getAppById } = useAppsStore();
   const { items: explorations, loading, loadByApp, create, delete: deleteExploration } = useExplorationsStore();
   const { items: archDocs, loading: archDocsLoading, loadByApp: loadArchDocs, create: createArchDoc, delete: deleteArchDoc } = useArchitectureDocsStore();
+  const { items: demos, loading: demosLoading, loadByApp: loadDemos, create: createDemo, delete: deleteDemo } = useDemosStore();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showCreateArchDocModal, setShowCreateArchDocModal] = useState(false);
+  const [showCreateDemoModal, setShowCreateDemoModal] = useState(false);
   const [newExplorationData, setNewExplorationData] = useState<NewExploration>({ app_id: appId, name: "" });
   const [newArchDocData, setNewArchDocData] = useState<NewArchitectureDoc>({ app_id: appId, name: "" });
   const [contextMenuExploration, setContextMenuExploration] = useState<string | null>(null);
   const [contextMenuArchDoc, setContextMenuArchDoc] = useState<string | null>(null);
+  const [contextMenuDemo, setContextMenuDemo] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const app = getAppById(appId);
@@ -44,10 +48,11 @@ export function AppView({ appId }: AppViewProps) {
     if (appId) {
       loadByApp(appId);
       loadArchDocs(appId);
+      loadDemos(appId);
       setNewExplorationData((prev) => ({ ...prev, app_id: appId }));
       setNewArchDocData((prev) => ({ ...prev, app_id: appId }));
     }
-  }, [appId, loadByApp, loadArchDocs]);
+  }, [appId, loadByApp, loadArchDocs, loadDemos]);
 
   useEffect(() => {
     if (showSearchModal && searchInputRef.current) {
@@ -125,6 +130,27 @@ export function AppView({ appId }: AppViewProps) {
         setContextMenuArchDoc(null);
       } catch (err) {
         console.error("Failed to delete architecture doc:", err);
+      }
+    }
+  };
+
+  const handleCreateDemo = async (name: string, format: DemoFormat) => {
+    try {
+      const demo = await createDemo({ app_id: appId, name, format });
+      setShowCreateDemoModal(false);
+      navigate({ name: "demo-editor", appId, demoId: demo.id });
+    } catch (err) {
+      console.error("Failed to create demo:", err);
+    }
+  };
+
+  const handleDeleteDemo = async (id: string) => {
+    if (confirm("Delete this demo?")) {
+      try {
+        await deleteDemo(id);
+        setContextMenuDemo(null);
+      } catch (err) {
+        console.error("Failed to delete demo:", err);
       }
     }
   };
@@ -356,6 +382,85 @@ export function AppView({ appId }: AppViewProps) {
               </div>
             )}
           </div>
+
+          {/* Demos Section */}
+          <div className="mt-24">
+            <h2 className="text-[var(--text-display-md)] font-bold text-[var(--text-primary)] tracking-tight mb-4">Demos</h2>
+            <p className="text-[var(--text-body-lg)] text-[var(--text-secondary)] mb-16 max-w-2xl">
+              Create polished video demos of your app. Import screen recordings, add backgrounds, music, and export for YouTube or TikTok.
+            </p>
+
+            {demosLoading && demos.length === 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-40 bg-[var(--surface-secondary)] border border-[var(--border-default)] animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* Existing Demos */}
+                {demos.map((demo) => (
+                  <div
+                    key={demo.id}
+                    onClick={() => navigate({ name: "demo-editor", appId, demoId: demo.id })}
+                    className="group relative bg-[var(--surface-secondary)] border border-[var(--border-default)] p-6 hover:border-[var(--border-strong)] transition-all cursor-pointer"
+                  >
+                    {/* Icon Badge */}
+                    <div className="inline-flex items-center justify-center w-10 h-10 bg-[var(--surface-hover)] text-[var(--text-secondary)] mb-4">
+                      <Video className="w-5 h-5" />
+                    </div>
+
+                    {/* Demo Info */}
+                    <h3 className="text-[var(--text-heading-sm)] font-semibold text-[var(--text-primary)] mb-2 tracking-tight line-clamp-2">
+                      {demo.name}
+                    </h3>
+
+                    {/* Format info */}
+                    <p className="text-[var(--text-caption)] text-[var(--text-tertiary)] mb-2">
+                      {demo.width} × {demo.height} • {demo.frame_rate}fps
+                    </p>
+
+                    {/* Metadata */}
+                    <div className="mt-auto pt-4 border-t border-[var(--border-subtle)]">
+                      <p className="text-[var(--text-caption)] text-[var(--text-tertiary)] uppercase tracking-wide">
+                        Updated {formatDate(demo.updated_at)}
+                      </p>
+                    </div>
+
+                    {/* Context Menu Button */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setContextMenuDemo(contextMenuDemo === demo.id ? null : demo.id); }}
+                      className="absolute top-4 right-4 p-2 opacity-0 group-hover:opacity-100 hover:bg-[var(--surface-hover)] text-[var(--text-tertiary)] transition-all"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+
+                    {/* Context Menu Dropdown */}
+                    {contextMenuDemo === demo.id && (
+                      <div className="absolute top-12 right-4 w-44 bg-[var(--surface-elevated)] border border-[var(--border-default)] shadow-lg py-1 z-10" onClick={(e) => e.stopPropagation()}>
+                        <button className="w-full px-4 py-2.5 text-left text-[var(--text-body-sm)] text-[var(--accent-error)] hover:bg-[var(--surface-hover)] flex items-center gap-3" onClick={() => handleDeleteDemo(demo.id)}>
+                          <Trash2 className="w-4 h-4" />Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* Create New Demo Card */}
+                <button
+                  onClick={() => setShowCreateDemoModal(true)}
+                  className="h-full min-h-40 border-2 border-dashed border-[var(--border-default)] hover:border-[var(--text-primary)] hover:bg-[var(--surface-secondary)] transition-all flex flex-col items-center justify-center gap-4 group"
+                >
+                  <div className="w-12 h-12 border-2 border-[var(--border-default)] group-hover:border-[var(--text-primary)] group-hover:bg-[var(--text-primary)] flex items-center justify-center transition-all">
+                    <Plus className="w-6 h-6 text-[var(--text-tertiary)] group-hover:text-[var(--text-inverse)] transition-colors" />
+                  </div>
+                  <span className="text-[var(--text-body-md)] font-semibold text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">
+                    New Demo
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </main>
 
@@ -517,6 +622,7 @@ export function AppView({ appId }: AppViewProps) {
 
       {contextMenuExploration && <div className="fixed inset-0 z-0" onClick={() => setContextMenuExploration(null)} />}
       {contextMenuArchDoc && <div className="fixed inset-0 z-0" onClick={() => setContextMenuArchDoc(null)} />}
+      {contextMenuDemo && <div className="fixed inset-0 z-0" onClick={() => setContextMenuDemo(null)} />}
 
       {/* Create Architecture Doc Modal */}
       {showCreateArchDocModal && (
@@ -558,6 +664,15 @@ export function AppView({ appId }: AppViewProps) {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Create Demo Modal */}
+      {showCreateDemoModal && (
+        <NewDemoDialog
+          appId={appId}
+          onClose={() => setShowCreateDemoModal(false)}
+          onCreate={handleCreateDemo}
+        />
       )}
     </div>
   );

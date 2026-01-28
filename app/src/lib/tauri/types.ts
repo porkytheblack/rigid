@@ -784,3 +784,451 @@ export interface NativeDisplayInfo {
   backing_scale_factor: number;
   is_main: boolean;
 }
+
+// =============================================================================
+// Demo Video Editor Types
+// =============================================================================
+
+/** Demo project format presets */
+export type DemoFormat = 'youtube' | 'youtube_4k' | 'tiktok' | 'square' | 'custom';
+
+/** Format dimensions mapping */
+export const DEMO_FORMAT_DIMENSIONS: Record<DemoFormat, { width: number; height: number; label: string }> = {
+  youtube: { width: 1920, height: 1080, label: 'YouTube (1920×1080)' },
+  youtube_4k: { width: 3840, height: 2160, label: 'YouTube 4K (3840×2160)' },
+  tiktok: { width: 1080, height: 1920, label: 'TikTok/Reels (1080×1920)' },
+  square: { width: 1080, height: 1080, label: 'Square (1080×1080)' },
+  custom: { width: 1920, height: 1080, label: 'Custom' },
+};
+
+/** Demo project - main container for a video demo */
+export interface Demo {
+  id: string;
+  app_id: string;
+  name: string;
+  format: DemoFormat;
+  width: number;
+  height: number;
+  frame_rate: number;
+  duration_ms: number;
+  thumbnail_path: string | null;
+  export_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDemo {
+  app_id: string;
+  name: string;
+  format?: DemoFormat;
+  width?: number;
+  height?: number;
+  frame_rate?: number;
+}
+
+export interface UpdateDemo {
+  name?: string | null;
+  format?: DemoFormat | null;
+  width?: number | null;
+  height?: number | null;
+  frame_rate?: number | null;
+  duration_ms?: number | null;
+  thumbnail_path?: string | null;
+  export_path?: string | null;
+}
+
+export interface DemoFilter {
+  app_id?: string | null;
+  limit?: number | null;
+}
+
+/** Background type for demo canvas */
+export type DemoBackgroundType = 'solid' | 'gradient' | 'pattern' | 'image' | 'video' | 'blur';
+
+/** Gradient direction */
+export type GradientDirection = 'vertical' | 'horizontal' | 'diagonal' | 'radial';
+
+/** Demo background configuration */
+export interface DemoBackground {
+  id: string;
+  demo_id: string;
+  background_type: DemoBackgroundType;
+  // Solid color
+  color: string | null;
+  // Gradient
+  gradient_stops: string | null; // JSON array of { color: string, position: number }
+  gradient_direction: GradientDirection | null;
+  gradient_angle: number | null;
+  // Pattern
+  pattern_type: string | null;
+  pattern_color: string | null;
+  pattern_scale: number | null;
+  // Image/Video
+  media_path: string | null;
+  media_scale: number | null;
+  media_position_x: number | null;
+  media_position_y: number | null;
+  // Unsplash/URL image
+  image_url: string | null;
+  image_attribution: string | null; // JSON { name: string, link: string }
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDemoBackground {
+  demo_id: string;
+  background_type: DemoBackgroundType;
+  color?: string | null;
+  gradient_stops?: string | null;
+  gradient_direction?: GradientDirection | null;
+  gradient_angle?: number | null;
+  pattern_type?: string | null;
+  pattern_color?: string | null;
+  pattern_scale?: number | null;
+  media_path?: string | null;
+  media_scale?: number | null;
+  media_position_x?: number | null;
+  media_position_y?: number | null;
+  image_url?: string | null;
+  image_attribution?: string | null;
+}
+
+export interface UpdateDemoBackground {
+  background_type?: DemoBackgroundType | null;
+  color?: string | null;
+  gradient_stops?: string | null;
+  gradient_direction?: GradientDirection | null;
+  gradient_angle?: number | null;
+  pattern_type?: string | null;
+  pattern_color?: string | null;
+  pattern_scale?: number | null;
+  media_path?: string | null;
+  media_scale?: number | null;
+  media_position_x?: number | null;
+  media_position_y?: number | null;
+}
+
+/** Track type in timeline */
+export type DemoTrackType = 'background' | 'video' | 'image' | 'audio' | 'zoom' | 'blur';
+
+/** Demo timeline track */
+export interface DemoTrack {
+  id: string;
+  demo_id: string;
+  track_type: DemoTrackType;
+  name: string;
+  locked: boolean;
+  visible: boolean;
+  muted: boolean;
+  volume: number;
+  sort_order: number;
+  /** For zoom tracks - references the target video/image track */
+  target_track_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDemoTrack {
+  id?: string;  // Allow client to provide ID for consistency
+  demo_id: string;
+  track_type: DemoTrackType;
+  name: string;
+  sort_order?: number;
+  target_track_id?: string | null;
+}
+
+export interface UpdateDemoTrack {
+  name?: string | null;
+  locked?: boolean | null;
+  visible?: boolean | null;
+  muted?: boolean | null;
+  volume?: number | null;
+  sort_order?: number | null;
+  target_track_id?: string | null;
+}
+
+/** Zoom clip - keyframe region on a zoom track */
+export interface DemoZoomClip {
+  id: string;
+  track_id: string;
+  name: string;
+  /** When the zoom effect starts on the timeline */
+  start_time_ms: number;
+  /** Total duration of the zoom effect */
+  duration_ms: number;
+  /** Target zoom scale (e.g., 2.0 for 200%) */
+  zoom_scale: number;
+  /** X position of zoom focus (0-100%) */
+  zoom_center_x: number;
+  /** Y position of zoom focus (0-100%) */
+  zoom_center_y: number;
+  /** Duration to zoom in (from start) */
+  ease_in_duration_ms: number;
+  /** Duration to zoom out (before end) */
+  ease_out_duration_ms: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDemoZoomClip {
+  id?: string; // Allow client to provide ID for consistency
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  zoom_scale?: number;
+  zoom_center_x?: number;
+  zoom_center_y?: number;
+  ease_in_duration_ms?: number;
+  ease_out_duration_ms?: number;
+}
+
+export interface UpdateDemoZoomClip {
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  zoom_scale?: number | null;
+  zoom_center_x?: number | null;
+  zoom_center_y?: number | null;
+  ease_in_duration_ms?: number | null;
+  ease_out_duration_ms?: number | null;
+}
+
+/** Blur clip - blur region on a blur track */
+export interface DemoBlurClip {
+  id: string;
+  track_id: string;
+  name: string;
+  /** When the blur effect starts on the timeline */
+  start_time_ms: number;
+  /** Total duration of the blur effect */
+  duration_ms: number;
+  /** Blur intensity/radius (0-100) */
+  blur_intensity: number;
+  /** X position of blur region center (0-100%) */
+  region_x: number;
+  /** Y position of blur region center (0-100%) */
+  region_y: number;
+  /** Width of blur region (0-100% of canvas) */
+  region_width: number;
+  /** Height of blur region (0-100% of canvas) */
+  region_height: number;
+  /** Corner radius of blur region (0-100) */
+  corner_radius: number;
+  /** Whether to blur inside (true) or outside (false) the region */
+  blur_inside: boolean;
+  /** Duration to fade in blur */
+  ease_in_duration_ms: number;
+  /** Duration to fade out blur */
+  ease_out_duration_ms: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDemoBlurClip {
+  id?: string; // Allow client to provide ID for consistency
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  blur_intensity?: number;
+  region_x?: number;
+  region_y?: number;
+  region_width?: number;
+  region_height?: number;
+  corner_radius?: number;
+  blur_inside?: boolean;
+  ease_in_duration_ms?: number;
+  ease_out_duration_ms?: number;
+}
+
+export interface UpdateDemoBlurClip {
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  blur_intensity?: number | null;
+  region_x?: number | null;
+  region_y?: number | null;
+  region_width?: number | null;
+  region_height?: number | null;
+  corner_radius?: number | null;
+  blur_inside?: boolean | null;
+  ease_in_duration_ms?: number | null;
+  ease_out_duration_ms?: number | null;
+}
+
+/** Demo clip - media element on a track */
+export interface DemoClip {
+  id: string;
+  track_id: string;
+  name: string;
+  // Source media
+  source_path: string;
+  source_type: 'video' | 'image' | 'audio';
+  source_duration_ms: number | null;
+  // Timeline position
+  start_time_ms: number;
+  duration_ms: number;
+  // Source trim (in/out points)
+  in_point_ms: number;
+  out_point_ms: number | null;
+  // Transform (for video/image)
+  position_x: number | null;
+  position_y: number | null;
+  scale: number | null;
+  rotation: number | null;
+  // Crop
+  crop_top: number | null;
+  crop_bottom: number | null;
+  crop_left: number | null;
+  crop_right: number | null;
+  // Appearance
+  corner_radius: number | null;
+  opacity: number | null;
+  // Shadow
+  shadow_enabled: boolean;
+  shadow_blur: number | null;
+  shadow_offset_x: number | null;
+  shadow_offset_y: number | null;
+  shadow_color: string | null;
+  shadow_opacity: number | null;
+  // Border
+  border_enabled: boolean;
+  border_width: number | null;
+  border_color: string | null;
+  // Audio
+  volume: number | null;
+  fade_in_ms: number | null;
+  fade_out_ms: number | null;
+  // Speed
+  speed: number | null;
+  // Zoom effect (for demo highlights)
+  zoom_enabled: boolean;
+  zoom_scale: number | null;       // Target zoom scale (e.g., 2.0 for 200%)
+  zoom_center_x: number | null;    // X position of zoom focus (0-100%)
+  zoom_center_y: number | null;    // Y position of zoom focus (0-100%)
+  zoom_in_start_ms: number | null; // When zoom in starts (offset from clip start)
+  zoom_in_duration_ms: number | null; // Duration of zoom in animation
+  zoom_out_start_ms: number | null;   // When zoom out starts (offset from clip start)
+  zoom_out_duration_ms: number | null; // Duration of zoom out animation
+  // Media info (detected via ffprobe)
+  has_audio: boolean | null;
+  // Clip linking (for split audio/video)
+  linked_clip_id: string | null;  // ID of linked clip (audio links to video, video links to audio)
+  muted: boolean;  // Mute audio in this clip (used when audio is split out)
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDemoClip {
+  id?: string;  // Allow client to provide ID for consistency
+  track_id: string;
+  name: string;
+  source_path: string;
+  source_type: 'video' | 'image' | 'audio';
+  source_duration_ms?: number | null;
+  start_time_ms: number;
+  duration_ms: number;
+  in_point_ms?: number;
+  position_x?: number | null;
+  position_y?: number | null;
+  scale?: number | null;
+  has_audio?: boolean | null;
+  linked_clip_id?: string | null;
+  muted?: boolean;
+}
+
+export interface UpdateDemoClip {
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  in_point_ms?: number | null;
+  out_point_ms?: number | null;
+  position_x?: number | null;
+  position_y?: number | null;
+  scale?: number | null;
+  rotation?: number | null;
+  crop_top?: number | null;
+  crop_bottom?: number | null;
+  crop_left?: number | null;
+  crop_right?: number | null;
+  corner_radius?: number | null;
+  opacity?: number | null;
+  shadow_enabled?: boolean | null;
+  shadow_blur?: number | null;
+  shadow_offset_x?: number | null;
+  shadow_offset_y?: number | null;
+  shadow_color?: string | null;
+  shadow_opacity?: number | null;
+  border_enabled?: boolean | null;
+  border_width?: number | null;
+  border_color?: string | null;
+  volume?: number | null;
+  fade_in_ms?: number | null;
+  fade_out_ms?: number | null;
+  speed?: number | null;
+  linked_clip_id?: string | null;
+  muted?: boolean | null;
+}
+
+/** Demo asset - imported media file */
+export interface DemoAsset {
+  id: string;
+  demo_id: string;
+  name: string;
+  file_path: string;
+  asset_type: 'video' | 'image' | 'audio';
+  duration_ms: number | null;
+  width: number | null;
+  height: number | null;
+  thumbnail_path: string | null;
+  file_size: number | null;
+  has_audio: boolean | null;
+  created_at: string;
+}
+
+export interface NewDemoAsset {
+  id?: string; // Allow client to provide ID for consistency
+  demo_id: string;
+  name: string;
+  file_path: string;
+  asset_type: 'video' | 'image' | 'audio';
+  duration_ms?: number | null;
+  width?: number | null;
+  height?: number | null;
+  thumbnail_path?: string | null;
+  file_size?: number | null;
+  has_audio?: boolean | null;
+}
+
+export interface UpdateDemoAsset {
+  name?: string | null;
+  thumbnail_path?: string | null;
+}
+
+/** Export quality preset */
+export type DemoExportQuality = 'draft' | 'good' | 'high' | 'max';
+
+/** Export format */
+export type DemoExportFormat = 'mp4' | 'webm';
+
+/** Export configuration */
+export interface DemoExportConfig {
+  format: DemoExportFormat;
+  quality: DemoExportQuality;
+  width: number;
+  height: number;
+  frame_rate: number;
+  output_path: string;
+}
+
+/** Full demo with all related data */
+export interface DemoWithData {
+  demo: Demo;
+  background: DemoBackground | null;
+  tracks: DemoTrack[];
+  clips: DemoClip[];
+  zoomClips: DemoZoomClip[];
+  blurClips: DemoBlurClip[];
+  assets: DemoAsset[];
+}

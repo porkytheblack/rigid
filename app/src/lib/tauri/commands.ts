@@ -73,6 +73,30 @@ import type {
   NativeScreenshotOptions,
   NativeWindowInfo,
   NativeDisplayInfo,
+  Demo,
+  NewDemo,
+  UpdateDemo,
+  DemoFilter,
+  DemoWithData,
+  DemoBackground,
+  NewDemoBackground,
+  UpdateDemoBackground,
+  DemoTrack,
+  NewDemoTrack,
+  UpdateDemoTrack,
+  DemoClip,
+  NewDemoClip,
+  UpdateDemoClip,
+  DemoAsset,
+  NewDemoAsset,
+  UpdateDemoAsset,
+  DemoExportConfig,
+  DemoZoomClip,
+  NewDemoZoomClip,
+  UpdateDemoZoomClip,
+  DemoBlurClip,
+  NewDemoBlurClip,
+  UpdateDemoBlurClip,
 } from './types';
 
 // =============================================================================
@@ -86,6 +110,7 @@ async function isMacOS(): Promise<boolean> {
   if (_isMacOS === null) {
     try {
       // Dynamic import to avoid issues if plugin not available
+      // @ts-expect-error - module may not be installed but we have a fallback
       const { platform } = await import('@tauri-apps/plugin-os');
       _isMacOS = platform() === 'macos';
     } catch {
@@ -571,6 +596,15 @@ export const explorationTodos = {
     invoke<ExplorationTodo[]>('bulk_replace_exploration_todos', { testId, todos }),
 };
 
+// Media probe result
+export interface MediaProbeResult {
+  has_audio: boolean;
+  has_video: boolean;
+  duration_ms: number | null;
+  width: number | null;
+  height: number | null;
+}
+
 // Video processing commands
 export const video = {
   trim: (sourcePath: string, outputPath: string, startMs: number, endMs: number) =>
@@ -578,6 +612,54 @@ export const video = {
 
   cut: (sourcePath: string, outputPath: string, startMs: number, endMs: number) =>
     invoke<string>('cut_video', { sourcePath, outputPath, startMs, endMs }),
+
+  probe: (path: string) =>
+    invoke<MediaProbeResult>('probe_media', { path }),
+};
+
+// Demo rendering types
+export interface RenderClip {
+  source_path: string;
+  source_type: 'video' | 'image' | 'audio';
+  start_time_ms: number;
+  duration_ms: number;
+  in_point_ms: number;
+  position_x: number | null;
+  position_y: number | null;
+  scale: number | null;
+  opacity: number | null;
+  corner_radius: number | null;
+  crop_top: number | null;
+  crop_bottom: number | null;
+  crop_left: number | null;
+  crop_right: number | null;
+  z_index: number;
+  has_audio: boolean | null; // Whether video clip has audio track
+}
+
+export interface RenderBackground {
+  background_type: string;
+  color: string | null;
+  gradient_stops: string | null;
+  gradient_angle: number | null;
+}
+
+export interface RenderDemoConfig {
+  width: number;
+  height: number;
+  frame_rate: number;
+  duration_ms: number;
+  format: 'mp4' | 'webm';
+  quality: 'draft' | 'good' | 'high' | 'max';
+  output_path: string;
+  background: RenderBackground | null;
+  clips: RenderClip[];
+}
+
+// Demo rendering commands
+export const demoRender = {
+  render: (config: RenderDemoConfig) =>
+    invoke<string>('render_demo', { config }),
 };
 
 // Diagram commands (mind maps, user flows, dependency graphs)
@@ -1088,10 +1170,90 @@ export const nativeCapture = {
   },
 };
 
+// =============================================================================
+// Demo Commands
+// =============================================================================
+
+export const demos = {
+  list: async (filter: DemoFilter) => await invoke<Demo[]>('demos_list', { filter }),
+  get: async (id: string) => await invoke<Demo>('demos_get', { id }),
+  getWithData: async (id: string) => await invoke<DemoWithData>('demos_get_with_data', { id }),
+  create: async (data: NewDemo) => await invoke<Demo>('demos_create', { data }),
+  update: async (id: string, updates: UpdateDemo) => await invoke<Demo>('demos_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('demos_delete', { id }),
+};
+
+export const demoBackgrounds = {
+  get: async (demoId: string) => await invoke<DemoBackground | null>('demo_backgrounds_get', { demoId }),
+  create: async (data: NewDemoBackground) => await invoke<DemoBackground>('demo_backgrounds_create', { data }),
+  update: async (id: string, updates: UpdateDemoBackground) => await invoke<DemoBackground>('demo_backgrounds_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('demo_backgrounds_delete', { id }),
+};
+
+export const demoTracks = {
+  list: async (demoId: string) => await invoke<DemoTrack[]>('demo_tracks_list', { demoId }),
+  create: async (data: NewDemoTrack) => await invoke<DemoTrack>('demo_tracks_create', { data }),
+  update: async (id: string, updates: UpdateDemoTrack) => await invoke<DemoTrack>('demo_tracks_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('demo_tracks_delete', { id }),
+  reorder: async (demoId: string, trackIds: string[]) => await invoke<void>('demo_tracks_reorder', { demoId, trackIds }),
+};
+
+export const demoClips = {
+  list: async (trackId: string) => await invoke<DemoClip[]>('demo_clips_list', { trackId }),
+  create: async (data: NewDemoClip) => await invoke<DemoClip>('demo_clips_create', { data }),
+  update: async (id: string, updates: UpdateDemoClip) => await invoke<DemoClip>('demo_clips_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('demo_clips_delete', { id }),
+};
+
+export const demoZoomClips = {
+  list: async (trackId: string) => await invoke<DemoZoomClip[]>('demo_zoom_clips_list', { trackId }),
+  create: async (data: NewDemoZoomClip) => await invoke<DemoZoomClip>('demo_zoom_clips_create', { data }),
+  update: async (id: string, updates: UpdateDemoZoomClip) => await invoke<DemoZoomClip>('demo_zoom_clips_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('demo_zoom_clips_delete', { id }),
+};
+
+export const demoBlurClips = {
+  list: async (trackId: string) => await invoke<DemoBlurClip[]>('demo_blur_clips_list', { trackId }),
+  create: async (data: NewDemoBlurClip) => await invoke<DemoBlurClip>('demo_blur_clips_create', { data }),
+  update: async (id: string, updates: UpdateDemoBlurClip) => await invoke<DemoBlurClip>('demo_blur_clips_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('demo_blur_clips_delete', { id }),
+};
+
+export const demoAssets = {
+  list: async (demoId: string) => await invoke<DemoAsset[]>('demo_assets_list', { demoId }),
+  create: async (data: NewDemoAsset) => await invoke<DemoAsset>('demo_assets_create', { data }),
+  update: async (id: string, updates: UpdateDemoAsset) => await invoke<DemoAsset>('demo_assets_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('demo_assets_delete', { id }),
+};
+
+export const demoExport = {
+  start: async (demoId: string, config: DemoExportConfig) => await invoke<string>('demo_export_start', { demoId, config }),
+  progress: async (exportId: string) => await invoke<{ progress: number; status: string }>('demo_export_progress', { exportId }),
+  cancel: async (exportId: string) => await invoke<void>('demo_export_cancel', { exportId }),
+};
+
 // Re-export types for convenience
 export type {
   NativeRecordingOptions,
   NativeScreenshotOptions,
   NativeWindowInfo,
   NativeDisplayInfo,
+  Demo,
+  NewDemo,
+  UpdateDemo,
+  DemoFilter,
+  DemoWithData,
+  DemoBackground,
+  NewDemoBackground,
+  UpdateDemoBackground,
+  DemoTrack,
+  NewDemoTrack,
+  UpdateDemoTrack,
+  DemoClip,
+  NewDemoClip,
+  UpdateDemoClip,
+  DemoAsset,
+  NewDemoAsset,
+  UpdateDemoAsset,
+  DemoExportConfig,
 } from './types';
