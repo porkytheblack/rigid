@@ -9,6 +9,9 @@ use crate::models::{
     DemoZoomClip, NewDemoZoomClip, UpdateDemoZoomClip,
     DemoBlurClip, NewDemoBlurClip, UpdateDemoBlurClip,
     DemoAsset, NewDemoAsset, UpdateDemoAsset,
+    DemoRecording, NewDemoRecording,
+    DemoScreenshot, NewDemoScreenshot,
+    Recording, Screenshot,
 };
 use crate::repositories::DemoRepository;
 
@@ -280,4 +283,74 @@ pub async fn demo_assets_delete(
     repo: State<'_, DemoRepository>,
 ) -> Result<(), TakaError> {
     repo.delete_asset(&id).await
+}
+
+// ============ Demo Recording Link Commands ============
+
+#[tauri::command]
+pub async fn demo_recordings_list(
+    demo_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<DemoRecording>, TakaError> {
+    repo.list_demo_recordings(&demo_id).await
+}
+
+#[tauri::command]
+pub async fn demo_recordings_list_with_data(
+    demo_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<Recording>, TakaError> {
+    repo.list_demo_recordings_with_data(&demo_id).await
+}
+
+#[tauri::command]
+pub async fn demo_recordings_add(
+    data: NewDemoRecording,
+    repo: State<'_, DemoRepository>,
+) -> Result<DemoRecording, TakaError> {
+    repo.add_demo_recording(data).await
+}
+
+#[tauri::command]
+pub async fn demo_recordings_remove(
+    demo_id: String,
+    recording_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), TakaError> {
+    repo.remove_demo_recording(&demo_id, &recording_id).await
+}
+
+// ============ Demo Screenshot Link Commands ============
+
+#[tauri::command]
+pub async fn demo_screenshots_list(
+    demo_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<DemoScreenshot>, TakaError> {
+    repo.list_demo_screenshots(&demo_id).await
+}
+
+#[tauri::command]
+pub async fn demo_screenshots_list_with_data(
+    demo_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<Screenshot>, TakaError> {
+    repo.list_demo_screenshots_with_data(&demo_id).await
+}
+
+#[tauri::command]
+pub async fn demo_screenshots_add(
+    data: NewDemoScreenshot,
+    repo: State<'_, DemoRepository>,
+) -> Result<DemoScreenshot, TakaError> {
+    repo.add_demo_screenshot(data).await
+}
+
+#[tauri::command]
+pub async fn demo_screenshots_remove(
+    demo_id: String,
+    screenshot_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), TakaError> {
+    repo.remove_demo_screenshot(&demo_id, &screenshot_id).await
 }

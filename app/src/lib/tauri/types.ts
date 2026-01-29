@@ -70,13 +70,14 @@ export type RecordingStatus = 'ready' | 'recording' | 'completed';
 
 export interface Recording {
   id: string;
+  app_id: string | null;
   test_id: string | null;
   name: string;
   status: RecordingStatus;
   recording_path: string | null;
+  webcam_path: string | null;
   duration_ms: number | null;
   thumbnail_path: string | null;
-  annotations_data: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -90,9 +91,9 @@ export interface UpdateRecording {
   name?: string | null;
   status?: RecordingStatus | null;
   recording_path?: string | null;
+  webcam_path?: string | null;
   duration_ms?: number | null;
   thumbnail_path?: string | null;
-  annotations_data?: string | null;
 }
 
 export interface RecordingFilter {
@@ -216,6 +217,7 @@ export interface ChecklistFilter {
 // Screenshot types
 export interface Screenshot {
   id: string;
+  app_id: string | null;
   test_id: string | null;
   title: string;
   description: string | null;
@@ -1204,6 +1206,36 @@ export interface NewDemoAsset {
 export interface UpdateDemoAsset {
   name?: string | null;
   thumbnail_path?: string | null;
+}
+
+// Demo Recording Link (associates a recording with a demo)
+export interface DemoRecording {
+  id: string;
+  demo_id: string;
+  recording_id: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface NewDemoRecording {
+  demo_id: string;
+  recording_id: string;
+  sort_order?: number | null;
+}
+
+// Demo Screenshot Link (associates a screenshot with a demo)
+export interface DemoScreenshot {
+  id: string;
+  demo_id: string;
+  screenshot_id: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface NewDemoScreenshot {
+  demo_id: string;
+  screenshot_id: string;
+  sort_order?: number | null;
 }
 
 /** Export quality preset */

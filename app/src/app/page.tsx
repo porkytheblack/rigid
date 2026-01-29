@@ -10,6 +10,7 @@ import {
   DiagramEditorView,
   ArchitectureDocView,
   ArchitectureDiagramEditorView,
+  DemoView,
   DemoEditorView,
   SettingsView,
 } from "@/views";
@@ -62,6 +63,13 @@ export default function App() {
           appId={route.appId}
           docId={route.docId}
           diagramId={route.diagramId}
+        />
+      );
+    case "demo-view":
+      return (
+        <DemoView
+          appId={route.appId}
+          demoId={route.demoId}
         />
       );
     case "demo-editor":

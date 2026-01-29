@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Screenshot {
     pub id: String,
+    pub app_id: Option<String>,
     pub test_id: Option<String>,
     pub title: String,
     pub description: Option<String>,
@@ -12,6 +13,7 @@ pub struct Screenshot {
 
 #[derive(Debug, Deserialize)]
 pub struct NewScreenshot {
+    pub app_id: Option<String>,
     pub test_id: Option<String>,
     pub title: String,
     pub description: Option<String>,

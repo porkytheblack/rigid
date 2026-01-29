@@ -3,10 +3,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Recording {
     pub id: String,
+    pub app_id: Option<String>,
     pub test_id: Option<String>,
     pub name: String,
     pub status: String,
     pub recording_path: Option<String>,
+    pub webcam_path: Option<String>,
     pub duration_ms: Option<i64>,
     pub thumbnail_path: Option<String>,
     pub created_at: String,
@@ -15,6 +17,7 @@ pub struct Recording {
 
 #[derive(Debug, Deserialize)]
 pub struct NewRecording {
+    pub app_id: Option<String>,
     pub test_id: Option<String>,
     pub name: String,
 }
@@ -24,6 +27,7 @@ pub struct UpdateRecording {
     pub name: Option<String>,
     pub status: Option<String>,
     pub recording_path: Option<String>,
+    pub webcam_path: Option<String>,
     pub duration_ms: Option<i64>,
     pub thumbnail_path: Option<String>,
 }

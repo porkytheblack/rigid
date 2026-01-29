@@ -57,7 +57,9 @@ pub struct RecordingState {
     pub is_recording: AtomicBool,
     pub current_recording_id: Mutex<Option<String>>,
     pub process_pid: Mutex<Option<u32>>,
+    pub webcam_pid: Mutex<Option<u32>>,
     pub recording_path: Mutex<Option<String>>,
+    pub webcam_path: Mutex<Option<String>>,
     pub start_time: Mutex<Option<i64>>,
 }
 
@@ -67,7 +69,9 @@ impl RecordingState {
             is_recording: AtomicBool::new(false),
             current_recording_id: Mutex::new(None),
             process_pid: Mutex::new(None),
+            webcam_pid: Mutex::new(None),
             recording_path: Mutex::new(None),
+            webcam_path: Mutex::new(None),
             start_time: Mutex::new(None),
         }
     }
@@ -448,6 +452,7 @@ pub async fn list_displays() -> Result<Vec<DisplayInfo>, TakaError> {
 /// Capture a screenshot of a specific window by owner and name
 #[tauri::command]
 pub async fn capture_window_screenshot(
+    app_id: Option<String>,
     test_id: Option<String>,
     title: Option<String>,
     window_owner: String,
@@ -479,6 +484,7 @@ pub async fn capture_window_screenshot(
         if output.status.success() && screenshot_path.exists() {
             let final_title = title.unwrap_or_else(|| format!("{} - {}", window_owner, window_name));
             let new_screenshot = NewScreenshot {
+                app_id: app_id.clone(),
                 test_id,
                 title: final_title,
                 description: None,
@@ -505,6 +511,7 @@ pub async fn capture_window_screenshot(
     let final_title = title.unwrap_or_else(|| format!("{} - {}", window_owner, window_name));
 
     let new_screenshot = NewScreenshot {
+        app_id,
         test_id,
         title: final_title,
         description: None,
@@ -518,6 +525,7 @@ pub async fn capture_window_screenshot(
 /// This uses interactive window selection mode (-W) which shows a window picker
 #[tauri::command]
 pub async fn capture_screenshot(
+    app_id: Option<String>,
     test_id: Option<String>,
     title: Option<String>,
     app: AppHandle,
@@ -553,6 +561,7 @@ pub async fn capture_screenshot(
     }
 
     let new_screenshot = NewScreenshot {
+        app_id,
         test_id,
         title: title.unwrap_or_else(|| format!("Screenshot {}", timestamp)),
         description: None,
@@ -565,6 +574,7 @@ pub async fn capture_screenshot(
 /// Capture a full screen screenshot (no interactive selection)
 #[tauri::command]
 pub async fn capture_fullscreen_screenshot(
+    app_id: Option<String>,
     test_id: Option<String>,
     title: Option<String>,
     app: AppHandle,
@@ -593,6 +603,7 @@ pub async fn capture_fullscreen_screenshot(
     }
 
     let new_screenshot = NewScreenshot {
+        app_id,
         test_id,
         title: title.unwrap_or_else(|| format!("Screenshot {}", timestamp)),
         description: None,
@@ -605,8 +616,10 @@ pub async fn capture_fullscreen_screenshot(
 /// Start screen recording using screencapture -v
 /// On macOS, this will record a specific region if bounds are provided
 /// audio_device can be: "none" (no audio), "system" (system audio via -k flag), or a device ID (mic recording)
+/// record_webcam: if true, also record from the webcam simultaneously using ffmpeg
 #[tauri::command]
 pub async fn start_recording(
+    app_id: Option<String>,
     test_id: Option<String>,
     name: Option<String>,
     window_id: Option<i64>,
@@ -617,6 +630,7 @@ pub async fn start_recording(
     display_id: Option<u32>,
     audio_device: Option<String>,
     show_cursor: Option<bool>,
+    record_webcam: Option<bool>,
     app: AppHandle,
     recording_repo: State<'_, RecordingRepository>,
     recording_state: State<'_, RecordingState>,
@@ -640,6 +654,7 @@ pub async fn start_recording(
 
     // Create the recording record first
     let new_recording = NewRecording {
+        app_id,
         test_id,
         name: name.unwrap_or_else(|| format!("Recording {}", timestamp)),
     };
@@ -691,6 +706,50 @@ pub async fn start_recording(
         .spawn()
         .map_err(|e| TakaError::Io(e))?;
 
+    // Start webcam recording if requested
+    let webcam_recording_path = if record_webcam.unwrap_or(false) {
+        let webcam_filename = format!("webcam_{}.mov", timestamp);
+        let webcam_path = recordings_dir.join(&webcam_filename);
+
+        // Use ffmpeg to record from the default webcam
+        // -f avfoundation: macOS video capture framework
+        // -i "0": default video device (FaceTime HD Camera typically)
+        // -framerate 30: 30 FPS
+        // -vcodec libx264: H.264 encoding for compatibility
+        // -preset ultrafast: fast encoding to reduce CPU usage
+        // -pix_fmt yuv420p: compatible pixel format
+        let webcam_child = Command::new("ffmpeg")
+            .args([
+                "-f", "avfoundation",
+                "-framerate", "30",
+                "-i", "0",
+                "-vcodec", "libx264",
+                "-preset", "ultrafast",
+                "-pix_fmt", "yuv420p",
+                "-y", // Overwrite output file if exists
+                webcam_path.to_str().unwrap()
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        match webcam_child {
+            Ok(child) => {
+                *recording_state.webcam_pid.lock().await = Some(child.id());
+                *recording_state.webcam_path.lock().await = Some(webcam_path.to_string_lossy().to_string());
+                Some(webcam_path.to_string_lossy().to_string())
+            }
+            Err(e) => {
+                // Log the error but don't fail the whole recording
+                eprintln!("Failed to start webcam recording: {}. Make sure ffmpeg is installed.", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Store the recording state
     let start_time = Utc::now().timestamp_millis();
     recording_state.is_recording.store(true, Ordering::SeqCst);
@@ -704,6 +763,7 @@ pub async fn start_recording(
         name: None,
         status: Some("recording".into()),
         recording_path: Some(recording_path.to_string_lossy().to_string()),
+        webcam_path: webcam_recording_path,
         duration_ms: None,
         thumbnail_path: None,
     };
@@ -726,6 +786,7 @@ pub async fn stop_recording(
 
     let start_time = recording_state.start_time.lock().await.clone();
     let recording_path = recording_state.recording_path.lock().await.clone();
+    let webcam_path = recording_state.webcam_path.lock().await.clone();
 
     // Stop the recording process by sending SIGINT (Ctrl+C)
     if let Some(pid) = *recording_state.process_pid.lock().await {
@@ -735,10 +796,21 @@ pub async fn stop_recording(
                 .args(["-INT", &pid.to_string()])
                 .output();
         }
-
-        // Wait for the process to finish and file to be written
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
     }
+
+    // Stop the webcam recording process if running
+    if let Some(pid) = *recording_state.webcam_pid.lock().await {
+        #[cfg(unix)]
+        {
+            // Send SIGINT to ffmpeg for graceful shutdown
+            let _ = Command::new("kill")
+                .args(["-INT", &pid.to_string()])
+                .output();
+        }
+    }
+
+    // Wait for the processes to finish and files to be written
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
     // Calculate duration
     let duration_ms = start_time.map(|start| {
@@ -750,7 +822,9 @@ pub async fn stop_recording(
     recording_state.is_recording.store(false, Ordering::SeqCst);
     *recording_state.current_recording_id.lock().await = None;
     *recording_state.process_pid.lock().await = None;
+    *recording_state.webcam_pid.lock().await = None;
     *recording_state.recording_path.lock().await = None;
+    *recording_state.webcam_path.lock().await = None;
     *recording_state.start_time.lock().await = None;
 
     // Update the recording status with duration
@@ -758,6 +832,7 @@ pub async fn stop_recording(
         name: None,
         status: Some("completed".into()),
         recording_path,
+        webcam_path,
         duration_ms,
         thumbnail_path: None,
     };
@@ -793,9 +868,20 @@ pub async fn cancel_recording(
 
     let recording_id = recording_state.current_recording_id.lock().await.clone();
     let recording_path = recording_state.recording_path.lock().await.clone();
+    let webcam_path = recording_state.webcam_path.lock().await.clone();
 
     // Kill the recording process
     if let Some(pid) = *recording_state.process_pid.lock().await {
+        #[cfg(unix)]
+        {
+            let _ = Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .output();
+        }
+    }
+
+    // Kill the webcam recording process if running
+    if let Some(pid) = *recording_state.webcam_pid.lock().await {
         #[cfg(unix)]
         {
             let _ = Command::new("kill")
@@ -808,11 +894,18 @@ pub async fn cancel_recording(
     recording_state.is_recording.store(false, Ordering::SeqCst);
     *recording_state.current_recording_id.lock().await = None;
     *recording_state.process_pid.lock().await = None;
+    *recording_state.webcam_pid.lock().await = None;
     *recording_state.recording_path.lock().await = None;
+    *recording_state.webcam_path.lock().await = None;
     *recording_state.start_time.lock().await = None;
 
     // Delete the recording file if it exists
     if let Some(path) = recording_path {
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // Delete the webcam recording file if it exists
+    if let Some(path) = webcam_path {
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1037,6 +1130,7 @@ pub async fn list_displays_native() -> Result<Vec<NativeDisplayInfo>, TakaError>
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn start_native_recording(
+    app_id: Option<String>,
     test_id: Option<String>,
     name: Option<String>,
     window_id: Option<u32>,
@@ -1123,6 +1217,7 @@ pub async fn start_native_recording(
 
     // Create the recording record
     let new_recording = NewRecording {
+        app_id,
         test_id,
         name: name.unwrap_or_else(|| format!("Recording {}", timestamp)),
     };
@@ -1176,6 +1271,7 @@ pub async fn start_native_recording(
         name: None,
         status: Some("recording".into()),
         recording_path: Some(recording_path.to_string_lossy().to_string()),
+        webcam_path: None,
         duration_ms: None,
         thumbnail_path: None,
     };
@@ -1226,6 +1322,7 @@ pub async fn stop_native_recording(
         name: None,
         status: Some("completed".into()),
         recording_path: Some(recording_path),
+        webcam_path: None,
         duration_ms,
         thumbnail_path: None,
     };
@@ -1305,6 +1402,7 @@ pub async fn get_native_recording_duration(
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn capture_native_screenshot(
+    app_id: Option<String>,
     test_id: Option<String>,
     title: Option<String>,
     window_id: Option<u32>,
@@ -1368,6 +1466,7 @@ pub async fn capture_native_screenshot(
 
     // Create screenshot record
     let new_screenshot = NewScreenshot {
+        app_id,
         test_id,
         title: title.unwrap_or_else(|| format!("Screenshot {}", timestamp)),
         description: None,

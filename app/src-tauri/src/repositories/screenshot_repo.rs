@@ -26,10 +26,11 @@ impl ScreenshotRepository {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
-            "INSERT INTO screenshots (id, test_id, title, description, image_path, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT INTO screenshots (id, app_id, test_id, title, description, image_path, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
+        .bind(&new.app_id)
         .bind(&new.test_id)
         .bind(&new.title)
         .bind(&new.description)
@@ -53,27 +54,20 @@ impl ScreenshotRepository {
     }
 
     pub async fn list(&self, filter: ScreenshotFilter) -> Result<Vec<Screenshot>, TakaError> {
-        let mut sql = String::from("SELECT s.* FROM screenshots s");
+        let mut sql = String::from("SELECT * FROM screenshots WHERE 1=1");
         let mut bindings: Vec<String> = Vec::new();
 
-        // Join with tests table if filtering by app_id
-        if filter.app_id.is_some() {
-            sql.push_str(" LEFT JOIN tests t ON s.test_id = t.id WHERE 1=1");
-        } else {
-            sql.push_str(" WHERE 1=1");
-        }
-
         if let Some(ref test_id) = filter.test_id {
-            sql.push_str(" AND s.test_id = ?");
+            sql.push_str(" AND test_id = ?");
             bindings.push(test_id.clone());
         }
 
         if let Some(ref app_id) = filter.app_id {
-            sql.push_str(" AND t.app_id = ?");
+            sql.push_str(" AND app_id = ?");
             bindings.push(app_id.clone());
         }
 
-        sql.push_str(" ORDER BY s.created_at DESC");
+        sql.push_str(" ORDER BY created_at DESC");
 
         if let Some(limit) = filter.limit {
             sql.push_str(&format!(" LIMIT {}", limit));

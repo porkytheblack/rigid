@@ -11,6 +11,9 @@ use crate::models::{
     DemoZoomClip, NewDemoZoomClip, UpdateDemoZoomClip,
     DemoBlurClip, NewDemoBlurClip, UpdateDemoBlurClip,
     DemoAsset, NewDemoAsset, UpdateDemoAsset,
+    DemoRecording, NewDemoRecording,
+    DemoScreenshot, NewDemoScreenshot,
+    Recording, Screenshot,
 };
 
 #[derive(Clone)]
@@ -770,6 +773,132 @@ impl DemoRepository {
     pub async fn delete_asset(&self, id: &str) -> Result<(), TakaError> {
         sqlx::query("DELETE FROM demo_assets WHERE id = ?")
             .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Demo Recording Links ============
+
+    pub async fn list_demo_recordings(&self, demo_id: &str) -> Result<Vec<DemoRecording>, TakaError> {
+        Ok(sqlx::query_as::<_, DemoRecording>(
+            "SELECT * FROM demo_recordings WHERE demo_id = ? ORDER BY sort_order ASC"
+        )
+        .bind(demo_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_demo_recordings_with_data(&self, demo_id: &str) -> Result<Vec<Recording>, TakaError> {
+        Ok(sqlx::query_as::<_, Recording>(
+            "SELECT r.* FROM recordings r
+             INNER JOIN demo_recordings dr ON r.id = dr.recording_id
+             WHERE dr.demo_id = ?
+             ORDER BY dr.sort_order ASC"
+        )
+        .bind(demo_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn add_demo_recording(&self, new: NewDemoRecording) -> Result<DemoRecording, TakaError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        let max_order: Option<i32> = sqlx::query_scalar(
+            "SELECT MAX(sort_order) FROM demo_recordings WHERE demo_id = ?"
+        )
+        .bind(&new.demo_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let sort_order = new.sort_order.unwrap_or_else(|| max_order.unwrap_or(-1) + 1);
+
+        sqlx::query(
+            "INSERT INTO demo_recordings (id, demo_id, recording_id, sort_order, created_at)
+             VALUES (?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.demo_id)
+        .bind(&new.recording_id)
+        .bind(sort_order)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, DemoRecording>("SELECT * FROM demo_recordings WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn remove_demo_recording(&self, demo_id: &str, recording_id: &str) -> Result<(), TakaError> {
+        sqlx::query("DELETE FROM demo_recordings WHERE demo_id = ? AND recording_id = ?")
+            .bind(demo_id)
+            .bind(recording_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Demo Screenshot Links ============
+
+    pub async fn list_demo_screenshots(&self, demo_id: &str) -> Result<Vec<DemoScreenshot>, TakaError> {
+        Ok(sqlx::query_as::<_, DemoScreenshot>(
+            "SELECT * FROM demo_screenshots WHERE demo_id = ? ORDER BY sort_order ASC"
+        )
+        .bind(demo_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_demo_screenshots_with_data(&self, demo_id: &str) -> Result<Vec<Screenshot>, TakaError> {
+        Ok(sqlx::query_as::<_, Screenshot>(
+            "SELECT s.* FROM screenshots s
+             INNER JOIN demo_screenshots ds ON s.id = ds.screenshot_id
+             WHERE ds.demo_id = ?
+             ORDER BY ds.sort_order ASC"
+        )
+        .bind(demo_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn add_demo_screenshot(&self, new: NewDemoScreenshot) -> Result<DemoScreenshot, TakaError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        let max_order: Option<i32> = sqlx::query_scalar(
+            "SELECT MAX(sort_order) FROM demo_screenshots WHERE demo_id = ?"
+        )
+        .bind(&new.demo_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let sort_order = new.sort_order.unwrap_or_else(|| max_order.unwrap_or(-1) + 1);
+
+        sqlx::query(
+            "INSERT INTO demo_screenshots (id, demo_id, screenshot_id, sort_order, created_at)
+             VALUES (?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.demo_id)
+        .bind(&new.screenshot_id)
+        .bind(sort_order)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, DemoScreenshot>("SELECT * FROM demo_screenshots WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn remove_demo_screenshot(&self, demo_id: &str, screenshot_id: &str) -> Result<(), TakaError> {
+        sqlx::query("DELETE FROM demo_screenshots WHERE demo_id = ? AND screenshot_id = ?")
+            .bind(demo_id)
+            .bind(screenshot_id)
             .execute(&self.pool)
             .await?;
         Ok(())

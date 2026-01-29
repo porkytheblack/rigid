@@ -97,6 +97,10 @@ import type {
   DemoBlurClip,
   NewDemoBlurClip,
   UpdateDemoBlurClip,
+  DemoRecording,
+  NewDemoRecording,
+  DemoScreenshot,
+  NewDemoScreenshot,
 } from './types';
 
 // =============================================================================
@@ -245,23 +249,26 @@ export interface AudioDevice {
 export interface RecordingOptions {
   explorationId?: string | null;  // Frontend uses explorationId
   testId?: string | null;  // Backend uses testId (legacy alias)
+  appId?: string | null;  // App ID for app-level recordings (without exploration)
   name?: string | null;
   windowId?: number | null;
   bounds?: WindowBounds | null;
   displayId?: number | null;
   audioDevice?: string | null;  // "none", "system", or device ID
   showCursor?: boolean;
+  recordWebcam?: boolean;  // Record webcam alongside screen
 }
 
 // Capture commands
 export const capture = {
-  screenshot: (explorationId?: string | null, title?: string | null) =>
-    invoke<Screenshot>('capture_screenshot', { testId: explorationId, title }),
+  screenshot: (appId?: string | null, explorationId?: string | null, title?: string | null) =>
+    invoke<Screenshot>('capture_screenshot', { appId, testId: explorationId, title }),
 
-  fullscreenScreenshot: (explorationId?: string | null, title?: string | null) =>
-    invoke<Screenshot>('capture_fullscreen_screenshot', { testId: explorationId, title }),
+  fullscreenScreenshot: (appId?: string | null, explorationId?: string | null, title?: string | null) =>
+    invoke<Screenshot>('capture_fullscreen_screenshot', { appId, testId: explorationId, title }),
 
   windowScreenshot: (
+    appId: string | null,
     explorationId: string | null,
     title: string | null,
     windowOwner: string,
@@ -269,6 +276,7 @@ export const capture = {
     windowId?: number | null
   ) =>
     invoke<Screenshot>('capture_window_screenshot', {
+      appId,
       testId: explorationId,
       title,
       windowOwner,
@@ -287,6 +295,7 @@ export const capture = {
 
   startRecording: (options: RecordingOptions = {}) =>
     invoke<Recording>('start_recording', {
+      appId: options.appId ?? null,
       testId: options.explorationId ?? options.testId ?? null,
       name: options.name ?? null,
       windowId: options.windowId ?? null,
@@ -297,6 +306,7 @@ export const capture = {
       displayId: options.displayId ?? null,
       audioDevice: options.audioDevice ?? null,
       showCursor: options.showCursor ?? null,
+      recordWebcam: options.recordWebcam ?? null,
     }),
 
   stopRecording: () =>
@@ -806,6 +816,7 @@ export interface HighQualityRecordingOptions extends RecordingOptions {
 
 /** Extended screenshot options with native capture settings */
 export interface HighQualityScreenshotOptions {
+  appId?: string | null;
   explorationId?: string | null;
   title?: string | null;
   windowId?: number | null;
@@ -835,6 +846,7 @@ const nativeCaptureRaw = {
 
   // Recording (macOS only)
   startRecording: (
+    appId: string | null,
     testId: string | null,
     name: string | null,
     windowId: number | null,
@@ -851,6 +863,7 @@ const nativeCaptureRaw = {
     } | null
   ) =>
     invoke<Recording>('start_native_recording', {
+      appId,
       testId,
       name,
       windowId,
@@ -876,6 +889,7 @@ const nativeCaptureRaw = {
 
   // Screenshot (macOS only)
   captureScreenshot: (
+    appId: string | null,
     testId: string | null,
     title: string | null,
     windowId: number | null,
@@ -887,6 +901,7 @@ const nativeCaptureRaw = {
     } | null
   ) =>
     invoke<Screenshot>('capture_native_screenshot', {
+      appId,
       testId,
       title,
       windowId,
@@ -1015,6 +1030,7 @@ export const nativeCapture = {
         } : null;
 
         return await nativeCaptureRaw.startRecording(
+          options.appId ?? null,
           options.explorationId ?? options.testId ?? null,
           options.name ?? null,
           options.windowId ?? null,
@@ -1132,6 +1148,7 @@ export const nativeCapture = {
         } : null;
 
         return await nativeCaptureRaw.captureScreenshot(
+          options.appId ?? null,
           options.explorationId ?? null,
           options.title ?? null,
           options.windowId ?? null,
@@ -1151,6 +1168,7 @@ export const nativeCapture = {
       const window = windows.find(w => w.window_id === options.windowId || w.id === options.windowId);
       if (window) {
         return capture.windowScreenshot(
+          options.appId ?? null,
           options.explorationId ?? null,
           options.title ?? null,
           window.owner,
@@ -1162,11 +1180,11 @@ export const nativeCapture = {
 
     if (options.displayId || options.region) {
       // Full screen for display/region (legacy doesn't support region crop)
-      return capture.fullscreenScreenshot(options.explorationId, options.title);
+      return capture.fullscreenScreenshot(options.appId ?? null, options.explorationId ?? null, options.title ?? null);
     }
 
     // Interactive selection
-    return capture.screenshot(options.explorationId, options.title);
+    return capture.screenshot(options.appId ?? null, options.explorationId ?? null, options.title ?? null);
   },
 };
 
@@ -1226,6 +1244,20 @@ export const demoAssets = {
   delete: async (id: string) => await invoke<void>('demo_assets_delete', { id }),
 };
 
+export const demoRecordings = {
+  list: async (demoId: string) => await invoke<DemoRecording[]>('demo_recordings_list', { demoId }),
+  listWithData: async (demoId: string) => await invoke<Recording[]>('demo_recordings_list_with_data', { demoId }),
+  add: async (data: NewDemoRecording) => await invoke<DemoRecording>('demo_recordings_add', { data }),
+  remove: async (demoId: string, recordingId: string) => await invoke<void>('demo_recordings_remove', { demoId, recordingId }),
+};
+
+export const demoScreenshots = {
+  list: async (demoId: string) => await invoke<DemoScreenshot[]>('demo_screenshots_list', { demoId }),
+  listWithData: async (demoId: string) => await invoke<Screenshot[]>('demo_screenshots_list_with_data', { demoId }),
+  add: async (data: NewDemoScreenshot) => await invoke<DemoScreenshot>('demo_screenshots_add', { data }),
+  remove: async (demoId: string, screenshotId: string) => await invoke<void>('demo_screenshots_remove', { demoId, screenshotId }),
+};
+
 export const demoExport = {
   start: async (demoId: string, config: DemoExportConfig) => await invoke<string>('demo_export_start', { demoId, config }),
   progress: async (exportId: string) => await invoke<{ progress: number; status: string }>('demo_export_progress', { exportId }),
@@ -1256,4 +1288,8 @@ export type {
   NewDemoAsset,
   UpdateDemoAsset,
   DemoExportConfig,
+  DemoRecording,
+  NewDemoRecording,
+  DemoScreenshot,
+  NewDemoScreenshot,
 } from './types';

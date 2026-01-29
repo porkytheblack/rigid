@@ -92,6 +92,7 @@ pub async fn trim_video(
         name: None,
         status: None,
         recording_path: Some(final_output.to_string_lossy().to_string()),
+        webcam_path: None,
         duration_ms: Some(duration_ms),
         thumbnail_path: None,
     }).await?;
@@ -127,6 +128,7 @@ pub async fn cut_video(
 
     // Create a new recording entry first
     let new_recording = repo.create(crate::models::recording::NewRecording {
+        app_id: source_recording.app_id.clone(),
         test_id: source_recording.test_id.clone(),
         name: new_name.clone(),
     }).await?;
@@ -182,6 +184,7 @@ pub async fn cut_video(
         name: None,
         status: Some("completed".to_string()),
         recording_path: Some(output_path.to_string_lossy().to_string()),
+        webcam_path: None,
         duration_ms: Some(duration_ms),
         thumbnail_path: None,
     }).await?;

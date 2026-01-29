@@ -20,10 +20,11 @@ impl RecordingRepository {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
-            "INSERT INTO recordings (id, test_id, name, status, created_at, updated_at)
-             VALUES (?, ?, ?, 'ready', ?, ?)"
+            "INSERT INTO recordings (id, app_id, test_id, name, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'ready', ?, ?)"
         )
         .bind(&id)
+        .bind(&new.app_id)
         .bind(&new.test_id)
         .bind(&new.name)
         .bind(&now)
@@ -46,32 +47,25 @@ impl RecordingRepository {
     }
 
     pub async fn list(&self, filter: RecordingFilter) -> Result<Vec<Recording>, TakaError> {
-        let mut sql = String::from("SELECT r.* FROM recordings r");
+        let mut sql = String::from("SELECT * FROM recordings WHERE 1=1");
         let mut bindings: Vec<String> = Vec::new();
 
-        // Join with tests table if filtering by app_id
-        if filter.app_id.is_some() {
-            sql.push_str(" LEFT JOIN tests t ON r.test_id = t.id WHERE 1=1");
-        } else {
-            sql.push_str(" WHERE 1=1");
-        }
-
         if let Some(ref test_id) = filter.test_id {
-            sql.push_str(" AND r.test_id = ?");
+            sql.push_str(" AND test_id = ?");
             bindings.push(test_id.clone());
         }
 
         if let Some(ref app_id) = filter.app_id {
-            sql.push_str(" AND t.app_id = ?");
+            sql.push_str(" AND app_id = ?");
             bindings.push(app_id.clone());
         }
 
         if let Some(ref status) = filter.status {
-            sql.push_str(" AND r.status = ?");
+            sql.push_str(" AND status = ?");
             bindings.push(status.clone());
         }
 
-        sql.push_str(" ORDER BY r.created_at DESC");
+        sql.push_str(" ORDER BY created_at DESC");
 
         if let Some(limit) = filter.limit {
             sql.push_str(&format!(" LIMIT {}", limit));
@@ -113,6 +107,7 @@ impl RecordingRepository {
                 name = COALESCE(?, name),
                 status = COALESCE(?, status),
                 recording_path = COALESCE(?, recording_path),
+                webcam_path = COALESCE(?, webcam_path),
                 duration_ms = COALESCE(?, duration_ms),
                 thumbnail_path = COALESCE(?, thumbnail_path),
                 updated_at = ?
@@ -121,6 +116,7 @@ impl RecordingRepository {
         .bind(&updates.name)
         .bind(&updates.status)
         .bind(&updates.recording_path)
+        .bind(&updates.webcam_path)
         .bind(&updates.duration_ms)
         .bind(&updates.thumbnail_path)
         .bind(&now)

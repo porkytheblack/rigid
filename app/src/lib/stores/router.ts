@@ -9,6 +9,7 @@ export type Route =
   | { name: 'diagram-editor'; appId: string; explorationId: string; diagramId: string }
   | { name: 'architecture-doc'; appId: string; docId: string }
   | { name: 'architecture-diagram-editor'; appId: string; docId: string; diagramId: string }
+  | { name: 'demo-view'; appId: string; demoId: string }
   | { name: 'demo-editor'; appId: string; demoId: string }
   | { name: 'settings' };
 

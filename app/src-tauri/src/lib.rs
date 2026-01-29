@@ -318,6 +318,16 @@ pub fn run() {
             commands::demo_assets_create,
             commands::demo_assets_update,
             commands::demo_assets_delete,
+            // Demo recording link commands
+            commands::demo_recordings_list,
+            commands::demo_recordings_list_with_data,
+            commands::demo_recordings_add,
+            commands::demo_recordings_remove,
+            // Demo screenshot link commands
+            commands::demo_screenshots_list,
+            commands::demo_screenshots_list_with_data,
+            commands::demo_screenshots_add,
+            commands::demo_screenshots_remove,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

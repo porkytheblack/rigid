@@ -85,10 +85,11 @@ CREATE TABLE IF NOT EXISTS checklist_items (
     updated_at TEXT NOT NULL
 );
 
--- Screenshots (captured images per test)
+-- Screenshots (captured images - can belong to app directly or through exploration/test)
 CREATE TABLE IF NOT EXISTS screenshots (
     id TEXT PRIMARY KEY,
-    test_id TEXT REFERENCES tests(id) ON DELETE CASCADE,
+    app_id TEXT REFERENCES apps(id) ON DELETE CASCADE,
+    test_id TEXT REFERENCES tests(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     description TEXT,
     image_path TEXT NOT NULL,
@@ -127,13 +128,15 @@ CREATE TABLE IF NOT EXISTS screenshot_markers (
     updated_at TEXT NOT NULL
 );
 
--- Recordings (screen recordings per test)
+-- Recordings (screen recordings - can belong to app directly or through exploration/test)
 CREATE TABLE IF NOT EXISTS recordings (
     id TEXT PRIMARY KEY,
-    test_id TEXT REFERENCES tests(id) ON DELETE CASCADE,
+    app_id TEXT REFERENCES apps(id) ON DELETE CASCADE,
+    test_id TEXT REFERENCES tests(id) ON DELETE SET NULL,
     name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'ready',
     recording_path TEXT,
+    webcam_path TEXT,
     duration_ms INTEGER,
     thumbnail_path TEXT,
     created_at TEXT NOT NULL,
@@ -199,6 +202,7 @@ CREATE INDEX IF NOT EXISTS idx_checklist_test ON checklist_items(test_id);
 CREATE INDEX IF NOT EXISTS idx_checklist_status ON checklist_items(status);
 CREATE INDEX IF NOT EXISTS idx_checklist_sort ON checklist_items(sort_order);
 
+CREATE INDEX IF NOT EXISTS idx_screenshots_app ON screenshots(app_id);
 CREATE INDEX IF NOT EXISTS idx_screenshots_test ON screenshots(test_id);
 CREATE INDEX IF NOT EXISTS idx_screenshots_created ON screenshots(created_at DESC);
 
@@ -214,6 +218,7 @@ CREATE INDEX IF NOT EXISTS idx_document_blocks_sort ON document_blocks(sort_orde
 CREATE INDEX IF NOT EXISTS idx_exploration_todos_test ON exploration_todos(test_id);
 CREATE INDEX IF NOT EXISTS idx_exploration_todos_sort ON exploration_todos(sort_order);
 
+CREATE INDEX IF NOT EXISTS idx_recordings_app ON recordings(app_id);
 CREATE INDEX IF NOT EXISTS idx_recordings_test ON recordings(test_id);
 CREATE INDEX IF NOT EXISTS idx_recordings_status ON recordings(status);
 CREATE INDEX IF NOT EXISTS idx_recordings_created ON recordings(created_at DESC);
@@ -486,6 +491,26 @@ CREATE TABLE IF NOT EXISTS demo_assets (
     created_at TEXT NOT NULL
 );
 
+-- Demo recordings (link table to associate recordings with demos)
+CREATE TABLE IF NOT EXISTS demo_recordings (
+    id TEXT PRIMARY KEY,
+    demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+    recording_id TEXT NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    UNIQUE(demo_id, recording_id)
+);
+
+-- Demo screenshots (link table to associate screenshots with demos)
+CREATE TABLE IF NOT EXISTS demo_screenshots (
+    id TEXT PRIMARY KEY,
+    demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+    screenshot_id TEXT NOT NULL REFERENCES screenshots(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    UNIQUE(demo_id, screenshot_id)
+);
+
 -- Demo indexes
 CREATE INDEX IF NOT EXISTS idx_demos_app ON demos(app_id);
 CREATE INDEX IF NOT EXISTS idx_demos_created ON demos(created_at DESC);
@@ -497,3 +522,7 @@ CREATE INDEX IF NOT EXISTS idx_demo_clips_start ON demo_clips(start_time_ms);
 CREATE INDEX IF NOT EXISTS idx_demo_zoom_clips_track ON demo_zoom_clips(track_id);
 CREATE INDEX IF NOT EXISTS idx_demo_blur_clips_track ON demo_blur_clips(track_id);
 CREATE INDEX IF NOT EXISTS idx_demo_assets_demo ON demo_assets(demo_id);
+CREATE INDEX IF NOT EXISTS idx_demo_recordings_demo ON demo_recordings(demo_id);
+CREATE INDEX IF NOT EXISTS idx_demo_recordings_recording ON demo_recordings(recording_id);
+CREATE INDEX IF NOT EXISTS idx_demo_screenshots_demo ON demo_screenshots(demo_id);
+CREATE INDEX IF NOT EXISTS idx_demo_screenshots_screenshot ON demo_screenshots(screenshot_id);

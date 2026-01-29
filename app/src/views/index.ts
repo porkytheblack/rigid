@@ -6,5 +6,6 @@ export { VideoEditorView } from './VideoEditorView';
 export { DiagramEditorView } from './DiagramEditorView';
 export { ArchitectureDocView } from './ArchitectureDocView';
 export { ArchitectureDiagramEditorView } from './ArchitectureDiagramEditorView';
+export { DemoView } from './DemoView';
 export { DemoEditorView } from './DemoEditorView';
 export { SettingsView } from './SettingsView';

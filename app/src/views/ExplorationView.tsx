@@ -358,12 +358,27 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
     await loadWindows();
   };
 
+  // Close window picker and clean up any pending state
+  const handleCloseWindowPicker = () => {
+    setShowWindowPicker(false);
+    // Reset any capture state if we were in the middle of something
+    if (capturing) {
+      setCapturing(false);
+      addToast({
+        type: "info",
+        title: "Screenshot cancelled",
+        description: "The screenshot capture was cancelled.",
+      });
+    }
+  };
+
   const handleCaptureWindow = async (window: WindowInfo) => {
     if (pickerMode === "screenshot") {
       setShowWindowPicker(false);
       setCapturing(true);
       try {
         await captureCommands.windowScreenshot(
+          appId, // App ID for screenshots linked to this exploration
           explorationId,
           `${window.owner} - ${window.name}`,
           window.owner,
@@ -371,8 +386,28 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
           window.window_id
         );
         loadScreenshots({ test_id: explorationId });
+        addToast({
+          type: "success",
+          title: "Screenshot captured",
+          description: "The screenshot has been saved.",
+        });
       } catch (err) {
-        console.error("Failed to capture window screenshot:", err);
+        const errorMessage = String(err);
+        // Check if this was a user cancellation (e.g., pressing Escape)
+        if (errorMessage.includes("cancelled") || errorMessage.includes("canceled")) {
+          addToast({
+            type: "info",
+            title: "Screenshot cancelled",
+            description: "The screenshot capture was cancelled.",
+          });
+        } else {
+          console.error("Failed to capture window screenshot:", err);
+          addToast({
+            type: "error",
+            title: "Screenshot failed",
+            description: "Could not capture the screenshot. Please try again.",
+          });
+        }
       } finally {
         setCapturing(false);
       }
@@ -396,6 +431,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
     try {
       if (selectedWindow) {
         await startRecording({
+          appId, // Include appId for app-level association
           explorationId,
           name: `${selectedWindow.owner} - ${selectedWindow.name}`,
           windowId: selectedWindow.window_id,
@@ -405,6 +441,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
         });
       } else if (selectedDisplay) {
         await startRecording({
+          appId, // Include appId for app-level association
           explorationId,
           name: selectedDisplay.name,
           displayId: selectedDisplay.id,
@@ -422,8 +459,14 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
 
   const handleCancelRecordingSetup = () => {
     setShowRecordingSetup(false);
+    setShowWindowPicker(false);
     setSelectedWindow(null);
     setSelectedDisplay(null);
+    addToast({
+      type: "info",
+      title: "Recording cancelled",
+      description: "The recording setup was cancelled.",
+    });
   };
 
   const handleStopRecording = async () => {
@@ -444,8 +487,18 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
     try {
       await cancelRecording();
       loadRecordings(explorationId);
+      addToast({
+        type: "info",
+        title: "Recording cancelled",
+        description: "The recording has been discarded.",
+      });
     } catch (err) {
       console.error("Failed to cancel recording:", err);
+      addToast({
+        type: "error",
+        title: "Cancel failed",
+        description: "Could not cancel the recording. Please try again.",
+      });
     }
   };
 
@@ -1309,13 +1362,13 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
 
       {/* Window Picker Modal */}
       {showWindowPicker && !showRecordingSetup && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowWindowPicker(false)}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={handleCloseWindowPicker}>
           <div className="w-full max-w-lg bg-[var(--surface-secondary)] border border-[var(--border-default)] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-[var(--border-default)]">
               <h2 className="text-[var(--text-heading-sm)] font-semibold text-[var(--text-primary)]">
                 {pickerMode === "screenshot" ? "Select Window to Capture" : "Select App to Record"}
               </h2>
-              <button onClick={() => setShowWindowPicker(false)} className="p-1.5 hover:bg-[var(--surface-hover)] text-[var(--text-secondary)]">
+              <button onClick={handleCloseWindowPicker} className="p-1.5 hover:bg-[var(--surface-hover)] text-[var(--text-secondary)]">
                 <X className="w-5 h-5" />
               </button>
             </div>

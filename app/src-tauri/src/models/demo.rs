@@ -380,6 +380,42 @@ pub struct UpdateDemoAsset {
     pub thumbnail_path: Option<String>,
 }
 
+// ============ Demo Recording Link ============
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DemoRecording {
+    pub id: String,
+    pub demo_id: String,
+    pub recording_id: String,
+    pub sort_order: i32,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NewDemoRecording {
+    pub demo_id: String,
+    pub recording_id: String,
+    pub sort_order: Option<i32>,
+}
+
+// ============ Demo Screenshot Link ============
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DemoScreenshot {
+    pub id: String,
+    pub demo_id: String,
+    pub screenshot_id: String,
+    pub sort_order: i32,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NewDemoScreenshot {
+    pub demo_id: String,
+    pub screenshot_id: String,
+    pub sort_order: Option<i32>,
+}
+
 // ============ Full Demo With Data ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

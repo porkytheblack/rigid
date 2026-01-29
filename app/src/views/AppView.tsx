@@ -138,7 +138,7 @@ export function AppView({ appId }: AppViewProps) {
     try {
       const demo = await createDemo({ app_id: appId, name, format });
       setShowCreateDemoModal(false);
-      navigate({ name: "demo-editor", appId, demoId: demo.id });
+      navigate({ name: "demo-view", appId, demoId: demo.id });
     } catch (err) {
       console.error("Failed to create demo:", err);
     }
@@ -402,7 +402,7 @@ export function AppView({ appId }: AppViewProps) {
                 {demos.map((demo) => (
                   <div
                     key={demo.id}
-                    onClick={() => navigate({ name: "demo-editor", appId, demoId: demo.id })}
+                    onClick={() => navigate({ name: "demo-view", appId, demoId: demo.id })}
                     className="group relative bg-[var(--surface-secondary)] border border-[var(--border-default)] p-6 hover:border-[var(--border-strong)] transition-all cursor-pointer"
                   >
                     {/* Icon Badge */}

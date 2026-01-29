@@ -6,7 +6,7 @@ use crate::error::TakaError;
 pub type DbPool = SqlitePool;
 
 const SCHEMA: &str = include_str!("schema.sql");
-const CURRENT_VERSION: i32 = 8;
+const CURRENT_VERSION: i32 = 11;
 
 /// Initialize the database connection and run migrations
 pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, TakaError> {
@@ -94,12 +94,27 @@ async fn run_migrations(pool: &DbPool) -> Result<(), TakaError> {
             run_v5_to_v6_migration(pool).await?;
             run_v6_to_v7_migration(pool).await?;
         } else if current_version == 6 {
-            // Run v6 to v7 migration only (fix test_id nullable)
+            // Run v6 to v7, v7 to v8, v8 to v9, then v9 to v10
             run_v6_to_v7_migration(pool).await?;
             run_v7_to_v8_migration(pool).await?;
+            run_v8_to_v9_migration(pool).await?;
+            run_v9_to_v10_migration(pool).await?;
         } else if current_version == 7 {
-            // Run v7 to v8 migration only (add demo tables)
+            // Run v7 to v8, v8 to v9, then v9 to v10
             run_v7_to_v8_migration(pool).await?;
+            run_v8_to_v9_migration(pool).await?;
+            run_v9_to_v10_migration(pool).await?;
+        } else if current_version == 8 {
+            // Run v8 to v9, then v9 to v10
+            run_v8_to_v9_migration(pool).await?;
+            run_v9_to_v10_migration(pool).await?;
+        } else if current_version == 9 {
+            // Run v9 to v10, then v10 to v11
+            run_v9_to_v10_migration(pool).await?;
+            run_v10_to_v11_migration(pool).await?;
+        } else if current_version == 10 {
+            // Run v10 to v11 migration only (add demo_recordings and demo_screenshots tables)
+            run_v10_to_v11_migration(pool).await?;
         } else {
             // Fresh install or from v1 - apply full schema
             for statement in SCHEMA.split(';') {
@@ -673,6 +688,109 @@ async fn run_v7_to_v8_migration(pool: &DbPool) -> Result<(), TakaError> {
         .execute(pool)
         .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_assets_demo ON demo_assets(demo_id)")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Migration from v8 to v9: Add app_id to screenshots and recordings tables
+/// This allows screenshots/recordings to exist independently of explorations (tests)
+async fn run_v8_to_v9_migration(pool: &DbPool) -> Result<(), TakaError> {
+    // Add app_id column to screenshots table
+    sqlx::query("ALTER TABLE screenshots ADD COLUMN app_id TEXT REFERENCES apps(id) ON DELETE CASCADE")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    // Add app_id column to recordings table
+    sqlx::query("ALTER TABLE recordings ADD COLUMN app_id TEXT REFERENCES apps(id) ON DELETE CASCADE")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    // Create indexes for app_id
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_screenshots_app ON screenshots(app_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_recordings_app ON recordings(app_id)")
+        .execute(pool)
+        .await?;
+
+    // Backfill app_id from test_id -> tests.app_id for existing records
+    sqlx::query(
+        "UPDATE screenshots SET app_id = (
+            SELECT t.app_id FROM tests t WHERE t.id = screenshots.test_id
+        ) WHERE test_id IS NOT NULL AND app_id IS NULL"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "UPDATE recordings SET app_id = (
+            SELECT t.app_id FROM tests t WHERE t.id = recordings.test_id
+        ) WHERE test_id IS NOT NULL AND app_id IS NULL"
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Migration from v9 to v10: Add webcam_path to recordings table
+/// This allows storing webcam recordings alongside screen recordings
+async fn run_v9_to_v10_migration(pool: &DbPool) -> Result<(), TakaError> {
+    // Add webcam_path column to recordings table
+    sqlx::query("ALTER TABLE recordings ADD COLUMN webcam_path TEXT")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    Ok(())
+}
+
+/// Migration from v10 to v11: Add demo_recordings and demo_screenshots link tables
+/// This allows associating recordings and screenshots with specific demos
+async fn run_v10_to_v11_migration(pool: &DbPool) -> Result<(), TakaError> {
+    // Demo recordings link table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_recordings (
+            id TEXT PRIMARY KEY,
+            demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+            recording_id TEXT NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            UNIQUE(demo_id, recording_id)
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Demo screenshots link table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_screenshots (
+            id TEXT PRIMARY KEY,
+            demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+            screenshot_id TEXT NOT NULL REFERENCES screenshots(id) ON DELETE CASCADE,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            UNIQUE(demo_id, screenshot_id)
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Create indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_recordings_demo ON demo_recordings(demo_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_recordings_recording ON demo_recordings(recording_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_screenshots_demo ON demo_screenshots(demo_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_screenshots_screenshot ON demo_screenshots(screenshot_id)")
         .execute(pool)
         .await?;
 
