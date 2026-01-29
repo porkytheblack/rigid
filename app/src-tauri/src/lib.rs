@@ -158,6 +158,8 @@ pub fn run() {
             commands::list_windows,
             commands::list_displays,
             commands::list_audio_devices,
+            commands::list_webcam_audio_devices,
+            commands::list_webcam_video_devices,
             commands::start_recording,
             commands::stop_recording,
             commands::is_recording,
@@ -165,6 +167,11 @@ pub fn run() {
             commands::cancel_recording,
             commands::export_asset,
             commands::open_privacy_settings,
+            // Permission commands
+            commands::check_camera_permission,
+            commands::request_camera_permission,
+            commands::check_microphone_permission,
+            commands::request_microphone_permission,
             // Native capture commands (ScreenCaptureKit)
             commands::check_native_capture_permission,
             commands::request_native_capture_permission,

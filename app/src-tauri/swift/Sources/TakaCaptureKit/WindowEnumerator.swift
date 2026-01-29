@@ -28,20 +28,34 @@ class WindowEnumerator {
 
     /// List all capturable windows using ScreenCaptureKit
     static func listWindows() async throws -> [WindowInfo] {
+        print("WindowEnumerator: Fetching shareable content...")
+
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
 
+        print("WindowEnumerator: Raw content has \(content.windows.count) windows, \(content.displays.count) displays, \(content.applications.count) apps")
+
         var windows: [WindowInfo] = []
+        var skippedNoTitle = 0
+        var skippedNoApp = 0
+        var skippedSystem = 0
 
         for window in content.windows {
             // Skip windows without titles or from system processes
-            guard let title = window.title, !title.isEmpty else { continue }
-            guard let app = window.owningApplication else { continue }
+            guard let title = window.title, !title.isEmpty else {
+                skippedNoTitle += 1
+                continue
+            }
+            guard let app = window.owningApplication else {
+                skippedNoApp += 1
+                continue
+            }
 
             // Skip Dock, SystemUIServer, and other system UI elements
             let bundleID = app.bundleIdentifier ?? ""
             if bundleID == "com.apple.dock" ||
                bundleID == "com.apple.SystemUIServer" ||
                bundleID == "com.apple.WindowManager" {
+                skippedSystem += 1
                 continue
             }
 
@@ -56,6 +70,8 @@ class WindowEnumerator {
                 backingScaleFactor: backingScale
             ))
         }
+
+        print("WindowEnumerator: Returning \(windows.count) windows (skipped: \(skippedNoTitle) no title, \(skippedNoApp) no app, \(skippedSystem) system)")
 
         return windows
     }

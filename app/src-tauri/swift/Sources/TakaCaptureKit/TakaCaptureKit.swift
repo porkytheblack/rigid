@@ -110,7 +110,18 @@ public func takaCaptureRequestPermission() {
 @_cdecl("taka_capture_list_windows_json")
 public func takaCaptureListWindowsJson() -> UnsafeMutablePointer<CChar>? {
     guard #available(macOS 12.3, *) else {
+        print("TakaCaptureKit: macOS 12.3+ required for window listing")
         return strdup("[]")
+    }
+
+    // Check if we have screen capture permission
+    let hasPermission = CGPreflightScreenCaptureAccess()
+    print("TakaCaptureKit: Screen capture permission: \(hasPermission)")
+
+    if !hasPermission {
+        // Try to request permission (will open system dialog on first request)
+        print("TakaCaptureKit: Requesting screen capture permission...")
+        CGRequestScreenCaptureAccess()
     }
 
     var result: String = "[]"
@@ -118,7 +129,9 @@ public func takaCaptureListWindowsJson() -> UnsafeMutablePointer<CChar>? {
 
     Task {
         do {
+            print("TakaCaptureKit: Fetching shareable content...")
             let windows = try await WindowEnumerator.listWindows()
+            print("TakaCaptureKit: Found \(windows.count) windows")
 
             var jsonArray: [[String: Any]] = []
             for window in windows {
@@ -139,12 +152,19 @@ public func takaCaptureListWindowsJson() -> UnsafeMutablePointer<CChar>? {
                 result = jsonString
             }
         } catch {
+            print("TakaCaptureKit: Error listing windows: \(error)")
             result = "[]"
         }
         semaphore.signal()
     }
 
-    semaphore.wait()
+    // Wait with a timeout to avoid deadlocks
+    let timeout = semaphore.wait(timeout: .now() + 5.0)
+    if timeout == .timedOut {
+        print("TakaCaptureKit: Timeout waiting for window list")
+        return strdup("[]")
+    }
+
     return strdup(result)
 }
 
@@ -645,6 +665,227 @@ public func takaCaptureScreenshotRegion(
 
     semaphore.wait()
     return result
+}
+
+// MARK: - Webcam Recording
+
+// Global webcam recorder instance (separate from screen capture)
+private var globalWebcamRecorder: WebcamRecorder?
+private let webcamLock = NSLock()
+
+/// List available audio devices for webcam recording
+/// Returns JSON array: [{"index": "0", "name": "MacBook Pro Microphone"}, ...]
+@_cdecl("taka_webcam_list_audio_devices_json")
+public func takaWebcamListAudioDevicesJson() -> UnsafeMutablePointer<CChar>? {
+    let devices = listWebcamAudioDevices()
+
+    var jsonArray: [[String: Any]] = []
+
+    // Add "No Audio" option first
+    jsonArray.append([
+        "index": "none",
+        "name": "No Audio"
+    ])
+
+    for device in devices {
+        jsonArray.append([
+            "index": String(device.index),
+            "name": device.name
+        ])
+    }
+
+    if let jsonData = try? JSONSerialization.data(withJSONObject: jsonArray),
+       let jsonString = String(data: jsonData, encoding: .utf8) {
+        return strdup(jsonString)
+    }
+
+    return strdup("[]")
+}
+
+/// List available video devices (cameras) for webcam recording
+/// Returns JSON array: [{"index": "0", "name": "FaceTime HD Camera"}, ...]
+@_cdecl("taka_webcam_list_video_devices_json")
+public func takaWebcamListVideoDevicesJson() -> UnsafeMutablePointer<CChar>? {
+    let devices = listWebcamVideoDevices()
+
+    var jsonArray: [[String: Any]] = []
+
+    for device in devices {
+        jsonArray.append([
+            "index": String(device.index),
+            "name": device.name
+        ])
+    }
+
+    if let jsonData = try? JSONSerialization.data(withJSONObject: jsonArray),
+       let jsonString = String(data: jsonData, encoding: .utf8) {
+        return strdup(jsonString)
+    }
+
+    return strdup("[]")
+}
+
+/// Start webcam recording
+/// audioDeviceIndex: "none" for no audio, "0", "1", etc. for specific device
+/// videoDeviceIndex: nil for default camera, "0", "1", etc. for specific camera
+@_cdecl("taka_webcam_start_recording")
+public func takaWebcamStartRecording(
+    _ outputPath: UnsafePointer<CChar>?,
+    _ width: UInt32,
+    _ height: UInt32,
+    _ fps: UInt32,
+    _ bitrate: UInt32,
+    _ audioDeviceIndex: UnsafePointer<CChar>?,
+    _ videoDeviceIndex: UnsafePointer<CChar>?
+) -> Int32 {
+    guard let outputPath = outputPath else {
+        return 2 // Invalid config
+    }
+
+    webcamLock.lock()
+    defer { webcamLock.unlock() }
+
+    if globalWebcamRecorder != nil {
+        return 1 // Already recording
+    }
+
+    let pathString = String(cString: outputPath)
+    let outputURL = URL(fileURLWithPath: pathString)
+
+    var audioDeviceID: String? = nil
+    if let audioDeviceIndex = audioDeviceIndex {
+        audioDeviceID = String(cString: audioDeviceIndex)
+    }
+
+    var videoDeviceID: String? = nil
+    if let videoDeviceIndex = videoDeviceIndex {
+        videoDeviceID = String(cString: videoDeviceIndex)
+    }
+
+    let captureAudio = audioDeviceID != "none"
+
+    let config = WebcamRecordingConfiguration(
+        width: Int(width > 0 ? width : 1280),
+        height: Int(height > 0 ? height : 720),
+        fps: Int(fps > 0 ? fps : 30),
+        bitrate: Int(bitrate > 0 ? bitrate : 4_000_000),
+        captureAudio: captureAudio,
+        audioDeviceID: audioDeviceID,
+        videoDeviceID: videoDeviceID
+    )
+
+    let recorder = WebcamRecorder(outputPath: outputURL, configuration: config)
+
+    do {
+        try recorder.start()
+        globalWebcamRecorder = recorder
+        return 0 // Success
+    } catch {
+        print("WebcamRecorder: Failed to start: \(error)")
+        return 3 // Recording failed
+    }
+}
+
+/// Stop webcam recording
+@_cdecl("taka_webcam_stop_recording")
+public func takaWebcamStopRecording() -> Int32 {
+    webcamLock.lock()
+    defer { webcamLock.unlock() }
+
+    guard let recorder = globalWebcamRecorder else {
+        return 5 // Not recording
+    }
+
+    do {
+        try recorder.stop()
+        globalWebcamRecorder = nil
+        return 0 // Success
+    } catch {
+        print("WebcamRecorder: Failed to stop: \(error)")
+        globalWebcamRecorder = nil
+        return 3 // Failed
+    }
+}
+
+/// Cancel webcam recording (deletes partial file)
+@_cdecl("taka_webcam_cancel_recording")
+public func takaWebcamCancelRecording() -> Int32 {
+    webcamLock.lock()
+    defer { webcamLock.unlock() }
+
+    guard let recorder = globalWebcamRecorder else {
+        return 5 // Not recording
+    }
+
+    recorder.cancel()
+    globalWebcamRecorder = nil
+    return 0
+}
+
+/// Check if webcam is currently recording
+@_cdecl("taka_webcam_is_recording")
+public func takaWebcamIsRecording() -> Bool {
+    webcamLock.lock()
+    defer { webcamLock.unlock() }
+    return globalWebcamRecorder?.isRecording ?? false
+}
+
+/// Get webcam recording duration in milliseconds
+@_cdecl("taka_webcam_get_recording_duration_ms")
+public func takaWebcamGetRecordingDurationMs() -> Int64 {
+    webcamLock.lock()
+    defer { webcamLock.unlock() }
+    return globalWebcamRecorder?.recordingDurationMs ?? 0
+}
+
+/// Check camera permission status
+/// Returns: 0 = notDetermined, 1 = restricted, 2 = denied, 3 = authorized
+@_cdecl("taka_check_camera_permission")
+public func takaCheckCameraPermission() -> Int32 {
+    let status = AVCaptureDevice.authorizationStatus(for: .video)
+    return Int32(status.rawValue)
+}
+
+/// Request camera permission
+/// Triggers the system permission dialog if not yet determined
+/// Returns immediately - check permission status after to see result
+@_cdecl("taka_request_camera_permission")
+public func takaRequestCameraPermission() {
+    let status = AVCaptureDevice.authorizationStatus(for: .video)
+    print("TakaCaptureKit: Camera permission status before request: \(status.rawValue)")
+
+    if status == .notDetermined {
+        print("TakaCaptureKit: Requesting camera permission...")
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            print("TakaCaptureKit: Camera permission request result: \(granted)")
+        }
+    } else {
+        print("TakaCaptureKit: Camera permission already determined: \(status.rawValue)")
+    }
+}
+
+/// Check microphone permission status
+/// Returns: 0 = notDetermined, 1 = restricted, 2 = denied, 3 = authorized
+@_cdecl("taka_check_microphone_permission")
+public func takaCheckMicrophonePermission() -> Int32 {
+    let status = AVCaptureDevice.authorizationStatus(for: .audio)
+    return Int32(status.rawValue)
+}
+
+/// Request microphone permission
+@_cdecl("taka_request_microphone_permission")
+public func takaRequestMicrophonePermission() {
+    let status = AVCaptureDevice.authorizationStatus(for: .audio)
+    print("TakaCaptureKit: Microphone permission status before request: \(status.rawValue)")
+
+    if status == .notDetermined {
+        print("TakaCaptureKit: Requesting microphone permission...")
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
+            print("TakaCaptureKit: Microphone permission request result: \(granted)")
+        }
+    } else {
+        print("TakaCaptureKit: Microphone permission already determined: \(status.rawValue)")
+    }
 }
 
 // MARK: - Helpers

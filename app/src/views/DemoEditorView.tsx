@@ -42,7 +42,8 @@ import {
   Circle,
   Link2,
 } from "lucide-react";
-import { useRouterStore, useDemosStore, useRecordingsStore, useScreenshotsStore } from "@/lib/stores";
+import { useRouterStore, useDemosStore } from "@/lib/stores";
+import { demoRecordings, demoScreenshots } from "@/lib/tauri/commands";
 import type { DemoTrackType, DemoClip, DemoTrack, DemoAsset, DemoBackground, DemoZoomClip, DemoBlurClip, Recording, Screenshot, DemoFormat } from "@/lib/tauri/types";
 import { DEMO_FORMAT_DIMENSIONS } from "@/lib/tauri/types";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -152,9 +153,9 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
     updateDemoInfo,
   } = useDemosStore();
 
-  // Get recordings and screenshots from the app
-  const { items: recordings, loadByApp: loadRecordings } = useRecordingsStore();
-  const { items: screenshots, loadByApp: loadScreenshots } = useScreenshotsStore();
+  // Get recordings and screenshots linked to this demo
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
 
   // Local UI state
   const [showAssets, setShowAssets] = useState(true);
@@ -211,15 +212,14 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
-  const playbackIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const draggedAssetRef = useRef<DemoAsset | null>(null); // Ref to persist dragged asset across event timing
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map()); // Audio elements for audio clips
-  const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map()); // Video elements for muted state sync
+  const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map()); // Video elements for multi-track sync
 
-  // Navigate back to app
+  // Navigate back to demo view
   const goBack = useCallback(() => {
-    navigate({ name: "app", appId });
-  }, [navigate, appId]);
+    navigate({ name: "demo-view", appId, demoId });
+  }, [navigate, appId, demoId]);
 
   // Load demo on mount
   useEffect(() => {
@@ -232,146 +232,194 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
     }
   }, [demoId, loadDemo, demos]);
 
-  // Load app recordings and screenshots
+  // Load recordings and screenshots linked to this demo
   useEffect(() => {
-    if (appId) {
-      loadRecordings(appId);
-      loadScreenshots(appId);
+    if (demoId) {
+      demoRecordings.listWithData(demoId).then(setRecordings).catch(console.error);
+      demoScreenshots.listWithData(demoId).then(setScreenshots).catch(console.error);
     }
-  }, [appId, loadRecordings, loadScreenshots]);
+  }, [demoId]);
 
-  // Use refs for values needed in the interval to avoid stale closures
+  // Use refs for real-time playback position to avoid triggering effects every frame
   const playbackStateRef = useRef({ currentTimeMs: 0, durationMs: 60000 });
-  useEffect(() => {
-    playbackStateRef.current = { currentTimeMs: playback.currentTimeMs, durationMs: playback.durationMs };
-  }, [playback.currentTimeMs, playback.durationMs]);
+  const rafIdRef = useRef<number | null>(null);
+  const lastUiUpdateRef = useRef<number>(0);
 
-  // Playback loop - only depends on isPlaying, not currentTimeMs
+  // Sync ref with store when user seeks (when not playing)
+  useEffect(() => {
+    if (!playback.isPlaying) {
+      playbackStateRef.current = { currentTimeMs: playback.currentTimeMs, durationMs: playback.durationMs };
+    }
+  }, [playback.currentTimeMs, playback.durationMs, playback.isPlaying]);
+
+  // Playback loop using requestAnimationFrame - updates Zustand sparingly (10fps for UI)
   useEffect(() => {
     if (playback.isPlaying) {
-      const startTime = Date.now();
+      const startTime = performance.now();
       const startPlaybackTime = playbackStateRef.current.currentTimeMs;
+      const durationMs = playback.durationMs;
 
-      playbackIntervalRef.current = setInterval(() => {
-        const elapsed = Date.now() - startTime;
+      const tick = (now: number) => {
+        const elapsed = now - startTime;
         const newTime = startPlaybackTime + elapsed;
 
-        if (newTime >= playbackStateRef.current.durationMs) {
+        if (newTime >= durationMs) {
+          // End of playback
+          playbackStateRef.current.currentTimeMs = 0;
           pause();
           seekTo(0);
-        } else {
+          return;
+        }
+
+        // Update the ref (real-time, no React re-render)
+        playbackStateRef.current.currentTimeMs = newTime;
+
+        // Update Zustand sparingly (every 100ms = 10fps) for UI elements like timeline cursor
+        if (now - lastUiUpdateRef.current > 100) {
+          lastUiUpdateRef.current = now;
           seekTo(newTime);
         }
-      }, 16.67);
-    } else if (playbackIntervalRef.current) {
-      clearInterval(playbackIntervalRef.current);
-      playbackIntervalRef.current = null;
+
+        rafIdRef.current = requestAnimationFrame(tick);
+      };
+
+      rafIdRef.current = requestAnimationFrame(tick);
+    } else {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
     }
 
     return () => {
-      if (playbackIntervalRef.current) {
-        clearInterval(playbackIntervalRef.current);
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
       }
     };
-  }, [playback.isPlaying, pause, seekTo]);
+  }, [playback.isPlaying, playback.durationMs, pause, seekTo]);
 
   // Track when we last synced video to avoid constant seeking during playback
   const lastVideoSyncRef = useRef<{ clipId: string | null; wasPlaying: boolean }>({ clipId: null, wasPlaying: false });
 
-  // Sync video preview with playback
+  // Sync video preview on play/pause transitions (NOT every frame)
   useEffect(() => {
-    if (videoPreviewRef.current && currentDemo) {
-      const video = videoPreviewRef.current;
+    if (!videoPreviewRef.current || !currentDemo) return;
+    const video = videoPreviewRef.current;
 
-      // Find the current video clip to get its in_point and start_time
-      // Use >= for end time to avoid 1-frame gaps at clip boundaries
-      const allVideoClips = currentDemo.clips.filter(clip => {
-        if (clip.source_type !== "video") return false;
-        const track = currentDemo.tracks.find(t => t.id === clip.track_id);
-        return track && track.visible;
-      });
+    // Get current time from ref (real-time) not from store
+    const currentTimeMs = playbackStateRef.current.currentTimeMs;
 
-      let currentClip = allVideoClips.find(clip =>
-        clip.start_time_ms <= playback.currentTimeMs &&
-        clip.start_time_ms + clip.duration_ms >= playback.currentTimeMs
-      );
+    // Find the current video clip
+    const allVideoClips = currentDemo.clips.filter(clip => {
+      if (clip.source_type !== "video") return false;
+      const track = currentDemo.tracks.find(t => t.id === clip.track_id);
+      return track && track.visible;
+    });
 
-      // If no clip at current time, find nearest clip to fill the gap
-      let effectiveTimeMs = playback.currentTimeMs;
-      let isGapFill = false;
+    let currentClip = allVideoClips.find(clip =>
+      clip.start_time_ms <= currentTimeMs &&
+      clip.start_time_ms + clip.duration_ms >= currentTimeMs
+    );
 
-      if (!currentClip && allVideoClips.length > 0) {
-        const clipsBefore = allVideoClips
-          .filter(c => c.start_time_ms + c.duration_ms < playback.currentTimeMs)
-          .sort((a, b) => (b.start_time_ms + b.duration_ms) - (a.start_time_ms + a.duration_ms));
-        const clipsAfter = allVideoClips
-          .filter(c => c.start_time_ms > playback.currentTimeMs)
-          .sort((a, b) => a.start_time_ms - b.start_time_ms);
+    // Gap fill logic for when no clip at current time
+    let effectiveTimeMs = currentTimeMs;
+    let isGapFill = false;
 
-        if (clipsBefore.length > 0) {
-          currentClip = clipsBefore[0];
-          effectiveTimeMs = currentClip.start_time_ms + currentClip.duration_ms - 1;
-          isGapFill = true;
-        } else if (clipsAfter.length > 0) {
-          currentClip = clipsAfter[0];
-          effectiveTimeMs = currentClip.start_time_ms;
-          isGapFill = true;
-        }
-      }
+    if (!currentClip && allVideoClips.length > 0) {
+      const clipsBefore = allVideoClips
+        .filter(c => c.start_time_ms + c.duration_ms < currentTimeMs)
+        .sort((a, b) => (b.start_time_ms + b.duration_ms) - (a.start_time_ms + a.duration_ms));
+      const clipsAfter = allVideoClips
+        .filter(c => c.start_time_ms > currentTimeMs)
+        .sort((a, b) => a.start_time_ms - b.start_time_ms);
 
-      if (currentClip) {
-        // Calculate the video time based on clip's in_point and timeline position
-        const clipRelativeTime = effectiveTimeMs - currentClip.start_time_ms;
-        const videoTime = ((currentClip.in_point_ms || 0) + clipRelativeTime) / 1000;
-
-        // Detect state changes that require seeking
-        const clipChanged = lastVideoSyncRef.current.clipId !== currentClip.id;
-        const playStateChanged = lastVideoSyncRef.current.wasPlaying !== playback.isPlaying;
-        const timeDrift = Math.abs(video.currentTime - videoTime);
-
-        // Only seek in these cases to avoid choppy audio:
-        // 1. Clip changed (switched to different video)
-        // 2. Started playing (user pressed play)
-        // 3. Not playing and time drifted (user is scrubbing)
-        // 4. Playing but drifted more than 0.5s (significant desync)
-        // 5. Gap fill mode (always seek to show correct frozen frame)
-        const shouldSeek = clipChanged ||
-                          (playStateChanged && playback.isPlaying) ||
-                          (!playback.isPlaying && timeDrift > 0.05) ||
-                          (playback.isPlaying && timeDrift > 0.5) ||
-                          isGapFill;
-
-        if (shouldSeek) {
-          video.currentTime = videoTime;
-        }
-
-        // Update tracking ref
-        lastVideoSyncRef.current = { clipId: currentClip.id, wasPlaying: playback.isPlaying };
-
-        // Sync play/pause state - during gap fill, always pause (show frozen frame)
-        if (isGapFill) {
-          if (!video.paused) {
-            video.pause();
-          }
-        } else if (playback.isPlaying && video.paused) {
-          video.play().catch(() => {});
-        } else if (!playback.isPlaying && !video.paused) {
-          video.pause();
-        }
-
-        // Sync volume and muted state
-        video.volume = playback.volume;
-        // Mute if global mute is on OR if the current clip is muted (for split audio)
-        video.muted = playback.isMuted || (currentClip.muted ?? false);
-      } else {
-        // No clips at all, pause video
-        lastVideoSyncRef.current = { clipId: null, wasPlaying: playback.isPlaying };
-        if (!video.paused) {
-          video.pause();
-        }
+      if (clipsBefore.length > 0) {
+        currentClip = clipsBefore[0];
+        effectiveTimeMs = currentClip.start_time_ms + currentClip.duration_ms - 1;
+        isGapFill = true;
+      } else if (clipsAfter.length > 0) {
+        currentClip = clipsAfter[0];
+        effectiveTimeMs = currentClip.start_time_ms;
+        isGapFill = true;
       }
     }
-  }, [playback.currentTimeMs, playback.isPlaying, playback.volume, playback.isMuted, currentDemo]);
+
+    if (currentClip) {
+      const clipRelativeTime = effectiveTimeMs - currentClip.start_time_ms;
+      const videoTime = ((currentClip.in_point_ms || 0) + clipRelativeTime) / 1000;
+
+      // Sync time when starting playback
+      const playStateChanged = lastVideoSyncRef.current.wasPlaying !== playback.isPlaying;
+      if (playStateChanged && playback.isPlaying) {
+        video.currentTime = videoTime;
+      }
+
+      lastVideoSyncRef.current = { clipId: currentClip.id, wasPlaying: playback.isPlaying };
+
+      // Sync play/pause state
+      if (isGapFill) {
+        if (!video.paused) video.pause();
+      } else if (playback.isPlaying && video.paused) {
+        video.play().catch(() => {});
+      } else if (!playback.isPlaying && !video.paused) {
+        video.pause();
+      }
+
+      // Sync volume and muted
+      video.volume = playback.volume;
+      video.muted = playback.isMuted || (currentClip.muted ?? false);
+    } else {
+      lastVideoSyncRef.current = { clipId: null, wasPlaying: playback.isPlaying };
+      if (!video.paused) video.pause();
+    }
+  }, [playback.isPlaying, playback.volume, playback.isMuted, currentDemo]);
+
+  // Sync video preview when scrubbing (paused only)
+  useEffect(() => {
+    if (!videoPreviewRef.current || !currentDemo || playback.isPlaying) return;
+    const video = videoPreviewRef.current;
+
+    const currentTimeMs = playback.currentTimeMs;
+
+    const allVideoClips = currentDemo.clips.filter(clip => {
+      if (clip.source_type !== "video") return false;
+      const track = currentDemo.tracks.find(t => t.id === clip.track_id);
+      return track && track.visible;
+    });
+
+    let currentClip = allVideoClips.find(clip =>
+      clip.start_time_ms <= currentTimeMs &&
+      clip.start_time_ms + clip.duration_ms >= currentTimeMs
+    );
+
+    let effectiveTimeMs = currentTimeMs;
+    if (!currentClip && allVideoClips.length > 0) {
+      const clipsBefore = allVideoClips
+        .filter(c => c.start_time_ms + c.duration_ms < currentTimeMs)
+        .sort((a, b) => (b.start_time_ms + b.duration_ms) - (a.start_time_ms + a.duration_ms));
+      const clipsAfter = allVideoClips
+        .filter(c => c.start_time_ms > currentTimeMs)
+        .sort((a, b) => a.start_time_ms - b.start_time_ms);
+
+      if (clipsBefore.length > 0) {
+        currentClip = clipsBefore[0];
+        effectiveTimeMs = currentClip.start_time_ms + currentClip.duration_ms - 1;
+      } else if (clipsAfter.length > 0) {
+        currentClip = clipsAfter[0];
+        effectiveTimeMs = currentClip.start_time_ms;
+      }
+    }
+
+    if (currentClip) {
+      const clipRelativeTime = effectiveTimeMs - currentClip.start_time_ms;
+      const videoTime = ((currentClip.in_point_ms || 0) + clipRelativeTime) / 1000;
+      const timeDrift = Math.abs(video.currentTime - videoTime);
+      if (timeDrift > 0.05) {
+        video.currentTime = videoTime;
+      }
+    }
+  }, [playback.currentTimeMs, playback.isPlaying, currentDemo]);
 
   // Track previous playing state to detect play/pause changes
   const wasPlayingRef = useRef(false);
@@ -469,18 +517,83 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
     };
   }, []);
 
-  // Sync video elements' muted state - needed because React's muted prop doesn't always update dynamically
+  // Track previous video playing state for detecting transitions
+  const videoWasPlayingRef = useRef(false);
+  const videoLastSeekTimeRef = useRef(0);
+
+  // Sync non-primary video clips (webcam overlays, etc.) - only on play/pause/seek transitions
   useEffect(() => {
     if (!currentDemo) return;
 
-    // Update muted state for all tracked video elements
+    const currentTimeMs = playback.currentTimeMs;
+    const isPlaying = playback.isPlaying;
+    const wasPlaying = videoWasPlayingRef.current;
+
+    // Detect play/pause state change
+    const playStateChanged = isPlaying !== wasPlaying;
+
+    // Detect seek (significant time jump while paused)
+    const timeDiff = Math.abs(currentTimeMs - videoLastSeekTimeRef.current);
+    const isSeeking = !isPlaying && timeDiff > 50;
+
+    // Only sync on transitions, not every frame during playback
+    if (!playStateChanged && !isSeeking && isPlaying) {
+      videoLastSeekTimeRef.current = currentTimeMs;
+      return;
+    }
+
     videoElementsRef.current.forEach((video, clipId) => {
-      const clip = currentDemo.clips.find(c => c.id === clipId);
-      if (clip) {
+      // Skip the main preview - it's handled by the primary sync effect
+      if (video === videoPreviewRef.current) return;
+
+      const clip = currentDemo.clips.find(c => c.id === clipId && c.source_type === "video");
+      if (!clip) return;
+
+      const track = currentDemo.tracks.find(t => t.id === clip.track_id);
+      if (!track || !track.visible) {
+        if (!video.paused) video.pause();
+        return;
+      }
+
+      // Check if this clip is visible at current time
+      const clipStart = clip.start_time_ms;
+      const clipEnd = clip.start_time_ms + clip.duration_ms;
+      const isVisible = currentTimeMs >= clipStart && currentTimeMs < clipEnd;
+
+      if (isVisible) {
+        // Calculate video time
+        const clipRelativeTime = currentTimeMs - clipStart;
+        const videoTime = ((clip.in_point_ms || 0) + clipRelativeTime) / 1000;
+
+        // Sync time on state changes or seeks
+        if (playStateChanged || isSeeking) {
+          const drift = Math.abs(video.currentTime - videoTime);
+          if (drift > 0.05) {
+            video.currentTime = Math.max(0, videoTime);
+          }
+        }
+
+        // Sync play/pause state
+        if (isPlaying && video.paused) {
+          video.play().catch(() => {});
+        } else if (!isPlaying && !video.paused) {
+          video.pause();
+        }
+
+        // Sync volume and muted
+        video.volume = playback.volume;
         video.muted = playback.isMuted || (clip.muted ?? false);
+      } else {
+        // Pause non-visible clips
+        if (!video.paused) {
+          video.pause();
+        }
       }
     });
-  }, [currentDemo, playback.isMuted]);
+
+    videoWasPlayingRef.current = isPlaying;
+    videoLastSeekTimeRef.current = currentTimeMs;
+  }, [playback.currentTimeMs, playback.isPlaying, playback.volume, playback.isMuted, currentDemo]);
 
   // Auto-save demo state to database with debouncing
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -788,28 +901,57 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
     }
   }, [currentDemo, addAsset]);
 
-  // Handle adding app recording as asset
+  // Handle adding app recording as asset (supports both screen and webcam recordings)
   const handleAddRecording = useCallback(async (recording: Recording) => {
-    if (!currentDemo || !recording.recording_path) return;
+    if (!currentDemo) return;
 
-    // Probe the recording to check for audio
-    let hasAudio = null;
-    try {
-      const { video } = await import("@/lib/tauri/commands");
-      const probeResult = await video.probe(recording.recording_path);
-      hasAudio = probeResult.has_audio;
-    } catch (e) {
-      console.warn("Failed to probe recording:", e);
+    const { video } = await import("@/lib/tauri/commands");
+
+    // Add screen recording if available
+    if (recording.recording_path) {
+      let hasAudio = null;
+      try {
+        const probeResult = await video.probe(recording.recording_path);
+        hasAudio = probeResult.has_audio;
+      } catch (e) {
+        console.warn("Failed to probe screen recording:", e);
+      }
+
+      addAsset({
+        demo_id: currentDemo.demo.id,
+        name: recording.name,
+        file_path: recording.recording_path,
+        asset_type: "video",
+        duration_ms: recording.duration_ms || undefined,
+        has_audio: hasAudio,
+      });
     }
 
-    addAsset({
-      demo_id: currentDemo.demo.id,
-      name: recording.name,
-      file_path: recording.recording_path,
-      asset_type: "video",
-      duration_ms: recording.duration_ms || undefined,
-      has_audio: hasAudio,
-    });
+    // Add webcam recording if available (treated as video with audio)
+    if (recording.webcam_path) {
+      let hasAudio = true; // Webcam recordings typically have audio
+      let duration_ms = recording.duration_ms;
+      try {
+        const probeResult = await video.probe(recording.webcam_path);
+        hasAudio = probeResult.has_audio;
+        // Use probed duration if available (more accurate for webcam)
+        if (probeResult.duration_ms) {
+          duration_ms = probeResult.duration_ms;
+        }
+      } catch (e) {
+        console.warn("Failed to probe webcam recording:", e);
+      }
+
+      addAsset({
+        demo_id: currentDemo.demo.id,
+        name: `${recording.name} (Webcam)`,
+        file_path: recording.webcam_path,
+        asset_type: "video",
+        duration_ms: duration_ms || undefined,
+        has_audio: hasAudio,
+      });
+    }
+
     setShowAppMediaPicker(false);
   }, [currentDemo, addAsset]);
 
@@ -2071,7 +2213,7 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                   <div className="px-3 pb-2">
                     {recordings.length === 0 ? (
                       <p className="text-[var(--text-caption)] text-[var(--text-tertiary)] italic py-2">
-                        No recordings in this app
+                        No recordings linked to this demo
                       </p>
                     ) : (
                       <div className="space-y-1">
@@ -2087,9 +2229,14 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                                 {recording.name}
                               </p>
                             </div>
-                            <p className="text-[var(--text-caption)] text-[var(--text-tertiary)] mt-1">
-                              {recording.duration_ms ? formatTime(recording.duration_ms) : "—"}
-                            </p>
+                            <div className="flex items-center gap-2 text-[var(--text-caption)] text-[var(--text-tertiary)] mt-1">
+                              <span>{recording.duration_ms ? formatTime(recording.duration_ms) : "—"}</span>
+                              {recording.webcam_path && (
+                                <span className="px-1 py-0.5 bg-[var(--surface-hover)] text-[9px] uppercase">
+                                  + Webcam
+                                </span>
+                              )}
+                            </div>
                           </div>
                         ))}
                         {recordings.length > 5 && (
@@ -2562,11 +2709,9 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                             if (isVisible && clip.id === currentVideoClip?.id && el) {
                               videoPreviewRef.current = el;
                             }
-                            // Track video element for muted state sync
+                            // Track all video elements for sync
                             if (el) {
                               videoElementsRef.current.set(clip.id, el);
-                              // Set initial muted state
-                              el.muted = playback.isMuted || (clip.muted ?? false);
                             } else {
                               videoElementsRef.current.delete(clip.id);
                             }
@@ -2575,20 +2720,17 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                           style={{
                             maxWidth: "100%",
                             maxHeight: "100%",
-                            // Use clip-path for crop and rounded corners on video elements
                             clipPath: `inset(${clip.crop_top ?? 0}% ${clip.crop_right ?? 0}% ${clip.crop_bottom ?? 0}% ${clip.crop_left ?? 0}%${clip.corner_radius ? ` round ${clip.corner_radius}px` : ""})`,
                             transform: hasZoomEffect ? `scale(${currentZoom})` : undefined,
                             transformOrigin: zoomTransformOrigin,
                             transition: playback.isPlaying ? "none" : "transform 0.1s ease-out",
-                            pointerEvents: "none", // Allow clicks to pass through to parent for dragging
+                            pointerEvents: "none",
                           }}
                           muted={playback.isMuted || clip.muted}
                           playsInline
                           preload="auto"
                           onLoadedMetadata={(e) => {
-                            // Set volume when video loads
-                            const video = e.currentTarget;
-                            video.volume = playback.volume;
+                            e.currentTarget.volume = playback.volume;
                           }}
                           onError={(e) => {
                             console.error("Video load error:", clip.source_path, e);
@@ -4996,7 +5138,7 @@ function AppMediaPicker({
             recordings.length === 0 ? (
               <div className="text-center py-8">
                 <Video className="w-12 h-12 text-[var(--text-tertiary)] mx-auto mb-2" />
-                <p className="text-[var(--text-secondary)]">No recordings in this app</p>
+                <p className="text-[var(--text-secondary)]">No recordings linked to this demo</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -5011,9 +5153,14 @@ function AppMediaPicker({
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-[var(--text-primary)] truncate">{recording.name}</p>
-                      <p className="text-[var(--text-caption)] text-[var(--text-tertiary)]">
-                        {recording.duration_ms ? formatTime(recording.duration_ms) : "—"}
-                      </p>
+                      <div className="flex items-center gap-2 text-[var(--text-caption)] text-[var(--text-tertiary)]">
+                        <span>{recording.duration_ms ? formatTime(recording.duration_ms) : "—"}</span>
+                        {recording.webcam_path && (
+                          <span className="px-1.5 py-0.5 bg-[var(--surface-hover)] text-[10px] uppercase">
+                            + Webcam
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <Plus className="w-5 h-5 text-[var(--text-tertiary)]" />
                   </button>
@@ -5024,7 +5171,7 @@ function AppMediaPicker({
             screenshots.length === 0 ? (
               <div className="text-center py-8">
                 <Image className="w-12 h-12 text-[var(--text-tertiary)] mx-auto mb-2" />
-                <p className="text-[var(--text-secondary)]">No screenshots in this app</p>
+                <p className="text-[var(--text-secondary)]">No screenshots linked to this demo</p>
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-2">

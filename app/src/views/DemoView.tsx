@@ -24,6 +24,8 @@ import {
   User,
   ChevronLeft,
   ChevronRight,
+  Pencil,
+  Check,
 } from "lucide-react";
 import {
   useAppsStore,
@@ -35,13 +37,16 @@ import {
 } from "@/lib/stores";
 import {
   capture as captureCommands,
+  nativeCapture,
   screenshots as screenshotsApi,
   recordings as recordingsApi,
   demoRecordings as demoRecordingsApi,
   demoScreenshots as demoScreenshotsApi,
-  type WindowInfo,
-  type DisplayInfo,
   type AudioDevice,
+  type WebcamAudioDevice,
+  type WebcamVideoDevice,
+  type NativeWindowInfo,
+  type NativeDisplayInfo,
 } from "@/lib/tauri/commands";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -79,6 +84,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     cancelRecording,
     checkRecordingStatus,
     delete: deleteRecording,
+    update: updateRecording,
   } = useRecordingsStore();
   const {
     items: allScreenshots,
@@ -91,6 +97,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     loadByApp: loadDemos,
     getById: getDemoById,
     create: createDemo,
+    update: updateDemo,
     delete: deleteDemo,
   } = useDemosStore();
   const { items: settings, load: loadSettings } = useSettingsStore();
@@ -112,6 +119,10 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
   const [editingRecordingId, setEditingRecordingId] = useState<string | null>(null);
   const [editingRecordingName, setEditingRecordingName] = useState("");
 
+  // Demo name editing state
+  const [editingDemoName, setEditingDemoName] = useState(false);
+  const [demoNameInput, setDemoNameInput] = useState("");
+
   // Screenshot viewer state
   const [viewingScreenshot, setViewingScreenshot] = useState<Screenshot | null>(null);
 
@@ -121,17 +132,21 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
   const [showWindowPicker, setShowWindowPicker] = useState(false);
   const [showRecordingSetup, setShowRecordingSetup] = useState(false);
   const [pickerMode, setPickerMode] = useState<PickerMode>("screenshot");
-  const [windows, setWindows] = useState<WindowInfo[]>([]);
-  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
+  const [windows, setWindows] = useState<NativeWindowInfo[]>([]);
+  const [displays, setDisplays] = useState<NativeDisplayInfo[]>([]);
   const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([]);
   const [loadingWindows, setLoadingWindows] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
-  const [selectedWindow, setSelectedWindow] = useState<WindowInfo | null>(null);
-  const [selectedDisplay, setSelectedDisplay] = useState<DisplayInfo | null>(null);
+  const [selectedWindow, setSelectedWindow] = useState<NativeWindowInfo | null>(null);
+  const [selectedDisplay, setSelectedDisplay] = useState<NativeDisplayInfo | null>(null);
   const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>("none");
   const [showCursorInRecording, setShowCursorInRecording] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [recordWithWebcam, setRecordWithWebcam] = useState(false);
+  const [webcamAudioDevices, setWebcamAudioDevices] = useState<WebcamAudioDevice[]>([]);
+  const [selectedWebcamAudioDevice, setSelectedWebcamAudioDevice] = useState<string>("0");
+  const [webcamVideoDevices, setWebcamVideoDevices] = useState<WebcamVideoDevice[]>([]);
+  const [selectedWebcamVideoDevice, setSelectedWebcamVideoDevice] = useState<string>("0");
 
   const app = getAppById(appId);
 
@@ -185,14 +200,21 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
   const loadWindows = async () => {
     setLoadingWindows(true);
     try {
-      const [windowList, displayList, audioList] = await Promise.all([
-        captureCommands.listWindows(),
-        captureCommands.listDisplays(),
+      // Use nativeCapture for windows/displays (uses ScreenCaptureKit on macOS)
+      // This works properly in production builds unlike the AppleScript-based method
+      const [windowList, displayList, audioList, webcamAudioList, webcamVideoList] = await Promise.all([
+        nativeCapture.listWindows(),
+        nativeCapture.listDisplays(),
         captureCommands.listAudioDevices(),
+        captureCommands.listWebcamAudioDevices(),
+        captureCommands.listWebcamVideoDevices(),
       ]);
+      console.log("Loaded windows:", windowList.length, "displays:", displayList.length);
       setWindows(windowList);
       setDisplays(displayList);
       setAudioDevices(audioList);
+      setWebcamAudioDevices(webcamAudioList);
+      setWebcamVideoDevices(webcamVideoList);
     } catch (err) {
       console.error("Failed to list windows:", err);
     } finally {
@@ -220,7 +242,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     }
   };
 
-  const handleCaptureWindow = async (window: WindowInfo) => {
+  const handleCaptureWindow = async (window: NativeWindowInfo) => {
     if (pickerMode === "screenshot") {
       setShowWindowPicker(false);
       setCapturing(true);
@@ -229,9 +251,9 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
         const screenshot = await captureCommands.windowScreenshot(
           appId, // App ID for app-level screenshot
           null, // No exploration ID
-          `${window.owner} - ${window.name}`,
-          window.owner,
-          window.name,
+          `${window.owner_name} - ${window.title}`,
+          window.owner_name,
+          window.title,
           window.window_id
         );
         // Link the new screenshot to this demo
@@ -272,10 +294,48 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     }
   };
 
-  const handleSelectDisplay = (display: DisplayInfo) => {
+  const handleSelectDisplay = (display: NativeDisplayInfo) => {
     setSelectedDisplay(display);
     setSelectedWindow(null);
     setShowRecordingSetup(true);
+  };
+
+  const handleToggleWebcam = async () => {
+    if (!recordWithWebcam) {
+      // Turning on webcam - check and request camera permission
+      try {
+        const cameraStatus = await captureCommands.checkCameraPermission();
+        console.log("Camera permission status:", cameraStatus);
+
+        if (cameraStatus === "not_determined") {
+          // Request permission - this should show system dialog
+          await captureCommands.requestCameraPermission();
+          // Give the system dialog a moment to process
+          await new Promise(resolve => setTimeout(resolve, 500));
+          // Check again
+          const newStatus = await captureCommands.checkCameraPermission();
+          if (newStatus === "denied" || newStatus === "restricted") {
+            // Permission denied - open settings
+            await captureCommands.openPrivacySettings("camera");
+            return;
+          }
+        } else if (cameraStatus === "denied" || cameraStatus === "restricted") {
+          // Permission already denied - open settings
+          await captureCommands.openPrivacySettings("camera");
+          return;
+        }
+
+        // Also check microphone if needed
+        const micStatus = await captureCommands.checkMicrophonePermission();
+        console.log("Microphone permission status:", micStatus);
+        if (micStatus === "not_determined") {
+          await captureCommands.requestMicrophonePermission();
+        }
+      } catch (err) {
+        console.error("Error checking camera permission:", err);
+      }
+    }
+    setRecordWithWebcam(!recordWithWebcam);
   };
 
   const handleStartRecordingWithSetup = async () => {
@@ -287,22 +347,31 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
         await startRecording({
           appId, // Record at app level, not exploration level
           explorationId: null, // Pass null for app-level recordings (no exploration)
-          name: `${selectedWindow.owner} - ${selectedWindow.name}`,
+          name: `${selectedWindow.owner_name} - ${selectedWindow.title}`,
           windowId: selectedWindow.window_id,
-          bounds: selectedWindow.bounds,
+          bounds: {
+            x: selectedWindow.x,
+            y: selectedWindow.y,
+            width: selectedWindow.width,
+            height: selectedWindow.height,
+          },
           audioDevice: selectedAudioDevice,
           showCursor: showCursorInRecording,
           recordWebcam: recordWithWebcam,
+          webcamAudioDevice: recordWithWebcam ? selectedWebcamAudioDevice : null,
+          webcamVideoDevice: recordWithWebcam ? selectedWebcamVideoDevice : null,
         });
       } else if (selectedDisplay) {
         await startRecording({
           appId,
           explorationId: null, // Pass null for app-level recordings (no exploration)
           name: selectedDisplay.name,
-          displayId: selectedDisplay.id,
+          displayId: selectedDisplay.display_id,
           audioDevice: selectedAudioDevice,
           showCursor: showCursorInRecording,
           recordWebcam: recordWithWebcam,
+          webcamAudioDevice: recordWithWebcam ? selectedWebcamAudioDevice : null,
+          webcamVideoDevice: recordWithWebcam ? selectedWebcamVideoDevice : null,
         });
       }
     } catch (err) {
@@ -328,14 +397,33 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
   const handleStopRecording = async () => {
     try {
       const recording = await stopRecording();
-      // Link the new recording to this demo
-      if (recording?.id) {
-        await demoRecordingsApi.add({ demo_id: demoId, recording_id: recording.id });
-        await loadDemoMedia();
+      // Link the new recording to this demo (only if demo exists)
+      if (recording?.id && demo) {
+        try {
+          await demoRecordingsApi.add({ demo_id: demoId, recording_id: recording.id });
+          await loadDemoMedia();
+        } catch (linkErr) {
+          console.error("Failed to link recording to demo:", linkErr);
+          addToast({
+            type: "warning",
+            title: "Recording saved",
+            description: "Recording was saved but could not be linked to this demo.",
+          });
+        }
       }
       setTimeout(() => loadRecordings(appId), 500);
+      addToast({
+        type: "success",
+        title: "Recording saved",
+        description: "Your recording has been saved successfully.",
+      });
     } catch (err) {
       console.error("Failed to stop recording:", err);
+      addToast({
+        type: "error",
+        title: "Recording failed",
+        description: "Failed to save the recording. Please try again.",
+      });
       try {
         await cancelRecording();
       } catch (cancelErr) {
@@ -361,6 +449,44 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
         description: "Could not cancel the recording. Please try again.",
       });
     }
+  };
+
+  const handleStartEditingRecording = (recording: Recording) => {
+    setEditingRecordingId(recording.id);
+    setEditingRecordingName(recording.name);
+  };
+
+  const handleSaveRecordingName = async () => {
+    if (!editingRecordingId || !editingRecordingName.trim()) {
+      setEditingRecordingId(null);
+      setEditingRecordingName("");
+      return;
+    }
+
+    try {
+      await updateRecording(editingRecordingId, { name: editingRecordingName.trim() });
+      loadRecordings(appId);
+      addToast({
+        type: "success",
+        title: "Recording renamed",
+        description: "The recording name has been updated.",
+      });
+    } catch (err) {
+      console.error("Failed to rename recording:", err);
+      addToast({
+        type: "error",
+        title: "Rename failed",
+        description: "Could not rename the recording. Please try again.",
+      });
+    } finally {
+      setEditingRecordingId(null);
+      setEditingRecordingName("");
+    }
+  };
+
+  const handleCancelEditingRecording = () => {
+    setEditingRecordingId(null);
+    setEditingRecordingName("");
   };
 
   const handleRemoveScreenshotFromDemo = async (id: string) => {
@@ -627,6 +753,42 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     }
   };
 
+  // Start editing demo name
+  const handleStartEditingDemoName = () => {
+    if (demo) {
+      setDemoNameInput(demo.name);
+      setEditingDemoName(true);
+    }
+  };
+
+  // Save demo name
+  const handleSaveDemoName = async () => {
+    if (!demo || !demoNameInput.trim()) return;
+
+    try {
+      await updateDemo(demo.id, { name: demoNameInput.trim() });
+      setEditingDemoName(false);
+      addToast({
+        type: "success",
+        title: "Demo renamed",
+        description: "The demo name has been updated.",
+      });
+    } catch (err) {
+      console.error("Failed to update demo name:", err);
+      addToast({
+        type: "error",
+        title: "Failed to rename",
+        description: "Could not update the demo name. Please try again.",
+      });
+    }
+  };
+
+  // Cancel editing demo name
+  const handleCancelEditingDemoName = () => {
+    setEditingDemoName(false);
+    setDemoNameInput("");
+  };
+
   const formatDuration = (ms: number | null | undefined) => {
     if (!ms) return "0:00";
     const seconds = Math.floor(ms / 1000);
@@ -699,9 +861,45 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                 {app?.name || "..."}
               </button>
               <span className="text-[var(--text-tertiary)]">/</span>
-              <span className="font-semibold text-[var(--text-primary)]">
-                Demo
-              </span>
+              {editingDemoName ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={demoNameInput}
+                    onChange={(e) => setDemoNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveDemoName();
+                      if (e.key === "Escape") handleCancelEditingDemoName();
+                    }}
+                    className="px-2 py-0.5 bg-[var(--surface-primary)] border border-[var(--border-strong)] text-[var(--text-primary)] font-semibold text-[var(--text-body-sm)] focus:outline-none focus:border-[var(--text-primary)]"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveDemoName}
+                    className="p-1 hover:bg-[var(--surface-hover)] text-[var(--accent-success)]"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleCancelEditingDemoName}
+                    className="p-1 hover:bg-[var(--surface-hover)] text-[var(--text-tertiary)]"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 group">
+                  <span className="font-semibold text-[var(--text-primary)]">
+                    {demo?.name || "Demo"}
+                  </span>
+                  <button
+                    onClick={handleStartEditingDemoName}
+                    className="p-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--surface-hover)] text-[var(--text-tertiary)] transition-opacity"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -900,8 +1098,23 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                               </div>
                             )}
                           </div>
+                          {/* Click overlay for playback - placed before buttons so buttons are on top */}
+                          <div
+                            className="absolute inset-0"
+                            onClick={() => setPlayingRecording(recording)}
+                          />
                           {!isInProgress && (
-                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartEditingRecording(recording);
+                                }}
+                                className="p-1.5 bg-black/50 text-white hover:bg-black/70"
+                                title="Rename recording"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
                               {recording.recording_path && (
                                 <button
                                   onClick={(e) => {
@@ -912,6 +1125,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                                     );
                                   }}
                                   className="p-1.5 bg-black/50 text-white hover:bg-black/70"
+                                  title="Download recording"
                                 >
                                   <Download className="w-3.5 h-3.5" />
                                 </button>
@@ -923,6 +1137,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                                 }}
                                 disabled={isDeleting}
                                 className="p-1.5 bg-black/50 text-white hover:bg-black/70 disabled:cursor-wait"
+                                title="Remove from demo"
                               >
                                 {isDeleting ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -932,11 +1147,6 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                               </button>
                             </div>
                           )}
-                          {/* Click overlay for playback */}
-                          <div
-                            className="absolute inset-0"
-                            onClick={() => setPlayingRecording(recording)}
-                          />
                         </div>
                       );
                     })}
@@ -1249,7 +1459,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                       </p>
                       {displays.map((display) => (
                         <button
-                          key={display.id}
+                          key={display.display_id}
                           onClick={() => handleSelectDisplay(display)}
                           className="w-full p-3 text-left hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-3"
                         >
@@ -1273,17 +1483,17 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                   )}
                   {windows.map((window) => (
                     <button
-                      key={`${window.id}-${window.window_id}`}
+                      key={window.window_id}
                       onClick={() => handleCaptureWindow(window)}
                       className="w-full p-3 text-left hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-3"
                     >
                       <Monitor className="w-5 h-5 text-[var(--text-tertiary)] mt-0.5 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-[var(--text-primary)] truncate">
-                          {window.name || "Untitled"}
+                          {window.title || "Untitled"}
                         </p>
                         <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)] truncate">
-                          {window.owner}
+                          {window.owner_name}
                         </p>
                       </div>
                     </button>
@@ -1333,7 +1543,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
               <div className="p-3 bg-[var(--surface-primary)] border border-[var(--border-default)]">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-[var(--text-primary)] flex items-center justify-center">
@@ -1342,7 +1552,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-[var(--text-primary)] truncate">
                       {selectedWindow
-                        ? `${selectedWindow.owner} - ${selectedWindow.name}`
+                        ? `${selectedWindow.owner_name} - ${selectedWindow.title}`
                         : selectedDisplay?.name || "Screen"}
                     </p>
                     <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)]">
@@ -1449,7 +1659,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                   </span>
                 </div>
                 <button
-                  onClick={() => setRecordWithWebcam(!recordWithWebcam)}
+                  onClick={handleToggleWebcam}
                   className={`relative h-6 w-11 transition-colors ${
                     recordWithWebcam
                       ? "bg-[var(--text-primary)]"
@@ -1463,6 +1673,82 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                   />
                 </button>
               </div>
+
+              {/* Webcam Video Device Selection - only show when webcam is enabled */}
+              {recordWithWebcam && webcamVideoDevices.length > 0 && (
+                <div className="border border-[var(--border-default)] p-3">
+                  <div className="flex items-center gap-3 mb-3">
+                    <Camera className="w-5 h-5 text-[var(--text-tertiary)]" />
+                    <span className="text-[var(--text-primary)]">
+                      Camera
+                    </span>
+                  </div>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {webcamVideoDevices.map((device) => (
+                      <button
+                        key={device.index}
+                        onClick={() => setSelectedWebcamVideoDevice(device.index)}
+                        className={`w-full p-2 border text-left flex items-center gap-3 transition-colors text-[var(--text-body)] ${
+                          selectedWebcamVideoDevice === device.index
+                            ? "border-[var(--border-strong)] bg-[var(--surface-hover)]"
+                            : "border-[var(--border-default)] hover:border-[var(--border-strong)]"
+                        }`}
+                      >
+                        <Camera className="w-4 h-4 text-[var(--text-tertiary)]" />
+                        <span
+                          className={
+                            selectedWebcamVideoDevice === device.index
+                              ? "text-[var(--text-primary)] font-medium"
+                              : "text-[var(--text-primary)]"
+                          }
+                        >
+                          {device.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Webcam Audio Device Selection - only show when webcam is enabled */}
+              {recordWithWebcam && webcamAudioDevices.length > 0 && (
+                <div className="border border-[var(--border-default)] p-3">
+                  <div className="flex items-center gap-3 mb-3">
+                    <Mic className="w-5 h-5 text-[var(--text-tertiary)]" />
+                    <span className="text-[var(--text-primary)]">
+                      Webcam Audio Input
+                    </span>
+                  </div>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {webcamAudioDevices.map((device) => (
+                      <button
+                        key={device.index}
+                        onClick={() => setSelectedWebcamAudioDevice(device.index)}
+                        className={`w-full p-2 border text-left flex items-center gap-3 transition-colors text-[var(--text-body)] ${
+                          selectedWebcamAudioDevice === device.index
+                            ? "border-[var(--border-strong)] bg-[var(--surface-hover)]"
+                            : "border-[var(--border-default)] hover:border-[var(--border-strong)]"
+                        }`}
+                      >
+                        {device.index === "none" ? (
+                          <MicOff className="w-4 h-4 text-[var(--text-tertiary)]" />
+                        ) : (
+                          <Mic className="w-4 h-4 text-[var(--text-tertiary)]" />
+                        )}
+                        <span
+                          className={
+                            selectedWebcamAudioDevice === device.index
+                              ? "text-[var(--text-primary)] font-medium"
+                              : "text-[var(--text-primary)]"
+                          }
+                        >
+                          {device.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="p-4 border-t border-[var(--border-default)] bg-[var(--surface-primary)] flex items-center justify-end gap-3">
               <button
@@ -1548,6 +1834,60 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
         </div>
       )}
 
+      {/* Rename Recording Modal */}
+      {editingRecordingId && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={handleCancelEditingRecording}
+        >
+          <div
+            className="w-full max-w-sm bg-[var(--surface-secondary)] border border-[var(--border-default)] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-[var(--border-default)]">
+              <h2 className="text-[var(--text-heading-sm)] font-semibold text-[var(--text-primary)]">
+                Rename Recording
+              </h2>
+              <button
+                onClick={handleCancelEditingRecording}
+                className="p-1.5 hover:bg-[var(--surface-hover)] text-[var(--text-secondary)]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4">
+              <input
+                type="text"
+                value={editingRecordingName}
+                onChange={(e) => setEditingRecordingName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveRecordingName();
+                  if (e.key === "Escape") handleCancelEditingRecording();
+                }}
+                className="w-full px-3 py-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-strong)]"
+                placeholder="Enter recording name"
+                autoFocus
+              />
+            </div>
+            <div className="p-4 border-t border-[var(--border-default)] bg-[var(--surface-primary)] flex items-center justify-end gap-3">
+              <button
+                onClick={handleCancelEditingRecording}
+                className="px-4 py-2 border border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--surface-hover)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveRecordingName}
+                disabled={!editingRecordingName.trim()}
+                className="px-4 py-2 bg-[var(--text-primary)] text-[var(--text-inverse)] font-medium hover:opacity-90 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Video Player Modal */}
       {playingRecording && (
         <div
@@ -1572,15 +1912,15 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                 className="w-full h-full"
                 controls
                 autoPlay
+                muted={!!playingRecording.webcam_path}
               />
-              {/* Webcam Picture-in-Picture */}
+              {/* Webcam Picture-in-Picture - has audio when webcam recording exists */}
               {playingRecording.webcam_path && (
                 <div className="absolute bottom-4 right-4 w-48 h-36 rounded-lg overflow-hidden border-2 border-white/50 shadow-lg">
                   <video
                     src={getAssetUrl(playingRecording.webcam_path)}
                     className="w-full h-full object-cover"
                     autoPlay
-                    muted
                   />
                 </div>
               )}

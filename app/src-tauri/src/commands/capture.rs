@@ -14,6 +14,9 @@ use crate::native::{
     NativeCaptureEngine, NativeWindowInfo, NativeDisplayInfo,
     RecordingConfig as NativeRecordingConfig, ScreenshotConfig as NativeScreenshotConfig,
     VideoCodec,
+    webcam_list_audio_devices, webcam_list_video_devices, webcam_start_recording, webcam_stop_recording,
+    WebcamAudioDevice as NativeWebcamAudioDevice,
+    WebcamVideoDevice as NativeWebcamVideoDevice,
 };
 
 /// Represents an open window that can be captured
@@ -366,6 +369,84 @@ pub async fn list_audio_devices() -> Result<Vec<AudioDevice>, TakaError> {
     Ok(devices)
 }
 
+/// Webcam audio device with index for ffmpeg avfoundation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebcamAudioDevice {
+    pub index: String,  // "0", "1", "2", etc. or "none"
+    pub name: String,
+}
+
+/// List all available audio input devices for webcam recording
+/// Uses native AVFoundation on macOS (no ffmpeg required)
+#[tauri::command]
+pub async fn list_webcam_audio_devices() -> Result<Vec<WebcamAudioDevice>, TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        // Use native AVFoundation to list devices
+        let native_devices = webcam_list_audio_devices();
+        let devices: Vec<WebcamAudioDevice> = native_devices
+            .into_iter()
+            .map(|d| WebcamAudioDevice {
+                index: d.index,
+                name: d.name,
+            })
+            .collect();
+        Ok(devices)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Fallback for non-macOS: return basic options
+        Ok(vec![
+            WebcamAudioDevice {
+                index: "none".to_string(),
+                name: "No Audio".to_string(),
+            },
+            WebcamAudioDevice {
+                index: "0".to_string(),
+                name: "Default Audio Input".to_string(),
+            },
+        ])
+    }
+}
+
+/// Webcam video device (camera) for recording
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebcamVideoDevice {
+    pub index: String,  // "0", "1", "2", etc.
+    pub name: String,
+}
+
+/// List all available video devices (cameras) for webcam recording
+/// Uses native AVFoundation on macOS (no ffmpeg required)
+#[tauri::command]
+pub async fn list_webcam_video_devices() -> Result<Vec<WebcamVideoDevice>, TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        // Use native AVFoundation to list devices
+        let native_devices = webcam_list_video_devices();
+        let devices: Vec<WebcamVideoDevice> = native_devices
+            .into_iter()
+            .map(|d| WebcamVideoDevice {
+                index: d.index,
+                name: d.name,
+            })
+            .collect();
+        Ok(devices)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Fallback for non-macOS: return basic options
+        Ok(vec![
+            WebcamVideoDevice {
+                index: "0".to_string(),
+                name: "Default Camera".to_string(),
+            },
+        ])
+    }
+}
+
 /// List all available displays/screens
 #[tauri::command]
 pub async fn list_displays() -> Result<Vec<DisplayInfo>, TakaError> {
@@ -631,6 +712,8 @@ pub async fn start_recording(
     audio_device: Option<String>,
     show_cursor: Option<bool>,
     record_webcam: Option<bool>,
+    webcam_audio_device: Option<String>,  // Audio device index for webcam recording (e.g., "0", "1", "none")
+    webcam_video_device: Option<String>,  // Video device index for webcam recording (e.g., "0", "1")
     app: AppHandle,
     recording_repo: State<'_, RecordingRepository>,
     recording_state: State<'_, RecordingState>,
@@ -706,45 +789,46 @@ pub async fn start_recording(
         .spawn()
         .map_err(|e| TakaError::Io(e))?;
 
-    // Start webcam recording if requested
+    // Start webcam recording if requested (uses native AVFoundation on macOS)
     let webcam_recording_path = if record_webcam.unwrap_or(false) {
-        let webcam_filename = format!("webcam_{}.mov", timestamp);
+        let webcam_filename = format!("webcam_{}.mp4", timestamp);
         let webcam_path = recordings_dir.join(&webcam_filename);
 
-        // Use ffmpeg to record from the default webcam
-        // -f avfoundation: macOS video capture framework
-        // -i "0": default video device (FaceTime HD Camera typically)
-        // -framerate 30: 30 FPS
-        // -vcodec libx264: H.264 encoding for compatibility
-        // -preset ultrafast: fast encoding to reduce CPU usage
-        // -pix_fmt yuv420p: compatible pixel format
-        let webcam_child = Command::new("ffmpeg")
-            .args([
-                "-f", "avfoundation",
-                "-framerate", "30",
-                "-i", "0",
-                "-vcodec", "libx264",
-                "-preset", "ultrafast",
-                "-pix_fmt", "yuv420p",
-                "-y", // Overwrite output file if exists
-                webcam_path.to_str().unwrap()
-            ])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
+        // Get audio device index (or "none" for no audio)
+        let audio_idx = webcam_audio_device.as_deref().unwrap_or("0");
+        // Get video device index (or None for default camera)
+        let video_idx = webcam_video_device.as_deref();
 
-        match webcam_child {
-            Ok(child) => {
-                *recording_state.webcam_pid.lock().await = Some(child.id());
-                *recording_state.webcam_path.lock().await = Some(webcam_path.to_string_lossy().to_string());
-                Some(webcam_path.to_string_lossy().to_string())
+        eprintln!("Starting native webcam recording with audio device: {}, video device: {:?}", audio_idx, video_idx);
+
+        #[cfg(target_os = "macos")]
+        {
+            // Use native AVFoundation-based recording (no ffmpeg needed)
+            match webcam_start_recording(
+                &webcam_path,
+                1280,  // width
+                720,   // height
+                30,    // fps
+                4_000_000,  // bitrate (4 Mbps)
+                Some(audio_idx),
+                video_idx,
+            ) {
+                Ok(()) => {
+                    eprintln!("Native webcam recording started successfully");
+                    *recording_state.webcam_path.lock().await = Some(webcam_path.to_string_lossy().to_string());
+                    Some(webcam_path.to_string_lossy().to_string())
+                }
+                Err(e) => {
+                    eprintln!("Failed to start native webcam recording: {:?}", e);
+                    None
+                }
             }
-            Err(e) => {
-                // Log the error but don't fail the whole recording
-                eprintln!("Failed to start webcam recording: {}. Make sure ffmpeg is installed.", e);
-                None
-            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            eprintln!("Webcam recording not supported on this platform");
+            None
         }
     } else {
         None
@@ -798,19 +882,25 @@ pub async fn stop_recording(
         }
     }
 
-    // Stop the webcam recording process if running
-    if let Some(pid) = *recording_state.webcam_pid.lock().await {
-        #[cfg(unix)]
+    // Stop webcam recording if it was started (uses native AVFoundation on macOS)
+    if webcam_path.is_some() {
+        eprintln!("Stopping native webcam recording");
+
+        #[cfg(target_os = "macos")]
         {
-            // Send SIGINT to ffmpeg for graceful shutdown
-            let _ = Command::new("kill")
-                .args(["-INT", &pid.to_string()])
-                .output();
+            match webcam_stop_recording() {
+                Ok(()) => {
+                    eprintln!("Native webcam recording stopped successfully");
+                }
+                Err(e) => {
+                    eprintln!("Failed to stop native webcam recording: {:?}", e);
+                }
+            }
         }
     }
 
-    // Wait for the processes to finish and files to be written
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    // Brief wait for file system to sync
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
     // Calculate duration
     let duration_ms = start_time.map(|start| {
@@ -1068,6 +1158,74 @@ pub async fn request_native_capture_permission() -> Result<(), TakaError> {
     #[cfg(target_os = "macos")]
     {
         NativeCaptureEngine::request_permission();
+    }
+    Ok(())
+}
+
+/// Check camera permission status
+/// Returns: "not_determined", "restricted", "denied", "authorized"
+#[tauri::command]
+pub async fn check_camera_permission() -> Result<String, TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::native::{check_camera_permission as native_check, PermissionStatus};
+        let status = native_check();
+        let status_str = match status {
+            PermissionStatus::NotDetermined => "not_determined",
+            PermissionStatus::Restricted => "restricted",
+            PermissionStatus::Denied => "denied",
+            PermissionStatus::Authorized => "authorized",
+        };
+        Ok(status_str.to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("authorized".to_string())
+    }
+}
+
+/// Request camera permission (shows system dialog if not determined)
+#[tauri::command]
+pub async fn request_camera_permission() -> Result<(), TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::native::request_camera_permission as native_request;
+        native_request();
+    }
+    Ok(())
+}
+
+/// Check microphone permission status
+/// Returns: "not_determined", "restricted", "denied", "authorized"
+#[tauri::command]
+pub async fn check_microphone_permission() -> Result<String, TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::native::{check_microphone_permission as native_check, PermissionStatus};
+        let status = native_check();
+        let status_str = match status {
+            PermissionStatus::NotDetermined => "not_determined",
+            PermissionStatus::Restricted => "restricted",
+            PermissionStatus::Denied => "denied",
+            PermissionStatus::Authorized => "authorized",
+        };
+        Ok(status_str.to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("authorized".to_string())
+    }
+}
+
+/// Request microphone permission (shows system dialog if not determined)
+#[tauri::command]
+pub async fn request_microphone_permission() -> Result<(), TakaError> {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::native::request_microphone_permission as native_request;
+        native_request();
     }
     Ok(())
 }

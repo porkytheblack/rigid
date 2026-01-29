@@ -245,6 +245,18 @@ export interface AudioDevice {
   is_default: boolean;
 }
 
+// Webcam audio device type (ffmpeg avfoundation indexed)
+export interface WebcamAudioDevice {
+  index: string;  // "0", "1", "2", etc. or "none"
+  name: string;
+}
+
+// Webcam video device type (camera)
+export interface WebcamVideoDevice {
+  index: string;  // "0", "1", "2", etc.
+  name: string;
+}
+
 // Recording options
 export interface RecordingOptions {
   explorationId?: string | null;  // Frontend uses explorationId
@@ -257,6 +269,8 @@ export interface RecordingOptions {
   audioDevice?: string | null;  // "none", "system", or device ID
   showCursor?: boolean;
   recordWebcam?: boolean;  // Record webcam alongside screen
+  webcamAudioDevice?: string | null;  // Audio device index for webcam ("0", "1", "none")
+  webcamVideoDevice?: string | null;  // Video device index for webcam ("0", "1")
 }
 
 // Capture commands
@@ -293,6 +307,12 @@ export const capture = {
   listAudioDevices: () =>
     invoke<AudioDevice[]>('list_audio_devices'),
 
+  listWebcamAudioDevices: () =>
+    invoke<WebcamAudioDevice[]>('list_webcam_audio_devices'),
+
+  listWebcamVideoDevices: () =>
+    invoke<WebcamVideoDevice[]>('list_webcam_video_devices'),
+
   startRecording: (options: RecordingOptions = {}) =>
     invoke<Recording>('start_recording', {
       appId: options.appId ?? null,
@@ -307,6 +327,8 @@ export const capture = {
       audioDevice: options.audioDevice ?? null,
       showCursor: options.showCursor ?? null,
       recordWebcam: options.recordWebcam ?? null,
+      webcamAudioDevice: options.webcamAudioDevice ?? null,
+      webcamVideoDevice: options.webcamVideoDevice ?? null,
     }),
 
   stopRecording: () =>
@@ -326,6 +348,19 @@ export const capture = {
 
   openPrivacySettings: (setting: 'microphone' | 'screen_recording' | 'camera') =>
     invoke<void>('open_privacy_settings', { setting }),
+
+  // Permission checks and requests
+  checkCameraPermission: () =>
+    invoke<string>('check_camera_permission'),
+
+  requestCameraPermission: () =>
+    invoke<void>('request_camera_permission'),
+
+  checkMicrophonePermission: () =>
+    invoke<string>('check_microphone_permission'),
+
+  requestMicrophonePermission: () =>
+    invoke<void>('request_microphone_permission'),
 };
 
 // Issue commands
@@ -959,15 +994,24 @@ export const nativeCapture = {
    * On other platforms: Falls back to AppleScript-based enumeration.
    */
   listWindows: async (): Promise<NativeWindowInfo[]> => {
-    if (await isMacOS()) {
+    const macOS = await isMacOS();
+    console.log('[nativeCapture.listWindows] isMacOS:', macOS);
+
+    if (macOS) {
       try {
-        return await nativeCaptureRaw.listWindows();
-      } catch {
+        console.log('[nativeCapture.listWindows] Calling native list_windows_native...');
+        const windows = await nativeCaptureRaw.listWindows();
+        console.log('[nativeCapture.listWindows] Native returned', windows.length, 'windows');
+        return windows;
+      } catch (err) {
+        console.error('[nativeCapture.listWindows] Native failed:', err);
         // Fall through to legacy
       }
     }
     // Fallback: convert legacy WindowInfo to NativeWindowInfo
+    console.log('[nativeCapture.listWindows] Using legacy fallback...');
     const windows = await capture.listWindows();
+    console.log('[nativeCapture.listWindows] Legacy returned', windows.length, 'windows');
     return windows.map(w => ({
       window_id: w.window_id ?? w.id,
       title: w.name,

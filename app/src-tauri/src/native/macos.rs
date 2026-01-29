@@ -126,6 +126,29 @@ extern "C" {
         scale_factor: f32,
         capture_cursor: bool,
     ) -> c_int;
+
+    // Webcam recording functions
+    fn taka_webcam_list_audio_devices_json() -> *mut c_char;
+    fn taka_webcam_list_video_devices_json() -> *mut c_char;
+    fn taka_webcam_start_recording(
+        output_path: *const c_char,
+        width: u32,
+        height: u32,
+        fps: u32,
+        bitrate: u32,
+        audio_device_index: *const c_char,
+        video_device_index: *const c_char,
+    ) -> c_int;
+    fn taka_webcam_stop_recording() -> c_int;
+    fn taka_webcam_cancel_recording() -> c_int;
+    fn taka_webcam_is_recording() -> bool;
+    fn taka_webcam_get_recording_duration_ms() -> i64;
+
+    // Permission functions
+    fn taka_check_camera_permission() -> c_int;
+    fn taka_request_camera_permission();
+    fn taka_check_microphone_permission() -> c_int;
+    fn taka_request_microphone_permission();
 }
 
 /// Safe wrapper around the native ScreenCaptureKit engine
@@ -446,4 +469,185 @@ pub async fn screenshot_region(
     }
 
     Ok(())
+}
+
+// MARK: - Webcam Recording
+
+/// Audio device info for webcam recording
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WebcamAudioDevice {
+    pub index: String,
+    pub name: String,
+}
+
+/// Video device info for webcam recording
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WebcamVideoDevice {
+    pub index: String,
+    pub name: String,
+}
+
+/// List available audio devices for webcam recording
+pub fn webcam_list_audio_devices() -> Vec<WebcamAudioDevice> {
+    let json_ptr = unsafe { taka_webcam_list_audio_devices_json() };
+    if json_ptr.is_null() {
+        return vec![WebcamAudioDevice {
+            index: "none".to_string(),
+            name: "No Audio".to_string(),
+        }];
+    }
+
+    let json_str = unsafe {
+        let s = CStr::from_ptr(json_ptr).to_string_lossy().into_owned();
+        taka_free_string(json_ptr);
+        s
+    };
+
+    serde_json::from_str(&json_str).unwrap_or_else(|_| {
+        vec![WebcamAudioDevice {
+            index: "none".to_string(),
+            name: "No Audio".to_string(),
+        }]
+    })
+}
+
+/// List available video devices (cameras) for webcam recording
+pub fn webcam_list_video_devices() -> Vec<WebcamVideoDevice> {
+    let json_ptr = unsafe { taka_webcam_list_video_devices_json() };
+    if json_ptr.is_null() {
+        return Vec::new();
+    }
+
+    let json_str = unsafe {
+        let s = CStr::from_ptr(json_ptr).to_string_lossy().into_owned();
+        taka_free_string(json_ptr);
+        s
+    };
+
+    serde_json::from_str(&json_str).unwrap_or_else(|_| Vec::new())
+}
+
+/// Start webcam recording
+pub fn webcam_start_recording(
+    output_path: &Path,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate: u32,
+    audio_device_index: Option<&str>,
+    video_device_index: Option<&str>,
+) -> Result<(), CaptureError> {
+    let path_str = output_path
+        .to_str()
+        .ok_or_else(|| CaptureError::InvalidConfig)?;
+    let path_cstr = CString::new(path_str).map_err(|_| CaptureError::InvalidConfig)?;
+
+    let audio_cstr = audio_device_index
+        .map(|s| CString::new(s).ok())
+        .flatten();
+    let audio_ptr = audio_cstr
+        .as_ref()
+        .map(|s| s.as_ptr())
+        .unwrap_or(std::ptr::null());
+
+    let video_cstr = video_device_index
+        .map(|s| CString::new(s).ok())
+        .flatten();
+    let video_ptr = video_cstr
+        .as_ref()
+        .map(|s| s.as_ptr())
+        .unwrap_or(std::ptr::null());
+
+    let result = unsafe {
+        taka_webcam_start_recording(
+            path_cstr.as_ptr(),
+            width,
+            height,
+            fps,
+            bitrate,
+            audio_ptr,
+            video_ptr,
+        )
+    };
+
+    if result != 0 {
+        return Err(CaptureError::from_code(result));
+    }
+
+    Ok(())
+}
+
+/// Stop webcam recording
+pub fn webcam_stop_recording() -> Result<(), CaptureError> {
+    let result = unsafe { taka_webcam_stop_recording() };
+
+    if result != 0 {
+        return Err(CaptureError::from_code(result));
+    }
+
+    Ok(())
+}
+
+/// Cancel webcam recording
+pub fn webcam_cancel_recording() -> Result<(), CaptureError> {
+    let result = unsafe { taka_webcam_cancel_recording() };
+
+    if result != 0 {
+        return Err(CaptureError::from_code(result));
+    }
+
+    Ok(())
+}
+
+/// Check if webcam is currently recording
+pub fn webcam_is_recording() -> bool {
+    unsafe { taka_webcam_is_recording() }
+}
+
+/// Get webcam recording duration in milliseconds
+pub fn webcam_recording_duration_ms() -> i64 {
+    unsafe { taka_webcam_get_recording_duration_ms() }
+}
+
+/// Permission status
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionStatus {
+    NotDetermined = 0,
+    Restricted = 1,
+    Denied = 2,
+    Authorized = 3,
+}
+
+impl From<i32> for PermissionStatus {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => PermissionStatus::NotDetermined,
+            1 => PermissionStatus::Restricted,
+            2 => PermissionStatus::Denied,
+            3 => PermissionStatus::Authorized,
+            _ => PermissionStatus::NotDetermined,
+        }
+    }
+}
+
+/// Check camera permission status
+pub fn check_camera_permission() -> PermissionStatus {
+    let status = unsafe { taka_check_camera_permission() };
+    PermissionStatus::from(status)
+}
+
+/// Request camera permission (triggers system dialog if not determined)
+pub fn request_camera_permission() {
+    unsafe { taka_request_camera_permission() }
+}
+
+/// Check microphone permission status
+pub fn check_microphone_permission() -> PermissionStatus {
+    let status = unsafe { taka_check_microphone_permission() };
+    PermissionStatus::from(status)
+}
+
+/// Request microphone permission (triggers system dialog if not determined)
+pub fn request_microphone_permission() {
+    unsafe { taka_request_microphone_permission() }
 }

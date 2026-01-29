@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { ArrowLeft, Camera, Video, Square, Image as ImageIcon, Settings, Clock, FileText, CheckCircle, AlertCircle, Trash2, Play, Monitor, X, Loader2, RefreshCw, Download, Mic, MicOff, MousePointer2, Bug, MessageSquare, ChevronLeft, ChevronRight, CheckSquare, Film, Upload, GitBranch, Plus } from "lucide-react";
 import { useAppsStore, useExplorationsStore, useRecordingsStore, useScreenshotsStore, useRouterStore, useSettingsStore, useDiagramsStore } from "@/lib/stores";
-import { capture as captureCommands, screenshots as screenshotsApi, recordings as recordingsApi, documentBlocks as documentBlocksApi, explorationTodos as explorationTodosApi, annotations as annotationsApi, type WindowInfo, type DisplayInfo, type AudioDevice } from "@/lib/tauri/commands";
+import { capture as captureCommands, nativeCapture, screenshots as screenshotsApi, recordings as recordingsApi, documentBlocks as documentBlocksApi, explorationTodos as explorationTodosApi, annotations as annotationsApi, type AudioDevice, type NativeWindowInfo, type NativeDisplayInfo } from "@/lib/tauri/commands";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { copyFile } from "@tauri-apps/plugin-fs";
@@ -106,13 +106,13 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
   const [showWindowPicker, setShowWindowPicker] = useState(false);
   const [showRecordingSetup, setShowRecordingSetup] = useState(false);
   const [pickerMode, setPickerMode] = useState<PickerMode>("screenshot");
-  const [windows, setWindows] = useState<WindowInfo[]>([]);
-  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
+  const [windows, setWindows] = useState<NativeWindowInfo[]>([]);
+  const [displays, setDisplays] = useState<NativeDisplayInfo[]>([]);
   const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([]);
   const [loadingWindows, setLoadingWindows] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
-  const [selectedWindow, setSelectedWindow] = useState<WindowInfo | null>(null);
-  const [selectedDisplay, setSelectedDisplay] = useState<DisplayInfo | null>(null);
+  const [selectedWindow, setSelectedWindow] = useState<NativeWindowInfo | null>(null);
+  const [selectedDisplay, setSelectedDisplay] = useState<NativeDisplayInfo | null>(null);
   const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>("none");
   const [showCursorInRecording, setShowCursorInRecording] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -337,11 +337,14 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
   const loadWindows = async () => {
     setLoadingWindows(true);
     try {
+      // Use nativeCapture for windows/displays (uses ScreenCaptureKit on macOS)
+      // This works properly in production builds unlike the AppleScript-based method
       const [windowList, displayList, audioList] = await Promise.all([
-        captureCommands.listWindows(),
-        captureCommands.listDisplays(),
+        nativeCapture.listWindows(),
+        nativeCapture.listDisplays(),
         captureCommands.listAudioDevices(),
       ]);
+      console.log("Loaded windows:", windowList.length, "displays:", displayList.length);
       setWindows(windowList);
       setDisplays(displayList);
       setAudioDevices(audioList);
@@ -372,7 +375,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
     }
   };
 
-  const handleCaptureWindow = async (window: WindowInfo) => {
+  const handleCaptureWindow = async (window: NativeWindowInfo) => {
     if (pickerMode === "screenshot") {
       setShowWindowPicker(false);
       setCapturing(true);
@@ -380,9 +383,9 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
         await captureCommands.windowScreenshot(
           appId, // App ID for screenshots linked to this exploration
           explorationId,
-          `${window.owner} - ${window.name}`,
-          window.owner,
-          window.name,
+          `${window.owner_name} - ${window.title}`,
+          window.owner_name,
+          window.title,
           window.window_id
         );
         loadScreenshots({ test_id: explorationId });
@@ -418,7 +421,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
     }
   };
 
-  const handleSelectDisplay = (display: DisplayInfo) => {
+  const handleSelectDisplay = (display: NativeDisplayInfo) => {
     setSelectedDisplay(display);
     setSelectedWindow(null);
     setShowRecordingSetup(true);
@@ -433,9 +436,14 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
         await startRecording({
           appId, // Include appId for app-level association
           explorationId,
-          name: `${selectedWindow.owner} - ${selectedWindow.name}`,
+          name: `${selectedWindow.owner_name} - ${selectedWindow.title}`,
           windowId: selectedWindow.window_id,
-          bounds: selectedWindow.bounds,
+          bounds: {
+            x: selectedWindow.x,
+            y: selectedWindow.y,
+            width: selectedWindow.width,
+            height: selectedWindow.height,
+          },
           audioDevice: selectedAudioDevice,
           showCursor: showCursorInRecording,
         });
@@ -444,7 +452,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
           appId, // Include appId for app-level association
           explorationId,
           name: selectedDisplay.name,
-          displayId: selectedDisplay.id,
+          displayId: selectedDisplay.display_id,
           audioDevice: selectedAudioDevice,
           showCursor: showCursorInRecording,
         });
@@ -1390,7 +1398,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
                     <div className="border-b border-[var(--border-default)] mb-2 pb-2">
                       <p className="px-3 py-1 text-[var(--text-caption)] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Screens</p>
                       {displays.map((display) => (
-                        <button key={display.id} onClick={() => handleSelectDisplay(display)} className="w-full p-3 text-left hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-3">
+                        <button key={display.display_id} onClick={() => handleSelectDisplay(display)} className="w-full p-3 text-left hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-3">
                           <Monitor className="w-5 h-5 text-[var(--text-primary)] mt-0.5 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold text-[var(--text-primary)]">{display.name}</p>
@@ -1404,11 +1412,11 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
                     <p className="px-3 py-1 text-[var(--text-caption)] text-[var(--text-tertiary)] uppercase tracking-wide font-medium">Windows</p>
                   )}
                   {windows.map((window) => (
-                    <button key={`${window.id}-${window.window_id}`} onClick={() => handleCaptureWindow(window)} className="w-full p-3 text-left hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-3">
+                    <button key={window.window_id} onClick={() => handleCaptureWindow(window)} className="w-full p-3 text-left hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-3">
                       <Monitor className="w-5 h-5 text-[var(--text-tertiary)] mt-0.5 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-[var(--text-primary)] truncate">{window.name || "Untitled"}</p>
-                        <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)] truncate">{window.owner}</p>
+                        <p className="font-medium text-[var(--text-primary)] truncate">{window.title || "Untitled"}</p>
+                        <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)] truncate">{window.owner_name}</p>
                       </div>
                     </button>
                   ))}
@@ -1446,7 +1454,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-[var(--text-primary)] truncate">
-                      {selectedWindow ? `${selectedWindow.owner} - ${selectedWindow.name}` : selectedDisplay?.name || "Screen"}
+                      {selectedWindow ? `${selectedWindow.owner_name} - ${selectedWindow.title}` : selectedDisplay?.name || "Screen"}
                     </p>
                     <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)]">{selectedWindow ? "Window" : "Full Screen"}</p>
                   </div>
