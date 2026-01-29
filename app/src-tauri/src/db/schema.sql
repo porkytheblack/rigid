@@ -384,7 +384,7 @@ CREATE TABLE IF NOT EXISTS demo_backgrounds (
 CREATE TABLE IF NOT EXISTS demo_tracks (
     id TEXT PRIMARY KEY,
     demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
-    track_type TEXT NOT NULL, -- video, image, audio, zoom, blur
+    track_type TEXT NOT NULL, -- video, image, audio, zoom, blur, pan
     name TEXT NOT NULL,
     locked INTEGER NOT NULL DEFAULT 0,
     visible INTEGER NOT NULL DEFAULT 1,
@@ -475,6 +475,26 @@ CREATE TABLE IF NOT EXISTS demo_blur_clips (
     updated_at TEXT NOT NULL
 );
 
+-- Demo pan clips (pan/move effect clips)
+CREATE TABLE IF NOT EXISTS demo_pan_clips (
+    id TEXT PRIMARY KEY,
+    track_id TEXT NOT NULL REFERENCES demo_tracks(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    start_time_ms INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL,
+    -- Start position (percentage of canvas, 50 = center)
+    start_x REAL NOT NULL DEFAULT 50.0,
+    start_y REAL NOT NULL DEFAULT 50.0,
+    -- End position (percentage of canvas)
+    end_x REAL NOT NULL DEFAULT 50.0,
+    end_y REAL NOT NULL DEFAULT 50.0,
+    -- Easing
+    ease_in_duration_ms INTEGER NOT NULL DEFAULT 300,
+    ease_out_duration_ms INTEGER NOT NULL DEFAULT 300,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- Demo assets (imported media files)
 CREATE TABLE IF NOT EXISTS demo_assets (
     id TEXT PRIMARY KEY,
@@ -521,6 +541,7 @@ CREATE INDEX IF NOT EXISTS idx_demo_clips_track ON demo_clips(track_id);
 CREATE INDEX IF NOT EXISTS idx_demo_clips_start ON demo_clips(start_time_ms);
 CREATE INDEX IF NOT EXISTS idx_demo_zoom_clips_track ON demo_zoom_clips(track_id);
 CREATE INDEX IF NOT EXISTS idx_demo_blur_clips_track ON demo_blur_clips(track_id);
+CREATE INDEX IF NOT EXISTS idx_demo_pan_clips_track ON demo_pan_clips(track_id);
 CREATE INDEX IF NOT EXISTS idx_demo_assets_demo ON demo_assets(demo_id);
 CREATE INDEX IF NOT EXISTS idx_demo_recordings_demo ON demo_recordings(demo_id);
 CREATE INDEX IF NOT EXISTS idx_demo_recordings_recording ON demo_recordings(recording_id);

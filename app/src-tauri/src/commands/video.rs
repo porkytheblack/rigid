@@ -1,9 +1,62 @@
 use std::path::PathBuf;
-use std::process::Command;
 use tauri::{AppHandle, Manager, State};
 
 use crate::error::TakaError;
+use crate::ffmpeg;
 use crate::repositories::RecordingRepository;
+
+/// Download a URL to a temporary file and return the path
+/// Used for background images from external sources like Unsplash
+async fn download_url_to_temp(app: &AppHandle, url: &str) -> Result<PathBuf, String> {
+    use std::io::Write;
+
+    // Create temp directory in app cache
+    let cache_dir = app.path().app_cache_dir()
+        .map_err(|e| format!("Failed to get cache dir: {}", e))?;
+    let temp_dir = cache_dir.join("render_temp");
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    // Generate a unique filename based on URL hash
+    let hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        url.hash(&mut hasher);
+        hasher.finish()
+    };
+
+    // Try to guess extension from URL, default to .jpg
+    let ext = url.split('?').next()
+        .and_then(|u| u.rsplit('.').next())
+        .filter(|e| ["jpg", "jpeg", "png", "webp", "gif"].contains(&e.to_lowercase().as_str()))
+        .unwrap_or("jpg");
+
+    let temp_path = temp_dir.join(format!("bg_{}.{}", hash, ext));
+
+    // If already downloaded, return cached path
+    if temp_path.exists() {
+        return Ok(temp_path);
+    }
+
+    // Download the image
+    let response = reqwest::get(url).await
+        .map_err(|e| format!("Failed to download image: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Failed to download image: HTTP {}", response.status()));
+    }
+
+    let bytes = response.bytes().await
+        .map_err(|e| format!("Failed to read image data: {}", e))?;
+
+    // Write to temp file
+    let mut file = std::fs::File::create(&temp_path)
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+    file.write_all(&bytes)
+        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+    Ok(temp_path)
+}
 
 /// Trim a video file using FFmpeg
 /// Creates a new video file with the trimmed content
@@ -50,7 +103,8 @@ pub async fn trim_video(
     // Run FFmpeg to trim the video
     // Using -ss after -i for accurate seeking (not keyframe-based)
     // Re-encoding is required for frame-accurate cuts
-    let output = Command::new("ffmpeg")
+    let output = ffmpeg::ffmpeg_command(&app)
+        .map_err(|e| TakaError::Internal(e))?
         .args([
             "-y",                           // Overwrite output file
             "-i", &recording_path,          // Input file
@@ -152,7 +206,8 @@ pub async fn cut_video(
     // Run FFmpeg to extract the clip
     // Using -ss after -i for accurate seeking (not keyframe-based)
     // Re-encoding is required for frame-accurate cuts
-    let output = Command::new("ffmpeg")
+    let output = ffmpeg::ffmpeg_command(&app)
+        .map_err(|e| TakaError::Internal(e))?
         .args([
             "-y",                           // Overwrite output file
             "-i", &recording_path,          // Input file
@@ -203,6 +258,50 @@ fn format_ffmpeg_time(ms: i64) -> String {
     format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, milliseconds)
 }
 
+/// Parse gradient stops JSON to extract start and end colors
+/// Input format: [{ "color": "#RRGGBB", "position": 0-100 }, ...]
+fn parse_gradient_stops(stops_json: &str) -> (String, String) {
+    #[derive(serde::Deserialize)]
+    struct GradientStop {
+        color: String,
+        position: f64,
+    }
+
+    if let Ok(stops) = serde_json::from_str::<Vec<GradientStop>>(stops_json) {
+        if stops.len() >= 2 {
+            // Sort by position and take first and last
+            let mut sorted = stops;
+            sorted.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap());
+            let start = sorted.first().map(|s| s.color.trim_start_matches('#').to_string())
+                .unwrap_or_else(|| "1a1a2e".to_string());
+            let end = sorted.last().map(|s| s.color.trim_start_matches('#').to_string())
+                .unwrap_or_else(|| "2d2d44".to_string());
+            return (start, end);
+        } else if stops.len() == 1 {
+            let color = stops[0].color.trim_start_matches('#').to_string();
+            return (color.clone(), color);
+        }
+    }
+    ("1a1a2e".to_string(), "2d2d44".to_string())
+}
+
+/// Convert CSS gradient angle to FFmpeg gradient coordinates
+/// CSS: 0deg = bottom-to-top, 90deg = left-to-right, 180deg = top-to-bottom
+/// FFmpeg gradients: x0:y0 is start point, x1:y1 is end point
+fn angle_to_gradient_coords(angle: i32, width: i32, height: i32) -> (i32, i32, i32, i32) {
+    let angle_rad = (angle as f64 - 90.0).to_radians(); // Adjust for CSS convention
+    let cx = width as f64 / 2.0;
+    let cy = height as f64 / 2.0;
+    let diagonal = ((width * width + height * height) as f64).sqrt() / 2.0;
+
+    let x0 = (cx - diagonal * angle_rad.cos()) as i32;
+    let y0 = (cy - diagonal * angle_rad.sin()) as i32;
+    let x1 = (cx + diagonal * angle_rad.cos()) as i32;
+    let y1 = (cy + diagonal * angle_rad.sin()) as i32;
+
+    (x0.max(0), y0.max(0), x1.min(width), y1.min(height))
+}
+
 // =============================================================================
 // Media Probing
 // =============================================================================
@@ -221,7 +320,7 @@ pub struct MediaProbeResult {
 
 /// Probe a media file to get info about its streams
 #[tauri::command]
-pub async fn probe_media(path: String) -> Result<MediaProbeResult, TakaError> {
+pub async fn probe_media(app: AppHandle, path: String) -> Result<MediaProbeResult, TakaError> {
     // Check if file exists first
     let file_path = std::path::Path::new(&path);
     if !file_path.exists() {
@@ -230,7 +329,8 @@ pub async fn probe_media(path: String) -> Result<MediaProbeResult, TakaError> {
 
     // Use ffprobe to get stream info in JSON format
     // ffprobe reads container metadata which is fast even for large files
-    let output = Command::new("ffprobe")
+    let output = ffmpeg::ffprobe_command(&app)
+        .map_err(|e| TakaError::Internal(e))?
         .args([
             "-v", "error",  // Show errors but not warnings
             "-print_format", "json",
@@ -325,10 +425,12 @@ pub struct RenderClip {
 /// Background data for rendering
 #[derive(Debug, Clone, Deserialize)]
 pub struct RenderBackground {
-    pub background_type: String, // "solid" | "gradient"
+    pub background_type: String, // "solid" | "gradient" | "image"
     pub color: Option<String>,
-    pub gradient_stops: Option<String>, // JSON array
+    pub gradient_stops: Option<String>, // JSON array: [{ color: string, position: number }]
     pub gradient_angle: Option<i32>,
+    pub image_url: Option<String>,  // External URL (e.g., Unsplash)
+    pub media_path: Option<String>, // Local file path
 }
 
 /// Zoom clip data for rendering
@@ -360,6 +462,20 @@ pub struct RenderBlurClip {
     pub z_index: i32,                   // Layering order
 }
 
+/// Pan clip for animated position movement
+#[derive(Debug, Clone, Deserialize)]
+pub struct RenderPanClip {
+    pub start_time_ms: i64,
+    pub duration_ms: i64,
+    pub start_x: f64,                   // Start center X position (0-100%)
+    pub start_y: f64,                   // Start center Y position (0-100%)
+    pub end_x: f64,                     // End center X position (0-100%)
+    pub end_y: f64,                     // End center Y position (0-100%)
+    pub ease_in_duration_ms: i64,
+    pub ease_out_duration_ms: i64,
+    pub z_index: i32,                   // Layering order
+}
+
 /// Demo render configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct RenderDemoConfig {
@@ -374,6 +490,7 @@ pub struct RenderDemoConfig {
     pub clips: Vec<RenderClip>,
     pub zoom_clips: Option<Vec<RenderZoomClip>>, // Zoom effects from zoom tracks
     pub blur_clips: Option<Vec<RenderBlurClip>>, // Blur effects from blur tracks
+    pub pan_clips: Option<Vec<RenderPanClip>>,   // Pan effects from pan tracks
 }
 
 /// Progress info for rendering
@@ -388,7 +505,7 @@ pub struct RenderProgress {
 /// Render a demo video using FFmpeg
 #[tauri::command]
 pub async fn render_demo(
-    _app: AppHandle,
+    app: AppHandle,
     config: RenderDemoConfig,
 ) -> Result<String, TakaError> {
     use std::process::Stdio;
@@ -427,21 +544,100 @@ pub async fn render_demo(
         "-y".to_string(), // Overwrite output
     ];
 
-    // Create background color input
-    let bg_color = config.background.as_ref()
-        .and_then(|b| b.color.clone())
-        .unwrap_or_else(|| "#1a1a2e".to_string());
-
     let duration_sec = config.duration_ms as f64 / 1000.0;
 
-    // Add color background as first input
-    ffmpeg_args.extend(vec![
-        "-f".to_string(), "lavfi".to_string(),
-        "-i".to_string(),
-        format!("color=c={}:s={}x{}:d={:.3}:r={}",
-            bg_color.trim_start_matches('#'),
-            config.width, config.height, duration_sec, config.frame_rate),
-    ]);
+    // Track if we're using an image background (affects input indexing)
+    let mut bg_is_image = false;
+
+    // Create background input based on type
+    if let Some(ref bg) = config.background {
+        match bg.background_type.as_str() {
+            "image" => {
+                // Image background - use local file or download external URL
+                // Priority: media_path (local) > image_url (external, downloaded first)
+                let image_path: Option<String> = if let Some(ref local_path) = bg.media_path {
+                    if std::path::Path::new(local_path).exists() {
+                        Some(local_path.clone())
+                    } else {
+                        None
+                    }
+                } else if let Some(ref url) = bg.image_url {
+                    // Download external URL to temp file to avoid multiple requests
+                    match download_url_to_temp(&app, url).await {
+                        Ok(path) => Some(path.to_string_lossy().to_string()),
+                        Err(e) => {
+                            println!("Warning: Failed to download background image: {}", e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(source) = image_path {
+                    bg_is_image = true;
+                    ffmpeg_args.extend(vec![
+                        "-loop".to_string(), "1".to_string(),
+                        "-t".to_string(), format!("{:.3}", duration_sec),
+                        "-i".to_string(), source,
+                    ]);
+                } else {
+                    // No valid image source, fallback to default color
+                    ffmpeg_args.extend(vec![
+                        "-f".to_string(), "lavfi".to_string(),
+                        "-i".to_string(),
+                        format!("color=c=0x1a1a2e:s={}x{}:d={:.3}:r={}",
+                            config.width, config.height, duration_sec, config.frame_rate),
+                    ]);
+                }
+            }
+            "gradient" => {
+                // Gradient background using FFmpeg's gradients filter
+                // Parse gradient stops to get start and end colors
+                let (start_color, end_color) = if let Some(ref stops_json) = bg.gradient_stops {
+                    parse_gradient_stops(stops_json)
+                } else {
+                    ("1a1a2e".to_string(), "2d2d44".to_string())
+                };
+
+                let angle = bg.gradient_angle.unwrap_or(180);
+                // Convert angle to FFmpeg gradient direction
+                // FFmpeg gradients: x0:y0:x1:y1 defines the gradient line
+                let (x0, y0, x1, y1) = angle_to_gradient_coords(angle, config.width, config.height);
+
+                ffmpeg_args.extend(vec![
+                    "-f".to_string(), "lavfi".to_string(),
+                    "-i".to_string(),
+                    format!("gradients=s={}x{}:c0=0x{}:c1=0x{}:x0={}:y0={}:x1={}:y1={}:d={:.3}:r={}",
+                        config.width, config.height,
+                        start_color, end_color,
+                        x0, y0, x1, y1,
+                        duration_sec, config.frame_rate),
+                ]);
+            }
+            _ => {
+                // Solid color (default)
+                let bg_color = bg.color.clone().unwrap_or_else(|| "#1a1a2e".to_string());
+                let bg_hex = bg_color.trim_start_matches('#');
+
+                ffmpeg_args.extend(vec![
+                    "-f".to_string(), "lavfi".to_string(),
+                    "-i".to_string(),
+                    format!("color=c=0x{}:s={}x{}:d={:.3}:r={}",
+                        bg_hex,
+                        config.width, config.height, duration_sec, config.frame_rate),
+                ]);
+            }
+        }
+    } else {
+        // No background specified, use default dark color
+        ffmpeg_args.extend(vec![
+            "-f".to_string(), "lavfi".to_string(),
+            "-i".to_string(),
+            format!("color=c=0x1a1a2e:s={}x{}:d={:.3}:r={}",
+                config.width, config.height, duration_sec, config.frame_rate),
+        ]);
+    }
 
     // Sort clips by z_index (lower z_index = back, higher = front)
     let mut sorted_clips = config.clips.clone();
@@ -496,10 +692,37 @@ pub async fn render_demo(
 
     // Build filter complex for video
     let mut filter_parts: Vec<String> = vec![];
-    let mut current_output = "[0:v]".to_string();
+
+    // Handle background scaling if it's an image
+    // Convert background to rgba format to support alpha compositing with overlays
+    let current_output = if bg_is_image {
+        // Scale image background to fit canvas (cover mode - crop to fill)
+        // Format as rgba to support alpha blending with transparent clips
+        filter_parts.push(format!(
+            "[0:v]scale={}:{}:force_original_aspect_ratio=increase,crop={}:{},format=rgba[bg]",
+            config.width, config.height, config.width, config.height
+        ));
+        "[bg]".to_string()
+    } else {
+        // For color/gradient backgrounds, also ensure rgba format
+        filter_parts.push(format!("[0:v]format=rgba[bg]"));
+        "[bg]".to_string()
+    };
+    let mut current_output = current_output;
 
     // Get zoom clips for lookup
     let zoom_clips = config.zoom_clips.as_ref();
+
+    // Debug: Log all zoom clips received
+    if let Some(zcs) = &zoom_clips {
+        println!("DEBUG: Received {} zoom clips for rendering:", zcs.len());
+        for (i, zc) in zcs.iter().enumerate() {
+            println!("  Zoom clip {}: target_track_id={}, start={}ms, duration={}ms, scale={}",
+                i, zc.target_track_id, zc.start_time_ms, zc.duration_ms, zc.zoom_scale);
+        }
+    } else {
+        println!("DEBUG: No zoom clips received for rendering");
+    }
 
     for (i, (input_idx, clip)) in video_inputs.iter().enumerate() {
         let scale = clip.scale.unwrap_or(0.8);
@@ -525,32 +748,89 @@ pub async fn render_demo(
             })
             .unwrap_or_default();
 
+        println!("DEBUG: Processing clip on track {:?}, found {} zoom effects targeting this track",
+            clip.track_id, clip_zoom_effects.len());
+
         // Scale preserving aspect ratio, then pad to exact size
         let scaled_label = format!("scaled{}", i);
 
+        // Get clip opacity (default to 1.0 = fully opaque)
+        let opacity = clip.opacity.unwrap_or(1.0).clamp(0.0, 1.0);
+
         // Build the filter chain for this clip
-        // If cropping, apply crop first then scale
-        let mut clip_filters = if has_crop {
-            // Crop uses percentages: crop=w:h:x:y
-            // w = iw * (100 - left - right) / 100
-            // h = ih * (100 - top - bottom) / 100
-            // x = iw * left / 100
-            // y = ih * top / 100
-            format!(
-                "[{}:v]crop=iw*{}/100:ih*{}/100:iw*{}/100:ih*{}/100,scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2:color=black@0,setpts=PTS-STARTPTS",
-                input_idx,
-                100 - crop_left - crop_right,
-                100 - crop_top - crop_bottom,
-                crop_left,
-                crop_top,
-                target_w, target_h, target_w, target_h
-            )
-        } else {
-            format!(
-                "[{}:v]scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2:color=black@0,setpts=PTS-STARTPTS",
-                input_idx, target_w, target_h, target_w, target_h
-            )
-        };
+        // Scale to fit within target dimensions (contain mode) while preserving aspect ratio
+        // This matches CSS max-width/max-height behavior in the frontend
+        // Use format=rgba to preserve alpha channel through the filter chain
+        // Note: The scaled video may be smaller than target_w x target_h - that's intentional
+        // The background shows through via the overlay
+        let mut clip_filters = format!(
+            "[{}:v]format=rgba,scale={}:{}:force_original_aspect_ratio=decrease,setpts=PTS-STARTPTS",
+            input_idx, target_w, target_h
+        );
+
+        // Apply crop and/or corner radius as alpha mask using geq filter
+        // This matches CSS clipPath: inset(top% right% bottom% left% round Xpx)
+        // We combine crop and corner radius into a single geq to avoid multiple format conversions
+        if has_crop || corner_radius > 0 {
+            clip_filters.push_str(",format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='");
+
+            // Calculate crop boundaries as expressions
+            // These define the visible region after cropping
+            let crop_left_px = format!("W*{}/100", crop_left);
+            let crop_right_px = format!("W*(100-{})/100", crop_right);
+            let crop_top_px = format!("H*{}/100", crop_top);
+            let crop_bottom_px = format!("H*(100-{})/100", crop_bottom);
+
+            // Build the alpha expression
+            // The corner radius should apply to the corners of the CROPPED region, not the full frame
+            let final_expr = if corner_radius > 0 {
+                let r = corner_radius;
+                // When we have both crop and corner radius:
+                // - First check if pixel is outside crop region (alpha = 0)
+                // - Then check if pixel is in a corner region of the cropped area
+                // - Corner regions are measured from the crop boundaries, not from 0,0
+                //
+                // For top-left corner of cropped region:
+                //   corner center is at (crop_left + r, crop_top + r)
+                //   pixel is in corner zone if X < crop_left + r AND Y < crop_top + r
+                //   pixel is visible if distance from corner center <= r
+                format!(
+                    "255*if(lt(X,{cl}),0,if(gt(X,{cr}),0,if(lt(Y,{ct}),0,if(gt(Y,{cb}),0,\
+                    if(lt(X,{cl}+{r})*lt(Y,{ct}+{r}),if(lte(hypot({cl}+{r}-X,{ct}+{r}-Y),{r}),1,0),\
+                    if(gt(X,{cr}-{r})*lt(Y,{ct}+{r}),if(lte(hypot(X-{cr}+{r},{ct}+{r}-Y),{r}),1,0),\
+                    if(lt(X,{cl}+{r})*gt(Y,{cb}-{r}),if(lte(hypot({cl}+{r}-X,Y-{cb}+{r}),{r}),1,0),\
+                    if(gt(X,{cr}-{r})*gt(Y,{cb}-{r}),if(lte(hypot(X-{cr}+{r},Y-{cb}+{r}),{r}),1,0),\
+                    1))))))))",
+                    cl = crop_left_px,
+                    cr = crop_right_px,
+                    ct = crop_top_px,
+                    cb = crop_bottom_px,
+                    r = r
+                )
+            } else {
+                // Crop only, no corner radius
+                format!(
+                    "255*if(lt(X,{cl}),0,if(gt(X,{cr}),0,if(lt(Y,{ct}),0,if(gt(Y,{cb}),0,1))))",
+                    cl = crop_left_px,
+                    cr = crop_right_px,
+                    ct = crop_top_px,
+                    cb = crop_bottom_px
+                )
+            };
+
+            clip_filters.push_str(&final_expr);
+            clip_filters.push_str("'");
+        }
+
+        // Apply opacity if less than 1.0
+        // Use colorchannelmixer to multiply the alpha channel by the opacity value
+        if opacity < 1.0 {
+            // If we haven't applied geq yet (no crop/corner radius), add format=rgba first
+            if !has_crop && corner_radius == 0 {
+                clip_filters.push_str(",format=rgba");
+            }
+            clip_filters.push_str(&format!(",colorchannelmixer=aa={:.3}", opacity));
+        }
 
         // Apply zoom effects using zoompan filter
         // Zoom effects are relative to the clip's start time
@@ -558,94 +838,179 @@ pub async fn render_demo(
             // Calculate zoom timing relative to clip's timeline position
             // The zoom clip times are in absolute timeline time, but the clip video starts at 0
             // So we need to convert: zoom_time_in_clip = zoom_absolute_time - clip_start_time
+            let clip_duration_sec = clip.duration_ms as f64 / 1000.0;
             let zoom_start_in_clip = (zc.start_time_ms - clip.start_time_ms) as f64 / 1000.0;
-            let zoom_end_in_clip = zoom_start_in_clip + (zc.duration_ms as f64 / 1000.0);
+            let zoom_duration_sec = zc.duration_ms as f64 / 1000.0;
+            let zoom_end_in_clip = zoom_start_in_clip + zoom_duration_sec;
+
+            // Skip zoom clips that don't overlap with this video clip's time range
+            if zoom_end_in_clip <= 0.0 || zoom_start_in_clip >= clip_duration_sec {
+                println!("ZOOM DEBUG: Skipping zoom clip - no overlap with video clip");
+                println!("  clip_duration_sec={}, zoom_start_in_clip={}, zoom_end_in_clip={}",
+                    clip_duration_sec, zoom_start_in_clip, zoom_end_in_clip);
+                continue;
+            }
+
+            // Clamp zoom timing to the clip's boundaries
+            // This handles cases where zoom extends beyond the video clip
+            let zoom_start_clamped = zoom_start_in_clip.max(0.0);
+            let zoom_end_clamped = zoom_end_in_clip.min(clip_duration_sec);
+
+            // Debug: Log zoom timing details
+            println!("ZOOM DEBUG: clip.start_time_ms={}, clip.duration_ms={}, zc.start_time_ms={}, zc.duration_ms={}",
+                clip.start_time_ms, clip.duration_ms, zc.start_time_ms, zc.duration_ms);
+            println!("ZOOM DEBUG: zoom_start_in_clip={}, zoom_end_in_clip={}, clamped: start={}, end={}",
+                zoom_start_in_clip, zoom_end_in_clip, zoom_start_clamped, zoom_end_clamped);
+
             let ease_in_sec = zc.ease_in_duration_ms as f64 / 1000.0;
             let ease_out_sec = zc.ease_out_duration_ms as f64 / 1000.0;
-            let ease_out_start = zoom_end_in_clip - ease_out_sec;
+
+            // Adjust ease-in duration if zoom starts before clip
+            let ease_in_adjusted = if zoom_start_in_clip < 0.0 {
+                (ease_in_sec + zoom_start_in_clip).max(0.001)
+            } else {
+                ease_in_sec.max(0.001)
+            };
+
+            // Adjust ease-out duration if zoom ends after clip
+            let ease_out_adjusted = if zoom_end_in_clip > clip_duration_sec {
+                (ease_out_sec - (zoom_end_in_clip - clip_duration_sec)).max(0.001)
+            } else {
+                ease_out_sec.max(0.001)
+            };
+
+            let ease_in_end = zoom_start_clamped + ease_in_adjusted;
+            let ease_out_start = zoom_end_clamped - ease_out_adjusted;
+
             let zoom_scale = zc.zoom_scale;
             let center_x = zc.zoom_center_x / 100.0; // Convert to 0-1 range
             let center_y = zc.zoom_center_y / 100.0;
             let fps = config.frame_rate as f64;
 
             // Use zoompan for smooth animated zoom
-            // zoompan uses 'on' (output frame number) not 't' for time
-            // in_time = on / fps gives us the time in seconds
+            // Note: In FFmpeg zoompan filter, 'on' is the output frame number (starts at 1, not 0)
+            // So we use (on-1)/fps to get time in seconds from 0
             //
             // z = zoom level (1 = no zoom, 2 = 2x zoom)
             // x, y = pan position (top-left corner of the zoomed area)
-            // d = duration in output frames per input frame (1 = no slowdown)
+            // d = duration in output frames per input frame (1 = 1:1 mapping for video)
             // s = output size
             //
-            // The zoom expression calculates based on in_time:
+            // The zoom expression calculates based on time:
             // - Before zoom: z=1
-            // - During ease-in: z interpolates from 1 to zoom_scale with ease-in-out
+            // - During ease-in: z interpolates from 1 to zoom_scale
             // - Holding: z=zoom_scale
-            // - During ease-out: z interpolates from zoom_scale to 1 with ease-in-out
+            // - During ease-out: z interpolates from zoom_scale to 1
             // - After zoom: z=1
-            //
-            // Ease-in-out formula using smoothstep-like approach
-            // For simplicity, use linear interpolation first, can enhance later
-            let ease_in_end = zoom_start_in_clip + ease_in_sec;
-            let ease_in_duration = ease_in_sec.max(0.001);
-            let ease_out_duration = ease_out_sec.max(0.001);
 
-            // Build the zoom expression using in_time (time in seconds based on output frame)
-            // FFmpeg zoompan: in_time is input time, we use on/fps for output time
-            let z_expr = format!(
-                "if(lt(on/{fps},{zoom_start}),1,if(lt(on/{fps},{ease_in_end}),1+({zoom_scale}-1)*((on/{fps}-{zoom_start})/{ease_in_dur}),if(lt(on/{fps},{ease_out_start}),{zoom_scale},if(lt(on/{fps},{zoom_end}),{zoom_scale}-({zoom_scale}-1)*((on/{fps}-{ease_out_start})/{ease_out_dur}),1))))",
-                fps = fps,
-                zoom_start = zoom_start_in_clip,
+            // Implement animated zoom using scale + crop approach
+            // The crop filter's x and y support time expressions, but w and h don't
+            // So we scale up by the max zoom factor first, then crop a moving window
+            //
+            // Strategy:
+            // 1. Scale the video up by zoom_scale (e.g., 2x)
+            // 2. Crop a window of original size that moves based on zoom level
+            // 3. When zoom=1, crop window = full scaled frame (shows everything smaller)
+            //    When zoom=max, crop window centered on zoom point
+            //
+            // Actually, simpler: scale to max zoom, then use crop x/y to animate position
+            // The zoom animation comes from the changing x/y making different parts visible
+
+            // Scale factor for the intermediate scaled version
+            let scale_up = zoom_scale;
+            let scaled_w = (target_w as f64 * scale_up) as i32;
+            let scaled_h = (target_h as f64 * scale_up) as i32;
+
+            // Build the zoom level expression as a function of time
+            let zoom_at_t = format!(
+                "if(lt(t,{zoom_start}),1,if(lt(t,{ease_in_end}),1+({zoom_scale}-1)*((t-{zoom_start})/{ease_in_dur}),if(lt(t,{ease_out_start}),{zoom_scale},if(lt(t,{zoom_end}),{zoom_scale}-({zoom_scale}-1)*((t-{ease_out_start})/{ease_out_dur}),1))))",
+                zoom_start = zoom_start_clamped,
                 ease_in_end = ease_in_end,
                 zoom_scale = zoom_scale,
-                ease_in_dur = ease_in_duration,
+                ease_in_dur = ease_in_adjusted,
                 ease_out_start = ease_out_start,
-                zoom_end = zoom_end_in_clip,
-                ease_out_dur = ease_out_duration,
+                zoom_end = zoom_end_clamped,
+                ease_out_dur = ease_out_adjusted,
             );
 
-            // x and y position the crop window
-            // When zoomed, we crop a smaller area and scale it up
-            // x = (iw - iw/zoom) * center_x = iw * (1 - 1/zoom) * center_x
-            // y = (ih - ih/zoom) * center_y = ih * (1 - 1/zoom) * center_y
+            // After scaling up by zoom_scale, we have a frame of scaled_w x scaled_h
+            // We crop a window of target_w x target_h from it
+            //
+            // The x,y position of the crop depends on:
+            // - current zoom level (1 to zoom_scale)
+            // - center point (center_x, center_y as 0-1)
+            //
+            // At zoom=1: show the whole original frame, so we need to scale DOWN or center
+            // At zoom=zoom_scale: show zoomed portion centered at (center_x, center_y)
+            //
+            // Crop x = (scaled_w - target_w) * center_x * (zoom - 1) / (zoom_scale - 1)
+            // At zoom=1: x = 0 (start of frame)
+            // At zoom=zoom_scale: x = (scaled_w - target_w) * center_x
+            //
+            // Wait, this is getting complex. Let me think differently.
+            //
+            // Alternative: Always scale by zoom_scale, then crop position based on zoom level
+            // When zoom_level = 1, we want to see the whole frame (need to scale it to fit)
+            // When zoom_level = zoom_scale, we see a portion
+            //
+            // Actually the issue is: at zoom=1 we need the full original frame
+            // But we've scaled it up, so we can't show it all in target_w x target_h
+            //
+            // Better approach: Scale by zoom_level dynamically... but scale doesn't support 't'
+            //
+            // Let's try a simpler approach using zoompan with a test constant zoom first
+
+            // TEST: Use a constant zoom to verify zoompan works
+            println!("ZOOM DEBUG: Using zoompan with animated zoom");
+            println!("ZOOM DEBUG: zoom_start={}, zoom_end={}, zoom_scale={}",
+                zoom_start_clamped, zoom_end_clamped, zoom_scale);
+
+            // The z expression uses 'on' (output frame number) for timing
+            // 'on' starts at 1 for the first frame
+            let z_expr = format!(
+                "if(lt((on-1)/{fps},{zoom_start}),1,if(lt((on-1)/{fps},{ease_in_end}),1+({zoom_scale}-1)*(((on-1)/{fps}-{zoom_start})/{ease_in_dur}),if(lt((on-1)/{fps},{ease_out_start}),{zoom_scale},if(lt((on-1)/{fps},{zoom_end}),{zoom_scale}-({zoom_scale}-1)*(((on-1)/{fps}-{ease_out_start})/{ease_out_dur}),1))))",
+                fps = fps,
+                zoom_start = zoom_start_clamped,
+                ease_in_end = ease_in_end,
+                zoom_scale = zoom_scale,
+                ease_in_dur = ease_in_adjusted,
+                ease_out_start = ease_out_start,
+                zoom_end = zoom_end_clamped,
+                ease_out_dur = ease_out_adjusted,
+            );
+
+            // x, y expressions use 'zoom' which is the current value from z expression
             let x_expr = format!("iw*(1-1/zoom)*{}", center_x);
             let y_expr = format!("ih*(1-1/zoom)*{}", center_y);
 
-            clip_filters.push_str(&format!(
+            println!("ZOOM DEBUG: z_expr={}", z_expr);
+
+            let zoom_filter = format!(
                 ",zoompan=z='{}':x='{}':y='{}':d=1:s={}x{}:fps={}",
                 z_expr, x_expr, y_expr, target_w, target_h, config.frame_rate
-            ));
-        }
-
-        // Add corner radius using format=yuva420p and alphaextract/alphamerge with a rounded rectangle mask
-        if corner_radius > 0 {
-            // Create rounded corners by generating a mask and applying it
-            // Use format=yuva420p to add alpha channel, then use geq to create rounded corner alpha
-            let r = corner_radius;
-            clip_filters.push_str(&format!(
-                ",format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':\
-a='if(lt(X,{r})*lt(Y,{r}),if(lte(hypot({r}-X,{r}-Y),{r}),255,0),\
-if(gt(X,W-{r})*lt(Y,{r}),if(lte(hypot(X-W+{r},{r}-Y),{r}),255,0),\
-if(lt(X,{r})*gt(Y,H-{r}),if(lte(hypot({r}-X,Y-H+{r}),{r}),255,0),\
-if(gt(X,W-{r})*gt(Y,H-{r}),if(lte(hypot(X-W+{r},Y-H+{r}),{r}),255,0),255))))'",
-                r = r
-            ));
+            );
+            println!("ZOOM DEBUG: Generated zoompan filter: {}", zoom_filter);
+            clip_filters.push_str(&zoom_filter);
         }
 
         clip_filters.push_str(&format!("[{}]", scaled_label));
         filter_parts.push(clip_filters);
 
-        let overlay_x = (pos_x - target_w as f64 / 2.0) as i32;
-        let overlay_y = (pos_y - target_h as f64 / 2.0) as i32;
+        // Use FFmpeg expressions to center the overlay at (pos_x, pos_y)
+        // 'w' and 'h' refer to overlay dimensions, 'W' and 'H' refer to main video dimensions
+        // overlay_x = pos_x - overlay_width/2
+        // overlay_y = pos_y - overlay_height/2
+        let overlay_x_expr = format!("{}-w/2", pos_x as i32);
+        let overlay_y_expr = format!("{}-h/2", pos_y as i32);
 
         let start_sec = clip.start_time_ms as f64 / 1000.0;
         let end_sec = (clip.start_time_ms + clip.duration_ms) as f64 / 1000.0;
 
         let output_label = format!("out{}", i);
-        // Use shortest=1 to handle alpha channel properly in overlay
+        // Use format=auto to preserve alpha channel properly in overlay
         filter_parts.push(format!(
             "{}[{}]overlay={}:{}:enable='between(t,{:.3},{:.3})':format=auto[{}]",
-            current_output, scaled_label, overlay_x, overlay_y, start_sec, end_sec, output_label
+            current_output, scaled_label, overlay_x_expr, overlay_y_expr, start_sec, end_sec, output_label
         ));
 
         current_output = format!("[{}]", output_label);
@@ -703,6 +1068,95 @@ if(gt(X,W-{r})*gt(Y,H-{r}),if(lte(hypot(X-W+{r},Y-H+{r}),{r}),255,0),255))))'",
             ));
 
             current_output = format!("[{}]", blur_out_label);
+        }
+    }
+
+    // Apply pan clips for animated position effects
+    // Pan effect shifts the entire frame position over time
+    // This is implemented by scaling up the frame and using animated crop
+    if let Some(ref pan_clips) = config.pan_clips {
+        let mut sorted_pan_clips: Vec<&RenderPanClip> = pan_clips.iter().collect();
+        sorted_pan_clips.sort_by_key(|p| p.z_index);
+
+        for (i, pan_clip) in sorted_pan_clips.iter().enumerate() {
+            let pan_start_sec = pan_clip.start_time_ms as f64 / 1000.0;
+            let pan_end_sec = (pan_clip.start_time_ms + pan_clip.duration_ms) as f64 / 1000.0;
+            let pan_duration_sec = pan_clip.duration_ms as f64 / 1000.0;
+
+            // Convert percentage positions to pixel offsets
+            // At 50%, no offset (centered). At 0%, offset left/up. At 100%, offset right/down.
+            // For a pan effect, we need to scale up the video and crop a window that moves
+            // Scale factor determines how much we can pan (e.g., 1.2x scale allows 20% pan range)
+            let scale_factor = 1.5; // 50% extra on each side allows full 0-100% range
+            let scaled_w = (config.width as f64 * scale_factor) as i32;
+            let scaled_h = (config.height as f64 * scale_factor) as i32;
+
+            // Calculate max pan offset (how much the scaled frame extends beyond output)
+            let max_offset_x = (scaled_w - config.width) as f64;
+            let max_offset_y = (scaled_h - config.height) as f64;
+
+            // Start and end offsets (convert 0-100% to actual pixel offsets)
+            // 0% = max offset (show left/top edge), 100% = 0 offset (show right/bottom edge)
+            // Actually: 50% = centered, 0% = pan left/up, 100% = pan right/down
+            let start_offset_x = ((100.0 - pan_clip.start_x) / 100.0) * max_offset_x;
+            let start_offset_y = ((100.0 - pan_clip.start_y) / 100.0) * max_offset_y;
+            let end_offset_x = ((100.0 - pan_clip.end_x) / 100.0) * max_offset_x;
+            let end_offset_y = ((100.0 - pan_clip.end_y) / 100.0) * max_offset_y;
+
+            let pan_scale_label = format!("panscale{}", i);
+            let pan_out_label = format!("panout{}", i);
+
+            // Scale up the current output to allow panning
+            filter_parts.push(format!(
+                "{}scale={}:{}[{}]",
+                current_output, scaled_w, scaled_h, pan_scale_label
+            ));
+
+            // Calculate animated x/y expressions for the crop
+            // During pan clip: linearly interpolate from start to end offset
+            // Before and after: hold at start/end positions respectively
+            // Expression: if(lt(t,start), start_val, if(lt(t,end), lerp, end_val))
+            // Lerp formula: start + (end - start) * (t - start) / duration
+            let x_expr = format!(
+                "if(lt(t\\,{:.3})\\,{:.1}\\,if(lt(t\\,{:.3})\\,{:.1}+({:.1}-{:.1})*(t-{:.3})/{:.3}\\,{:.1}))",
+                pan_start_sec,
+                start_offset_x,
+                pan_end_sec,
+                start_offset_x,
+                end_offset_x,
+                start_offset_x,
+                pan_start_sec,
+                pan_duration_sec,
+                end_offset_x
+            );
+            let y_expr = format!(
+                "if(lt(t\\,{:.3})\\,{:.1}\\,if(lt(t\\,{:.3})\\,{:.1}+({:.1}-{:.1})*(t-{:.3})/{:.3}\\,{:.1}))",
+                pan_start_sec,
+                start_offset_y,
+                pan_end_sec,
+                start_offset_y,
+                end_offset_y,
+                start_offset_y,
+                pan_start_sec,
+                pan_duration_sec,
+                end_offset_y
+            );
+
+            // Crop with animated position to create pan effect
+            filter_parts.push(format!(
+                "[{}]crop={}:{}:'{}':[{}]",
+                pan_scale_label, config.width, config.height, x_expr, pan_out_label
+            ));
+
+            // Actually we need to handle y as well - FFmpeg crop takes x:y:w:h
+            // Let's fix this to use both x and y expressions
+            filter_parts.pop(); // Remove the previous incorrect crop
+            filter_parts.push(format!(
+                "[{}]crop={}:{}:'{}':'{}'[{}]",
+                pan_scale_label, config.width, config.height, x_expr, y_expr, pan_out_label
+            ));
+
+            current_output = format!("[{}]", pan_out_label);
         }
     }
 
@@ -834,7 +1288,8 @@ if(gt(X,W-{r})*gt(Y,H-{r}),if(lte(hypot(X-W+{r},Y-H+{r}),{r}),255,0),255))))'",
     println!("FFmpeg command: ffmpeg {}", ffmpeg_args.join(" "));
 
     // Run FFmpeg
-    let output = Command::new("ffmpeg")
+    let output = ffmpeg::ffmpeg_command(&app)
+        .map_err(|e| TakaError::Internal(e))?
         .args(&ffmpeg_args)
         .stderr(Stdio::piped())
         .output()

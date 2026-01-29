@@ -4,6 +4,7 @@ mod adapters;
 mod commands;
 mod db;
 mod error;
+mod ffmpeg;
 mod models;
 mod native;
 mod repositories;
@@ -320,6 +321,11 @@ pub fn run() {
             commands::demo_blur_clips_create,
             commands::demo_blur_clips_update,
             commands::demo_blur_clips_delete,
+            // Demo pan clip commands
+            commands::demo_pan_clips_list,
+            commands::demo_pan_clips_create,
+            commands::demo_pan_clips_update,
+            commands::demo_pan_clips_delete,
             // Demo asset commands
             commands::demo_assets_list,
             commands::demo_assets_create,

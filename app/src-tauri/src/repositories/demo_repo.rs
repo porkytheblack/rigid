@@ -10,6 +10,7 @@ use crate::models::{
     DemoClip, NewDemoClip, UpdateDemoClip,
     DemoZoomClip, NewDemoZoomClip, UpdateDemoZoomClip,
     DemoBlurClip, NewDemoBlurClip, UpdateDemoBlurClip,
+    DemoPanClip, NewDemoPanClip, UpdateDemoPanClip,
     DemoAsset, NewDemoAsset, UpdateDemoAsset,
     DemoRecording, NewDemoRecording,
     DemoScreenshot, NewDemoScreenshot,
@@ -81,6 +82,7 @@ impl DemoRepository {
         let mut clips = Vec::new();
         let mut zoom_clips = Vec::new();
         let mut blur_clips = Vec::new();
+        let mut pan_clips = Vec::new();
 
         for track in &tracks {
             match track.track_type.as_str() {
@@ -89,6 +91,9 @@ impl DemoRepository {
                 }
                 "blur" => {
                     blur_clips.extend(self.list_blur_clips(&track.id).await?);
+                }
+                "pan" => {
+                    pan_clips.extend(self.list_pan_clips(&track.id).await?);
                 }
                 _ => {
                     clips.extend(self.list_clips(&track.id).await?);
@@ -105,6 +110,7 @@ impl DemoRepository {
             clips,
             zoom_clips,
             blur_clips,
+            pan_clips,
             assets,
         })
     }
@@ -702,6 +708,95 @@ impl DemoRepository {
 
     pub async fn delete_blur_clip(&self, id: &str) -> Result<(), TakaError> {
         sqlx::query("DELETE FROM demo_blur_clips WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Pan Clip CRUD ============
+
+    pub async fn list_pan_clips(&self, track_id: &str) -> Result<Vec<DemoPanClip>, TakaError> {
+        Ok(sqlx::query_as::<_, DemoPanClip>(
+            "SELECT * FROM demo_pan_clips WHERE track_id = ? ORDER BY start_time_ms ASC"
+        )
+        .bind(track_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn create_pan_clip(&self, new: NewDemoPanClip) -> Result<DemoPanClip, TakaError> {
+        // Use provided ID or generate new one
+        let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO demo_pan_clips (id, track_id, name, start_time_ms, duration_ms, start_x, start_y, end_x, end_y, ease_in_duration_ms, ease_out_duration_ms, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.track_id)
+        .bind(&new.name)
+        .bind(new.start_time_ms)
+        .bind(new.duration_ms)
+        .bind(new.start_x.unwrap_or(50.0))
+        .bind(new.start_y.unwrap_or(50.0))
+        .bind(new.end_x.unwrap_or(50.0))
+        .bind(new.end_y.unwrap_or(50.0))
+        .bind(new.ease_in_duration_ms.unwrap_or(300))
+        .bind(new.ease_out_duration_ms.unwrap_or(300))
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, DemoPanClip>("SELECT * FROM demo_pan_clips WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_pan_clip(&self, id: &str, updates: UpdateDemoPanClip) -> Result<DemoPanClip, TakaError> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "UPDATE demo_pan_clips SET
+                name = COALESCE(?, name),
+                start_time_ms = COALESCE(?, start_time_ms),
+                duration_ms = COALESCE(?, duration_ms),
+                start_x = COALESCE(?, start_x),
+                start_y = COALESCE(?, start_y),
+                end_x = COALESCE(?, end_x),
+                end_y = COALESCE(?, end_y),
+                ease_in_duration_ms = COALESCE(?, ease_in_duration_ms),
+                ease_out_duration_ms = COALESCE(?, ease_out_duration_ms),
+                updated_at = ?
+             WHERE id = ?"
+        )
+        .bind(&updates.name)
+        .bind(updates.start_time_ms)
+        .bind(updates.duration_ms)
+        .bind(updates.start_x)
+        .bind(updates.start_y)
+        .bind(updates.end_x)
+        .bind(updates.end_y)
+        .bind(updates.ease_in_duration_ms)
+        .bind(updates.ease_out_duration_ms)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, DemoPanClip>("SELECT * FROM demo_pan_clips WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn delete_pan_clip(&self, id: &str) -> Result<(), TakaError> {
+        sqlx::query("DELETE FROM demo_pan_clips WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;

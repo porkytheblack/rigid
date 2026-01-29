@@ -1,0 +1,7 @@
+# Ignore FFmpeg binaries (too large for git, ~70MB each)
+# Download with: ./scripts/download-ffmpeg.sh
+ffmpeg-*
+ffprobe-*
+
+# Keep this file
+!.gitignore

@@ -17,6 +17,8 @@ import type {
   NewDemoZoomClip,
   DemoBlurClip,
   NewDemoBlurClip,
+  DemoPanClip,
+  NewDemoPanClip,
   DemoFormat,
 } from '@/lib/tauri/types';
 import { DEMO_FORMAT_DIMENSIONS } from '@/lib/tauri/types';
@@ -27,6 +29,7 @@ import {
   demoClips as demoClipsApi,
   demoZoomClips as demoZoomClipsApi,
   demoBlurClips as demoBlurClipsApi,
+  demoPanClips as demoPanClipsApi,
   demoAssets as demoAssetsApi,
 } from '@/lib/tauri/commands';
 
@@ -52,6 +55,7 @@ export interface CanvasState {
   selectedClipIds: string[];
   selectedZoomClipId: string | null;
   selectedBlurClipId: string | null;
+  selectedPanClipId: string | null;
 }
 
 export interface TimelineState {
@@ -75,6 +79,7 @@ interface PendingDeletions {
   clips: string[];
   zoomClips: string[];
   blurClips: string[];
+  panClips: string[];
   assets: string[];
   tracks: string[];
 }
@@ -158,6 +163,12 @@ interface DemosActions {
   deleteBlurClip: (id: string) => void;
   selectBlurClip: (id: string | null) => void;
 
+  // Pan clip operations
+  addPanClip: (clip: NewDemoPanClip) => void;
+  updatePanClip: (id: string, updates: Partial<DemoPanClip>) => void;
+  deletePanClip: (id: string) => void;
+  selectPanClip: (id: string | null) => void;
+
   // Playback controls
   play: () => void;
   pause: () => void;
@@ -232,6 +243,7 @@ export const useDemosStore = create<DemosStore>()(
       selectedClipIds: [],
       selectedZoomClipId: null,
       selectedBlurClipId: null,
+      selectedPanClipId: null,
     },
 
     timeline: {
@@ -248,6 +260,7 @@ export const useDemosStore = create<DemosStore>()(
       clips: [],
       zoomClips: [],
       blurClips: [],
+      panClips: [],
       assets: [],
       tracks: [],
     },
@@ -309,6 +322,7 @@ export const useDemosStore = create<DemosStore>()(
             clips: [],
             zoomClips: [],
             blurClips: [],
+            panClips: [],
             assets: [],
             tracks: [],
           };
@@ -345,6 +359,7 @@ export const useDemosStore = create<DemosStore>()(
           clips: [],
           zoomClips: [],
           blurClips: [],
+          panClips: [],
           assets: [],
         };
 
@@ -358,6 +373,7 @@ export const useDemosStore = create<DemosStore>()(
             clips: [],
             zoomClips: [],
             blurClips: [],
+            panClips: [],
             assets: [],
             tracks: [],
           };
@@ -445,6 +461,7 @@ export const useDemosStore = create<DemosStore>()(
           selectedClipIds: [],
           selectedZoomClipId: null,
           selectedBlurClipId: null,
+          selectedPanClipId: null,
         };
         state.timeline = {
           zoom: 1,
@@ -529,6 +546,15 @@ export const useDemosStore = create<DemosStore>()(
           }
         }
 
+        // Delete pan clips
+        for (const panClipId of pendingDeletions.panClips) {
+          try {
+            await demoPanClipsApi.delete(panClipId);
+          } catch {
+            // Ignore errors - pan clip might not exist in DB yet
+          }
+        }
+
         // Delete assets
         for (const assetId of pendingDeletions.assets) {
           try {
@@ -553,6 +579,7 @@ export const useDemosStore = create<DemosStore>()(
             clips: [],
             zoomClips: [],
             blurClips: [],
+            panClips: [],
             assets: [],
             tracks: [],
           };
@@ -735,6 +762,38 @@ export const useDemosStore = create<DemosStore>()(
               blur_inside: blurClip.blur_inside,
               ease_in_duration_ms: blurClip.ease_in_duration_ms,
               ease_out_duration_ms: blurClip.ease_out_duration_ms,
+            });
+          }
+        }
+
+        // Save pan clips
+        for (const panClip of currentDemo.panClips) {
+          try {
+            await demoPanClipsApi.update(panClip.id, {
+              name: panClip.name,
+              start_time_ms: panClip.start_time_ms,
+              duration_ms: panClip.duration_ms,
+              start_x: panClip.start_x,
+              start_y: panClip.start_y,
+              end_x: panClip.end_x,
+              end_y: panClip.end_y,
+              ease_in_duration_ms: panClip.ease_in_duration_ms,
+              ease_out_duration_ms: panClip.ease_out_duration_ms,
+            });
+          } catch {
+            // Pan clip might not exist yet, try to create it
+            await demoPanClipsApi.create({
+              id: panClip.id, // Use client-provided ID for consistency
+              track_id: panClip.track_id,
+              name: panClip.name,
+              start_time_ms: panClip.start_time_ms,
+              duration_ms: panClip.duration_ms,
+              start_x: panClip.start_x,
+              start_y: panClip.start_y,
+              end_x: panClip.end_x,
+              end_y: panClip.end_y,
+              ease_in_duration_ms: panClip.ease_in_duration_ms,
+              ease_out_duration_ms: panClip.ease_out_duration_ms,
             });
           }
         }
@@ -1476,6 +1535,7 @@ export const useDemosStore = create<DemosStore>()(
         if (id) {
           state.canvas.selectedClipId = null; // Deselect regular clips when selecting zoom clip
           state.canvas.selectedBlurClipId = null; // Deselect blur clips
+          state.canvas.selectedPanClipId = null; // Deselect pan clips
         }
       });
     },
@@ -1561,6 +1621,91 @@ export const useDemosStore = create<DemosStore>()(
         if (id) {
           state.canvas.selectedClipId = null; // Deselect regular clips
           state.canvas.selectedZoomClipId = null; // Deselect zoom clips
+          state.canvas.selectedPanClipId = null; // Deselect pan clips
+        }
+      });
+    },
+
+    // ==========================================================================
+    // Pan Clip Operations
+    // ==========================================================================
+
+    addPanClip: (clip) => {
+      if (!get().currentDemo) return;
+      get().pushHistory('Add pan clip');
+
+      const newPanClip: DemoPanClip = {
+        id: generateId(),
+        track_id: clip.track_id,
+        name: clip.name,
+        start_time_ms: clip.start_time_ms,
+        duration_ms: clip.duration_ms,
+        start_x: clip.start_x ?? 50,
+        start_y: clip.start_y ?? 50,
+        end_x: clip.end_x ?? 50,
+        end_y: clip.end_y ?? 50,
+        ease_in_duration_ms: clip.ease_in_duration_ms ?? 300,
+        ease_out_duration_ms: clip.ease_out_duration_ms ?? 300,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      set((state) => {
+        if (state.currentDemo) {
+          state.currentDemo.panClips.push(newPanClip);
+          state.canvas.selectedPanClipId = newPanClip.id;
+          state.canvas.selectedClipId = null;
+          state.canvas.selectedZoomClipId = null;
+          state.canvas.selectedBlurClipId = null;
+        }
+      });
+    },
+
+    updatePanClip: (id, updates) => {
+      if (!get().currentDemo) return;
+      get().pushHistory('Update pan clip');
+
+      set((state) => {
+        if (state.currentDemo) {
+          const index = state.currentDemo.panClips.findIndex((pc) => pc.id === id);
+          if (index !== -1) {
+            state.currentDemo.panClips[index] = {
+              ...state.currentDemo.panClips[index],
+              ...updates,
+              updated_at: new Date().toISOString(),
+            };
+          }
+        }
+      });
+    },
+
+    deletePanClip: (id) => {
+      if (!get().currentDemo) return;
+      get().pushHistory('Delete pan clip');
+
+      set((state) => {
+        if (state.currentDemo) {
+          state.currentDemo.panClips = state.currentDemo.panClips.filter(
+            (pc) => pc.id !== id
+          );
+          if (state.canvas.selectedPanClipId === id) {
+            state.canvas.selectedPanClipId = null;
+          }
+          // Track deletion for database sync
+          if (!state.pendingDeletions.panClips.includes(id)) {
+            state.pendingDeletions.panClips.push(id);
+          }
+        }
+      });
+    },
+
+    selectPanClip: (id) => {
+      set((state) => {
+        state.canvas.selectedPanClipId = id;
+        if (id) {
+          state.canvas.selectedClipId = null; // Deselect regular clips
+          state.canvas.selectedZoomClipId = null; // Deselect zoom clips
+          state.canvas.selectedBlurClipId = null; // Deselect blur clips
         }
       });
     },
@@ -1671,6 +1816,11 @@ export const useDemosStore = create<DemosStore>()(
       set((state) => {
         state.canvas.selectedClipId = id;
         state.canvas.selectedClipIds = id ? [id] : [];
+        if (id) {
+          state.canvas.selectedZoomClipId = null;
+          state.canvas.selectedBlurClipId = null;
+          state.canvas.selectedPanClipId = null;
+        }
       });
     },
 
@@ -1678,6 +1828,11 @@ export const useDemosStore = create<DemosStore>()(
       set((state) => {
         state.canvas.selectedClipIds = ids;
         state.canvas.selectedClipId = ids.length === 1 ? ids[0] : null;
+        if (ids.length > 0) {
+          state.canvas.selectedZoomClipId = null;
+          state.canvas.selectedBlurClipId = null;
+          state.canvas.selectedPanClipId = null;
+        }
       });
     },
 

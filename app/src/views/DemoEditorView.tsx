@@ -41,10 +41,11 @@ import {
   Check,
   Circle,
   Link2,
+  Move,
 } from "lucide-react";
 import { useRouterStore, useDemosStore } from "@/lib/stores";
 import { demoRecordings, demoScreenshots } from "@/lib/tauri/commands";
-import type { DemoTrackType, DemoClip, DemoTrack, DemoAsset, DemoBackground, DemoZoomClip, DemoBlurClip, Recording, Screenshot, DemoFormat } from "@/lib/tauri/types";
+import type { DemoTrackType, DemoClip, DemoTrack, DemoAsset, DemoBackground, DemoZoomClip, DemoBlurClip, DemoPanClip, Recording, Screenshot, DemoFormat } from "@/lib/tauri/types";
 import { DEMO_FORMAT_DIMENSIONS } from "@/lib/tauri/types";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -80,6 +81,7 @@ const trackTypeConfig: Record<DemoTrackType, { icon: typeof Video; color: string
   audio: { icon: Music, color: "#F59E0B", label: "Audio" },
   zoom: { icon: ZoomIn, color: "#A855F7", label: "Zoom" },
   blur: { icon: Circle, color: "#EC4899", label: "Blur" },
+  pan: { icon: Move, color: "#14B8A6", label: "Pan" },
 };
 
 // Background presets
@@ -149,6 +151,10 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
     updateBlurClip,
     deleteBlurClip,
     selectBlurClip,
+    addPanClip,
+    updatePanClip,
+    deletePanClip,
+    selectPanClip,
     saveDemo,
     updateDemoInfo,
   } = useDemosStore();
@@ -189,6 +195,10 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
   const [blurClipDragOffset, setBlurClipDragOffset] = useState(0);
   const [isTrimmingBlurClip, setIsTrimmingBlurClip] = useState<{ clipId: string; edge: "start" | "end" } | null>(null);
   const [showBlurTrackTargetMenu, setShowBlurTrackTargetMenu] = useState(false);
+  const [isDraggingPanClip, setIsDraggingPanClip] = useState(false);
+  const [panClipDragOffset, setPanClipDragOffset] = useState(0);
+  const [isTrimmingPanClip, setIsTrimmingPanClip] = useState<{ clipId: string; edge: "start" | "end" } | null>(null);
+  const [showPanTrackTargetMenu, setShowPanTrackTargetMenu] = useState(false);
 
   // Expandable sections state
   const [expandedSections, setExpandedSections] = useState({
@@ -1790,6 +1800,149 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
     };
   }, [isTrimmingBlurClip, timeline.zoom, updateBlurClip, currentDemo]);
 
+  // Handle click on pan track to create a new pan clip
+  const handlePanTrackClick = useCallback(
+    (e: React.MouseEvent, trackId: string) => {
+      if (!timelineRef.current) return;
+
+      const rect = timelineRef.current.getBoundingClientRect();
+      const scrollLeft = timelineRef.current.scrollLeft;
+      const clickX = e.clientX - rect.left + scrollLeft;
+      const pxPerMs = timeline.zoom * 0.1;
+      const clickedTime = Math.max(0, clickX / pxPerMs);
+
+      // Create a new pan clip at the clicked position with default 2 second duration
+      addPanClip({
+        track_id: trackId,
+        name: "Pan",
+        start_time_ms: Math.round(clickedTime),
+        duration_ms: 2000,
+      });
+    },
+    [timeline.zoom, addPanClip]
+  );
+
+  // Handle pan clip drag start
+  const handlePanClipDragStart = useCallback(
+    (e: React.MouseEvent, panClip: DemoPanClip) => {
+      e.stopPropagation();
+      if (!timelineRef.current) return;
+
+      const rect = timelineRef.current.getBoundingClientRect();
+      const scrollLeft = timelineRef.current.scrollLeft;
+      const x = e.clientX - rect.left + scrollLeft;
+      const pxPerMs = timeline.zoom * 0.1;
+      const clickedTime = x / pxPerMs;
+      const offset = clickedTime - panClip.start_time_ms;
+
+      setIsDraggingPanClip(true);
+      setPanClipDragOffset(offset);
+      selectPanClip(panClip.id);
+    },
+    [timeline.zoom, selectPanClip]
+  );
+
+  // Handle pan clip drag
+  useEffect(() => {
+    if (!isDraggingPanClip || !canvas.selectedPanClipId || !currentDemo) return;
+
+    const draggedPanClip = currentDemo.panClips.find(pc => pc.id === canvas.selectedPanClipId);
+    if (!draggedPanClip) return;
+
+    const pxPerMs = timeline.zoom * 0.1;
+    const snapThresholdPx = 15;
+    const snapThresholdMs = snapThresholdPx / pxPerMs;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!timelineRef.current) return;
+
+      const rect = timelineRef.current.getBoundingClientRect();
+      const scrollLeft = timelineRef.current.scrollLeft;
+      const x = e.clientX - rect.left + scrollLeft;
+      let newStartTime = Math.max(0, (x / pxPerMs) - panClipDragOffset);
+
+      // Snap to playhead
+      if (Math.abs(newStartTime - playback.currentTimeMs) < snapThresholdMs) {
+        newStartTime = playback.currentTimeMs;
+      }
+
+      // Snap to timeline start
+      if (Math.abs(newStartTime) < snapThresholdMs) {
+        newStartTime = 0;
+      }
+
+      updatePanClip(canvas.selectedPanClipId!, { start_time_ms: Math.round(Math.max(0, newStartTime)) });
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingPanClip(false);
+      setPanClipDragOffset(0);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDraggingPanClip, canvas.selectedPanClipId, panClipDragOffset, timeline.zoom, updatePanClip, currentDemo, playback.currentTimeMs]);
+
+  // Handle pan clip trim start
+  const handlePanClipTrimStart = useCallback(
+    (e: React.MouseEvent, clipId: string, edge: "start" | "end") => {
+      e.stopPropagation();
+      setIsTrimmingPanClip({ clipId, edge });
+      selectPanClip(clipId);
+    },
+    [selectPanClip]
+  );
+
+  // Handle pan clip trim drag
+  useEffect(() => {
+    if (!isTrimmingPanClip || !currentDemo) return;
+
+    const panClip = currentDemo.panClips.find((pc) => pc.id === isTrimmingPanClip.clipId);
+    if (!panClip) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!timelineRef.current) return;
+
+      const rect = timelineRef.current.getBoundingClientRect();
+      const scrollLeft = timelineRef.current.scrollLeft;
+      const x = e.clientX - rect.left + scrollLeft;
+      const pxPerMs = timeline.zoom * 0.1;
+      const newTime = Math.max(0, x / pxPerMs);
+
+      if (isTrimmingPanClip.edge === "start") {
+        const maxStart = panClip.start_time_ms + panClip.duration_ms - 100;
+        const newStart = Math.min(newTime, maxStart);
+        const durationDelta = panClip.start_time_ms - newStart;
+        updatePanClip(isTrimmingPanClip.clipId, {
+          start_time_ms: Math.round(newStart),
+          duration_ms: Math.round(panClip.duration_ms + durationDelta),
+        });
+      } else {
+        const newDuration = Math.max(100, newTime - panClip.start_time_ms);
+        updatePanClip(isTrimmingPanClip.clipId, {
+          duration_ms: Math.round(newDuration),
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsTrimmingPanClip(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isTrimmingPanClip, timeline.zoom, updatePanClip, currentDemo]);
+
   // Handle canvas clip drag for repositioning
   const handleCanvasClipDragStart = useCallback((e: React.MouseEvent, clipId: string) => {
     e.stopPropagation();
@@ -2069,7 +2222,7 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
     );
   }
 
-  const { demo, background, tracks, clips, assets, zoomClips, blurClips } = currentDemo;
+  const { demo, background, tracks, clips, assets, zoomClips, blurClips, panClips } = currentDemo;
   const currentVideoClip = getCurrentVideoClip();
   const timelineDuration = getTimelineDuration();
 
@@ -2677,6 +2830,71 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                     }
                   }
 
+                  // Calculate pan effect - check pan tracks targeting this clip's track
+                  let panOffsetX = 0; // Percentage offset from center (0 = no pan)
+                  let panOffsetY = 0;
+                  let hasPanEffect = false;
+
+                  const panTracksTargetingThisTrack = tracks.filter(
+                    t => t.track_type === "pan" && t.target_track_id === clip.track_id && t.visible
+                  );
+                  for (const panTrack of panTracksTargetingThisTrack) {
+                    // Find pan clips on this track that are active at current time
+                    const activePanClip = panClips.find(
+                      pc => pc.track_id === panTrack.id &&
+                        effectiveTime >= pc.start_time_ms &&
+                        effectiveTime < pc.start_time_ms + pc.duration_ms
+                    );
+                    if (activePanClip) {
+                      hasPanEffect = true;
+                      const panClipTime = effectiveTime - activePanClip.start_time_ms;
+                      const panDuration = activePanClip.duration_ms;
+                      const easeInDuration = activePanClip.ease_in_duration_ms;
+                      const easeOutDuration = activePanClip.ease_out_duration_ms;
+                      const easeOutStart = panDuration - easeOutDuration;
+
+                      // Calculate interpolation progress with easing
+                      let progress = panClipTime / panDuration;
+
+                      // Apply ease-in-out based on position in clip
+                      if (panClipTime < easeInDuration && easeInDuration > 0) {
+                        // Easing in at start
+                        const easeProgress = panClipTime / easeInDuration;
+                        const eased = easeProgress < 0.5 ? 2 * easeProgress * easeProgress : 1 - Math.pow(-2 * easeProgress + 2, 2) / 2;
+                        progress = eased * (easeInDuration / panDuration);
+                      } else if (panClipTime >= easeOutStart && easeOutDuration > 0) {
+                        // Easing out at end
+                        const easeProgress = (panClipTime - easeOutStart) / easeOutDuration;
+                        const eased = easeProgress < 0.5 ? 2 * easeProgress * easeProgress : 1 - Math.pow(-2 * easeProgress + 2, 2) / 2;
+                        progress = (easeOutStart / panDuration) + eased * (easeOutDuration / panDuration);
+                      }
+
+                      // Interpolate from start to end position
+                      // Position is 0-100%, where 50% = center, 0% = left/top edge, 100% = right/bottom edge
+                      // Convert to offset from center (-50 to +50)
+                      const startOffsetX = activePanClip.start_x - 50;
+                      const startOffsetY = activePanClip.start_y - 50;
+                      const endOffsetX = activePanClip.end_x - 50;
+                      const endOffsetY = activePanClip.end_y - 50;
+
+                      panOffsetX = startOffsetX + (endOffsetX - startOffsetX) * progress;
+                      panOffsetY = startOffsetY + (endOffsetY - startOffsetY) * progress;
+                      break; // Use first matching pan clip
+                    }
+                  }
+
+                  // Build combined transform string
+                  const transforms: string[] = [];
+                  if (hasZoomEffect) {
+                    transforms.push(`scale(${currentZoom})`);
+                  }
+                  if (hasPanEffect) {
+                    // Pan offset is percentage of container, translate by that amount
+                    transforms.push(`translate(${panOffsetX}%, ${panOffsetY}%)`);
+                  }
+                  const combinedTransform = transforms.length > 0 ? transforms.join(' ') : undefined;
+                  const hasEffect = hasZoomEffect || hasPanEffect;
+
                   return (
                     <div
                       key={clip.id}
@@ -2696,7 +2914,7 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        overflow: hasZoomEffect ? "hidden" : undefined, // Hide overflow during zoom
+                        overflow: hasEffect ? "hidden" : undefined, // Hide overflow during zoom/pan
                         pointerEvents: isVisible ? "auto" : "none", // Disable interaction for hidden clips
                       }}
                       onMouseDown={(e) => isVisible && handleCanvasClipDragStart(e, clip.id)}
@@ -2721,7 +2939,7 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                             maxWidth: "100%",
                             maxHeight: "100%",
                             clipPath: `inset(${clip.crop_top ?? 0}% ${clip.crop_right ?? 0}% ${clip.crop_bottom ?? 0}% ${clip.crop_left ?? 0}%${clip.corner_radius ? ` round ${clip.corner_radius}px` : ""})`,
-                            transform: hasZoomEffect ? `scale(${currentZoom})` : undefined,
+                            transform: combinedTransform,
                             transformOrigin: zoomTransformOrigin,
                             transition: playback.isPlaying ? "none" : "transform 0.1s ease-out",
                             pointerEvents: "none",
@@ -2745,7 +2963,7 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                             maxWidth: "100%",
                             maxHeight: "100%",
                             clipPath: `inset(${clip.crop_top ?? 0}% ${clip.crop_right ?? 0}% ${clip.crop_bottom ?? 0}% ${clip.crop_left ?? 0}%${clip.corner_radius ? ` round ${clip.corner_radius}px` : ""})`,
-                            transform: hasZoomEffect ? `scale(${currentZoom})` : undefined,
+                            transform: combinedTransform,
                             transformOrigin: zoomTransformOrigin,
                             transition: playback.isPlaying ? "none" : "transform 0.1s ease-out",
                             pointerEvents: "none", // Allow clicks to pass through to parent for dragging
@@ -2936,6 +3154,9 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                 const selectedBlurClip = canvas.selectedBlurClipId
                   ? blurClips.find((bc) => bc.id === canvas.selectedBlurClipId)
                   : null;
+                const selectedPanClip = canvas.selectedPanClipId
+                  ? panClips.find((pc) => pc.id === canvas.selectedPanClipId)
+                  : null;
                 const selectedZoomClip = canvas.selectedZoomClipId
                   ? zoomClips.find((zc) => zc.id === canvas.selectedZoomClipId)
                   : null;
@@ -2946,6 +3167,15 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                   ? tracks.find((t) => t.id === timeline.selectedTrackId)
                   : null;
 
+                if (selectedPanClip) {
+                  return (
+                    <PanClipInspector
+                      panClip={selectedPanClip}
+                      onUpdate={(updates) => updatePanClip(selectedPanClip.id, updates)}
+                      onDelete={() => deletePanClip(selectedPanClip.id)}
+                    />
+                  );
+                }
                 if (selectedBlurClip) {
                   return (
                     <BlurClipInspector
@@ -3058,7 +3288,7 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
 
               {showAddTrackMenu && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => { setShowAddTrackMenu(false); setShowZoomTrackTargetMenu(false); setShowBlurTrackTargetMenu(false); }} />
+                  <div className="fixed inset-0 z-10" onClick={() => { setShowAddTrackMenu(false); setShowZoomTrackTargetMenu(false); setShowBlurTrackTargetMenu(false); setShowPanTrackTargetMenu(false); }} />
                   <div className="absolute top-full left-0 mt-1 w-40 bg-[var(--surface-elevated)] border border-[var(--border-default)] shadow-lg z-20">
                     <button
                       onClick={() => handleAddTrack("video")}
@@ -3140,6 +3370,44 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                               <button
                                 key={track.id}
                                 onClick={() => handleAddTrack("blur", track.id)}
+                                className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-[var(--surface-hover)] text-[var(--text-primary)]"
+                              >
+                                {track.track_type === 'video' ? (
+                                  <Video className="w-4 h-4 text-[#3B82F6]" />
+                                ) : (
+                                  <Image className="w-4 h-4 text-[#10B981]" />
+                                )}
+                                {track.name}
+                              </button>
+                            ))}
+                          {currentDemo?.tracks.filter(t => t.track_type === 'video' || t.track_type === 'image').length === 0 && (
+                            <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">
+                              No video/image tracks
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowPanTrackTargetMenu(!showPanTrackTargetMenu)}
+                        className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-[var(--surface-hover)] text-[var(--text-primary)]"
+                      >
+                        <Move className="w-4 h-4 text-[#14B8A6]" />
+                        Pan Track
+                        <ChevronRight className="w-3 h-3 ml-auto" />
+                      </button>
+                      {showPanTrackTargetMenu && (
+                        <div className="absolute left-full top-0 ml-1 w-48 bg-[var(--surface-elevated)] border border-[var(--border-default)] shadow-lg z-30">
+                          <div className="px-3 py-1.5 text-xs text-[var(--text-secondary)] border-b border-[var(--border-default)]">
+                            Select target track:
+                          </div>
+                          {currentDemo?.tracks
+                            .filter(t => t.track_type === 'video' || t.track_type === 'image')
+                            .map(track => (
+                              <button
+                                key={track.id}
+                                onClick={() => handleAddTrack("pan", track.id)}
                                 className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-[var(--surface-hover)] text-[var(--text-primary)]"
                               >
                                 {track.track_type === 'video' ? (
@@ -3335,6 +3603,24 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                         }}
                         className="p-0.5 hover:bg-[var(--surface-active)] text-[#EC4899]"
                         title="Add blur clip at playhead"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    )}
+                    {/* Add pan clip button for pan tracks */}
+                    {track.track_type === "pan" && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          addPanClip({
+                            track_id: track.id,
+                            name: "Pan",
+                            start_time_ms: Math.round(playback.currentTimeMs),
+                            duration_ms: 2000,
+                          });
+                        }}
+                        className="p-0.5 hover:bg-[var(--surface-active)] text-[#14B8A6]"
+                        title="Add pan clip at playhead"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -3536,9 +3822,9 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                       key={track.id}
                       className={`border-b border-[var(--border-default)] relative ${
                         dragOverTrackId === track.id ? "bg-[var(--accent-interactive)]/20" : ""
-                      } ${track.track_type === "zoom" || track.track_type === "blur" ? "cursor-crosshair" : ""}`}
+                      } ${track.track_type === "zoom" || track.track_type === "blur" || track.track_type === "pan" ? "cursor-crosshair" : ""}`}
                       style={{ height: `${trackHeight}px` }}
-                      onClick={track.track_type === "zoom" ? (e) => handleZoomTrackClick(e, track.id) : track.track_type === "blur" ? (e) => handleBlurTrackClick(e, track.id) : undefined}
+                      onClick={track.track_type === "zoom" ? (e) => handleZoomTrackClick(e, track.id) : track.track_type === "blur" ? (e) => handleBlurTrackClick(e, track.id) : track.track_type === "pan" ? (e) => handlePanTrackClick(e, track.id) : undefined}
                     >
                       {/* Drop indicator */}
                       {dragOverTrackId === track.id && dragOverTime !== null && (
@@ -3548,8 +3834,8 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                         />
                       )}
 
-                      {/* Clips on this track - regular clips for non-zoom/blur tracks */}
-                      {track.track_type !== "zoom" && track.track_type !== "blur" && clips
+                      {/* Clips on this track - regular clips for non-zoom/blur/pan tracks */}
+                      {track.track_type !== "zoom" && track.track_type !== "blur" && track.track_type !== "pan" && clips
                         .filter((c) => c.track_id === track.id)
                         .map((clip) => {
                           const config = trackTypeConfig[track.track_type];
@@ -3729,6 +4015,67 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
                             </div>
                           );
                         })}
+
+                      {/* Pan clips on pan tracks */}
+                      {track.track_type === "pan" && panClips
+                        .filter((pc) => pc.track_id === track.id)
+                        .map((panClip) => {
+                          const config = trackTypeConfig["pan"];
+                          const clipWidth = panClip.duration_ms * timeline.zoom * 0.1;
+                          return (
+                            <div
+                              key={panClip.id}
+                              onMouseDown={(e) => !track.locked && handlePanClipDragStart(e, panClip)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                selectPanClip(panClip.id);
+                              }}
+                              className={`absolute top-1 bottom-1 cursor-pointer group ${
+                                canvas.selectedPanClipId === panClip.id
+                                  ? "ring-2 ring-white"
+                                  : ""
+                              }`}
+                              style={{
+                                left: `${panClip.start_time_ms * timeline.zoom * 0.1}px`,
+                                width: `${clipWidth}px`,
+                                backgroundColor: config.color,
+                                opacity: track.visible ? 0.9 : 0.4,
+                              }}
+                            >
+                              {/* Trim handles for pan clips */}
+                              {!track.locked && (
+                                <>
+                                  <div
+                                    onMouseDown={(e) => handlePanClipTrimStart(e, panClip.id, "start")}
+                                    className={`absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-10 transition-opacity ${
+                                      canvas.selectedPanClipId === panClip.id
+                                        ? "bg-white/40"
+                                        : "bg-white/0 group-hover:bg-white/20"
+                                    }`}
+                                  >
+                                    <div className="absolute left-0.5 top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/60 rounded-full opacity-0 group-hover:opacity-100" />
+                                  </div>
+                                  <div
+                                    onMouseDown={(e) => handlePanClipTrimStart(e, panClip.id, "end")}
+                                    className={`absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-10 transition-opacity ${
+                                      canvas.selectedPanClipId === panClip.id
+                                        ? "bg-white/40"
+                                        : "bg-white/0 group-hover:bg-white/20"
+                                    }`}
+                                  >
+                                    <div className="absolute right-0.5 top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/60 rounded-full opacity-0 group-hover:opacity-100" />
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Pan clip content - shows start/end positions */}
+                              <div className="px-2 py-1 text-[10px] text-white truncate h-full flex items-center gap-1">
+                                <Move className="w-3 h-3" />
+                                {Math.round(panClip.start_x)},{Math.round(panClip.start_y)} → {Math.round(panClip.end_x)},{Math.round(panClip.end_y)}
+                              </div>
+                            </div>
+                          );
+                        })}
                     </div>
                   ))}
 
@@ -3794,6 +4141,7 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
           clips={clips}
           zoomClips={zoomClips}
           blurClips={blurClips}
+          panClips={panClips}
           onClose={() => setShowExportModal(false)}
         />
       )}
@@ -4771,6 +5119,179 @@ function BlurClipInspector({
   );
 }
 
+// Pan Clip Inspector Component
+function PanClipInspector({
+  panClip,
+  onUpdate,
+  onDelete,
+}: {
+  panClip: DemoPanClip;
+  onUpdate: (updates: Partial<DemoPanClip>) => void;
+  onDelete: () => void;
+}) {
+  if (!panClip) return null;
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="font-medium text-[var(--text-primary)] text-sm mb-1 flex items-center gap-2">
+          <Move className="w-4 h-4 text-[#14B8A6]" />
+          Pan Effect
+        </h3>
+        <p className="text-[var(--text-caption)] text-[var(--text-tertiary)]">
+          {formatTime(panClip.duration_ms)}
+        </p>
+      </div>
+
+      {/* Quick actions */}
+      <div className="flex gap-2 pb-3 border-b border-[var(--border-default)]">
+        <button
+          onClick={onDelete}
+          className="flex-1 h-8 border border-[var(--accent-error)] text-[var(--accent-error)] text-sm flex items-center justify-center gap-1 hover:bg-[var(--status-error-bg)]"
+          title="Delete (Delete)"
+        >
+          <Trash2 className="w-3 h-3" />
+          Delete
+        </button>
+      </div>
+
+      {/* Timing */}
+      <CollapsibleSection title="Timing" defaultExpanded={true}>
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Start</label>
+            <input
+              type="text"
+              value={formatTime(panClip.start_time_ms)}
+              readOnly
+              className="w-full h-8 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Duration</label>
+            <input
+              type="text"
+              value={formatTime(panClip.duration_ms)}
+              readOnly
+              className="w-full h-8 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+            />
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* Start Position */}
+      <CollapsibleSection title="Start Position" defaultExpanded={true}>
+        <div>
+          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Horizontal (X)</label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={panClip.start_x}
+            onChange={(e) => onUpdate({ start_x: parseInt(e.target.value) })}
+            className="w-full accent-[#14B8A6]"
+          />
+          <span className="text-[var(--text-caption)] text-[var(--text-secondary)]">
+            {panClip.start_x}%
+          </span>
+        </div>
+        <div>
+          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Vertical (Y)</label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={panClip.start_y}
+            onChange={(e) => onUpdate({ start_y: parseInt(e.target.value) })}
+            className="w-full accent-[#14B8A6]"
+          />
+          <span className="text-[var(--text-caption)] text-[var(--text-secondary)]">
+            {panClip.start_y}%
+          </span>
+        </div>
+        <button
+          onClick={() => onUpdate({ start_x: 50, start_y: 50 })}
+          className="w-full mt-2 h-7 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+        >
+          Center Start
+        </button>
+      </CollapsibleSection>
+
+      {/* End Position */}
+      <CollapsibleSection title="End Position" defaultExpanded={true}>
+        <div>
+          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Horizontal (X)</label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={panClip.end_x}
+            onChange={(e) => onUpdate({ end_x: parseInt(e.target.value) })}
+            className="w-full accent-[#14B8A6]"
+          />
+          <span className="text-[var(--text-caption)] text-[var(--text-secondary)]">
+            {panClip.end_x}%
+          </span>
+        </div>
+        <div>
+          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Vertical (Y)</label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={panClip.end_y}
+            onChange={(e) => onUpdate({ end_y: parseInt(e.target.value) })}
+            className="w-full accent-[#14B8A6]"
+          />
+          <span className="text-[var(--text-caption)] text-[var(--text-secondary)]">
+            {panClip.end_y}%
+          </span>
+        </div>
+        <button
+          onClick={() => onUpdate({ end_x: 50, end_y: 50 })}
+          className="w-full mt-2 h-7 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+        >
+          Center End
+        </button>
+      </CollapsibleSection>
+
+      {/* Easing */}
+      <CollapsibleSection title="Easing" defaultExpanded={false}>
+        <div>
+          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Ease In</label>
+          <input
+            type="range"
+            min="0"
+            max="2000"
+            step="50"
+            value={panClip.ease_in_duration_ms}
+            onChange={(e) => onUpdate({ ease_in_duration_ms: parseInt(e.target.value) })}
+            className="w-full accent-[#14B8A6]"
+          />
+          <span className="text-[var(--text-caption)] text-[var(--text-secondary)]">
+            {panClip.ease_in_duration_ms}ms
+          </span>
+        </div>
+        <div>
+          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Ease Out</label>
+          <input
+            type="range"
+            min="0"
+            max="2000"
+            step="50"
+            value={panClip.ease_out_duration_ms}
+            onChange={(e) => onUpdate({ ease_out_duration_ms: parseInt(e.target.value) })}
+            className="w-full accent-[#14B8A6]"
+          />
+          <span className="text-[var(--text-caption)] text-[var(--text-secondary)]">
+            {panClip.ease_out_duration_ms}ms
+          </span>
+        </div>
+      </CollapsibleSection>
+    </div>
+  );
+}
+
 // Background Picker Component
 function BackgroundPicker({
   onClose,
@@ -5210,6 +5731,7 @@ function ExportModal({
   clips,
   zoomClips,
   blurClips,
+  panClips,
   onClose,
 }: {
   demo: { id: string; name: string; width: number; height: number; frame_rate: number; duration_ms: number };
@@ -5218,6 +5740,7 @@ function ExportModal({
   clips: DemoClip[];
   zoomClips: DemoZoomClip[];
   blurClips: DemoBlurClip[];
+  panClips: DemoPanClip[];
   onClose: () => void;
 }) {
   const [format, setFormat] = useState<"mp4" | "webm">("mp4");
@@ -5292,14 +5815,27 @@ function ExportModal({
 
       // Build render zoom clips from zoom tracks
       // Find zoom tracks and their associated zoom clips
+      console.log("EXPORT DEBUG: All zoom clips:", zoomClips);
+      console.log("EXPORT DEBUG: All tracks:", tracks.map(t => ({ id: t.id, type: t.track_type, target: t.target_track_id, visible: t.visible })));
+      console.log("EXPORT DEBUG: All video clips:", clips.filter(c => c.source_type === "video").map(c => ({ id: c.id, track_id: c.track_id })));
+
       const renderZoomClips = zoomClips
         .filter(zc => {
           const zoomTrack = tracks.find(t => t.id === zc.track_id);
-          return zoomTrack && zoomTrack.visible && zoomTrack.target_track_id;
+          const passes = zoomTrack && zoomTrack.visible && zoomTrack.target_track_id;
+          console.log("EXPORT DEBUG: Zoom clip filter:", {
+            zc_id: zc.id,
+            zc_track_id: zc.track_id,
+            zoomTrack_found: !!zoomTrack,
+            zoomTrack_visible: zoomTrack?.visible,
+            zoomTrack_target: zoomTrack?.target_track_id,
+            passes
+          });
+          return passes;
         })
         .map(zc => {
           const zoomTrack = tracks.find(t => t.id === zc.track_id)!;
-          return {
+          const result = {
             target_track_id: zoomTrack.target_track_id!,
             start_time_ms: Math.round(zc.start_time_ms),
             duration_ms: Math.round(zc.duration_ms),
@@ -5309,7 +5845,11 @@ function ExportModal({
             ease_in_duration_ms: Math.round(zc.ease_in_duration_ms),
             ease_out_duration_ms: Math.round(zc.ease_out_duration_ms),
           };
+          console.log("EXPORT DEBUG: Mapped zoom clip:", result);
+          return result;
         });
+
+      console.log("EXPORT DEBUG: Final renderZoomClips:", renderZoomClips);
 
       // Build render config
       const { demoRender } = await import("@/lib/tauri/commands");
@@ -5329,6 +5869,8 @@ function ExportModal({
           color: background.color,
           gradient_stops: background.gradient_stops,
           gradient_angle: background.gradient_angle,
+          image_url: background.image_url ?? null,
+          media_path: background.media_path ?? null,
         } : null,
         clips: renderClips,
         zoom_clips: renderZoomClips.length > 0 ? renderZoomClips : null,
@@ -5358,6 +5900,31 @@ function ExportModal({
               };
             });
           return renderBlurClips.length > 0 ? renderBlurClips : null;
+        })(),
+        pan_clips: (() => {
+          // Build render pan clips from pan tracks
+          const renderPanClips = panClips
+            .filter(pc => {
+              const panTrack = tracks.find(t => t.id === pc.track_id);
+              return panTrack && panTrack.visible;
+            })
+            .map(pc => {
+              const panTrack = tracks.find(t => t.id === pc.track_id);
+              // z_index: lower sort_order = top of timeline = higher z_index (on top)
+              const z_index = maxSortOrder - (panTrack?.sort_order ?? 0);
+              return {
+                start_time_ms: Math.round(pc.start_time_ms),
+                duration_ms: Math.round(pc.duration_ms),
+                start_x: pc.start_x,
+                start_y: pc.start_y,
+                end_x: pc.end_x,
+                end_y: pc.end_y,
+                ease_in_duration_ms: Math.round(pc.ease_in_duration_ms),
+                ease_out_duration_ms: Math.round(pc.ease_out_duration_ms),
+                z_index,
+              };
+            });
+          return renderPanClips.length > 0 ? renderPanClips : null;
         })(),
       };
 

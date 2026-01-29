@@ -8,6 +8,7 @@ use crate::models::{
     DemoClip, NewDemoClip, UpdateDemoClip,
     DemoZoomClip, NewDemoZoomClip, UpdateDemoZoomClip,
     DemoBlurClip, NewDemoBlurClip, UpdateDemoBlurClip,
+    DemoPanClip, NewDemoPanClip, UpdateDemoPanClip,
     DemoAsset, NewDemoAsset, UpdateDemoAsset,
     DemoRecording, NewDemoRecording,
     DemoScreenshot, NewDemoScreenshot,
@@ -248,6 +249,41 @@ pub async fn demo_blur_clips_delete(
     repo: State<'_, DemoRepository>,
 ) -> Result<(), TakaError> {
     repo.delete_blur_clip(&id).await
+}
+
+// ============ Pan Clip Commands ============
+
+#[tauri::command]
+pub async fn demo_pan_clips_list(
+    track_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<DemoPanClip>, TakaError> {
+    repo.list_pan_clips(&track_id).await
+}
+
+#[tauri::command]
+pub async fn demo_pan_clips_create(
+    data: NewDemoPanClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<DemoPanClip, TakaError> {
+    repo.create_pan_clip(data).await
+}
+
+#[tauri::command]
+pub async fn demo_pan_clips_update(
+    id: String,
+    updates: UpdateDemoPanClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<DemoPanClip, TakaError> {
+    repo.update_pan_clip(&id, updates).await
+}
+
+#[tauri::command]
+pub async fn demo_pan_clips_delete(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), TakaError> {
+    repo.delete_pan_clip(&id).await
 }
 
 // ============ Asset Commands ============

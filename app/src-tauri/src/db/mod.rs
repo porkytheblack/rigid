@@ -6,7 +6,7 @@ use crate::error::TakaError;
 pub type DbPool = SqlitePool;
 
 const SCHEMA: &str = include_str!("schema.sql");
-const CURRENT_VERSION: i32 = 11;
+const CURRENT_VERSION: i32 = 12;
 
 /// Initialize the database connection and run migrations
 pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, TakaError> {
@@ -109,12 +109,17 @@ async fn run_migrations(pool: &DbPool) -> Result<(), TakaError> {
             run_v8_to_v9_migration(pool).await?;
             run_v9_to_v10_migration(pool).await?;
         } else if current_version == 9 {
-            // Run v9 to v10, then v10 to v11
+            // Run v9 to v10, then v10 to v11, then v11 to v12
             run_v9_to_v10_migration(pool).await?;
             run_v10_to_v11_migration(pool).await?;
+            run_v11_to_v12_migration(pool).await?;
         } else if current_version == 10 {
-            // Run v10 to v11 migration only (add demo_recordings and demo_screenshots tables)
+            // Run v10 to v11, then v11 to v12
             run_v10_to_v11_migration(pool).await?;
+            run_v11_to_v12_migration(pool).await?;
+        } else if current_version == 11 {
+            // Run v11 to v12 migration only (add demo_pan_clips table)
+            run_v11_to_v12_migration(pool).await?;
         } else {
             // Fresh install or from v1 - apply full schema
             for statement in SCHEMA.split(';') {
@@ -791,6 +796,37 @@ async fn run_v10_to_v11_migration(pool: &DbPool) -> Result<(), TakaError> {
         .execute(pool)
         .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_screenshots_screenshot ON demo_screenshots(screenshot_id)")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Migration from v11 to v12: Add demo_pan_clips table
+async fn run_v11_to_v12_migration(pool: &DbPool) -> Result<(), TakaError> {
+    // Demo pan clips table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_pan_clips (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL REFERENCES demo_tracks(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            start_time_ms INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL,
+            start_x REAL NOT NULL DEFAULT 50.0,
+            start_y REAL NOT NULL DEFAULT 50.0,
+            end_x REAL NOT NULL DEFAULT 50.0,
+            end_y REAL NOT NULL DEFAULT 50.0,
+            ease_in_duration_ms INTEGER NOT NULL DEFAULT 300,
+            ease_out_duration_ms INTEGER NOT NULL DEFAULT 300,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Create index
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_pan_clips_track ON demo_pan_clips(track_id)")
         .execute(pool)
         .await?;
 

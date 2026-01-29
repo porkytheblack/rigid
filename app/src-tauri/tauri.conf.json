@@ -35,6 +35,7 @@
     "active": true,
     "targets": "all",
     "icon": [],
+    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe"],
     "macOS": {
       "minimumSystemVersion": "12.3",
       "entitlements": "./Entitlements.plist",

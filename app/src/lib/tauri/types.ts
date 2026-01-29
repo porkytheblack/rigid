@@ -911,7 +911,7 @@ export interface UpdateDemoBackground {
 }
 
 /** Track type in timeline */
-export type DemoTrackType = 'background' | 'video' | 'image' | 'audio' | 'zoom' | 'blur';
+export type DemoTrackType = 'background' | 'video' | 'image' | 'audio' | 'zoom' | 'blur' | 'pan';
 
 /** Demo timeline track */
 export interface DemoTrack {
@@ -1055,6 +1055,57 @@ export interface UpdateDemoBlurClip {
   region_height?: number | null;
   corner_radius?: number | null;
   blur_inside?: boolean | null;
+  ease_in_duration_ms?: number | null;
+  ease_out_duration_ms?: number | null;
+}
+
+/** Demo pan clip - pan/move effect applied to a target track */
+export interface DemoPanClip {
+  id: string;
+  track_id: string;
+  name: string;
+  /** When the pan effect starts on the timeline */
+  start_time_ms: number;
+  /** Total duration of the pan effect */
+  duration_ms: number;
+  /** Starting X position (0-100% of canvas, 50 = center) */
+  start_x: number;
+  /** Starting Y position (0-100% of canvas, 50 = center) */
+  start_y: number;
+  /** Ending X position (0-100% of canvas) */
+  end_x: number;
+  /** Ending Y position (0-100% of canvas) */
+  end_y: number;
+  /** Duration to ease into the pan */
+  ease_in_duration_ms: number;
+  /** Duration to ease out of the pan */
+  ease_out_duration_ms: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDemoPanClip {
+  id?: string; // Allow client to provide ID for consistency
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  start_x?: number;
+  start_y?: number;
+  end_x?: number;
+  end_y?: number;
+  ease_in_duration_ms?: number;
+  ease_out_duration_ms?: number;
+}
+
+export interface UpdateDemoPanClip {
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  start_x?: number | null;
+  start_y?: number | null;
+  end_x?: number | null;
+  end_y?: number | null;
   ease_in_duration_ms?: number | null;
   ease_out_duration_ms?: number | null;
 }
@@ -1262,5 +1313,6 @@ export interface DemoWithData {
   clips: DemoClip[];
   zoomClips: DemoZoomClip[];
   blurClips: DemoBlurClip[];
+  panClips: DemoPanClip[];
   assets: DemoAsset[];
 }

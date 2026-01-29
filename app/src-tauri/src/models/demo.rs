@@ -341,6 +341,53 @@ pub struct UpdateDemoBlurClip {
     pub ease_out_duration_ms: Option<i64>,
 }
 
+// ============ Demo Pan Clip ============
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DemoPanClip {
+    pub id: String,
+    pub track_id: String,
+    pub name: String,
+    pub start_time_ms: i64,
+    pub duration_ms: i64,
+    pub start_x: f64,
+    pub start_y: f64,
+    pub end_x: f64,
+    pub end_y: f64,
+    pub ease_in_duration_ms: i64,
+    pub ease_out_duration_ms: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NewDemoPanClip {
+    pub id: Option<String>, // Allow client to provide ID
+    pub track_id: String,
+    pub name: String,
+    pub start_time_ms: i64,
+    pub duration_ms: i64,
+    pub start_x: Option<f64>,
+    pub start_y: Option<f64>,
+    pub end_x: Option<f64>,
+    pub end_y: Option<f64>,
+    pub ease_in_duration_ms: Option<i64>,
+    pub ease_out_duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateDemoPanClip {
+    pub name: Option<String>,
+    pub start_time_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub start_x: Option<f64>,
+    pub start_y: Option<f64>,
+    pub end_x: Option<f64>,
+    pub end_y: Option<f64>,
+    pub ease_in_duration_ms: Option<i64>,
+    pub ease_out_duration_ms: Option<i64>,
+}
+
 // ============ Demo Asset ============
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -428,5 +475,7 @@ pub struct DemoWithData {
     pub zoom_clips: Vec<DemoZoomClip>,
     #[serde(rename = "blurClips")]
     pub blur_clips: Vec<DemoBlurClip>,
+    #[serde(rename = "panClips")]
+    pub pan_clips: Vec<DemoPanClip>,
     pub assets: Vec<DemoAsset>,
 }

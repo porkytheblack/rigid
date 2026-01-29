@@ -97,6 +97,9 @@ import type {
   DemoBlurClip,
   NewDemoBlurClip,
   UpdateDemoBlurClip,
+  DemoPanClip,
+  NewDemoPanClip,
+  UpdateDemoPanClip,
   DemoRecording,
   NewDemoRecording,
   DemoScreenshot,
@@ -687,6 +690,8 @@ export interface RenderBackground {
   color: string | null;
   gradient_stops: string | null;
   gradient_angle: number | null;
+  image_url: string | null; // External URL (e.g., Unsplash)
+  media_path: string | null; // Local file path
 }
 
 export interface RenderDemoConfig {
@@ -1279,6 +1284,13 @@ export const demoBlurClips = {
   create: async (data: NewDemoBlurClip) => await invoke<DemoBlurClip>('demo_blur_clips_create', { data }),
   update: async (id: string, updates: UpdateDemoBlurClip) => await invoke<DemoBlurClip>('demo_blur_clips_update', { id, updates }),
   delete: async (id: string) => await invoke<void>('demo_blur_clips_delete', { id }),
+};
+
+export const demoPanClips = {
+  list: async (trackId: string) => await invoke<DemoPanClip[]>('demo_pan_clips_list', { trackId }),
+  create: async (data: NewDemoPanClip) => await invoke<DemoPanClip>('demo_pan_clips_create', { data }),
+  update: async (id: string, updates: UpdateDemoPanClip) => await invoke<DemoPanClip>('demo_pan_clips_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('demo_pan_clips_delete', { id }),
 };
 
 export const demoAssets = {
