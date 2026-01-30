@@ -763,14 +763,148 @@ pub async fn render_demo(
         // Use format=rgba to preserve alpha channel through the filter chain
         // Note: The scaled video may be smaller than target_w x target_h - that's intentional
         // The background shows through via the overlay
+        //
+        // IMPORTANT: We add fps filter to normalize frame rate BEFORE any time-based effects.
+        // Screen recordings often have variable frame rates, and the 't' variable in FFmpeg
+        // filters uses the frame timestamp. Without fps normalization, timestamps can be
+        // irregular causing time-based effects (like zoom) to have incorrect timing.
         let mut clip_filters = format!(
-            "[{}:v]format=rgba,scale={}:{}:force_original_aspect_ratio=decrease,setpts=PTS-STARTPTS",
-            input_idx, target_w, target_h
+            "[{}:v]fps={},format=rgba,scale={}:{}:force_original_aspect_ratio=decrease,setpts=PTS-STARTPTS",
+            input_idx, config.frame_rate, target_w, target_h
         );
 
-        // Apply crop and/or corner radius as alpha mask using geq filter
+        // Apply zoom effects FIRST using scale + crop filters
+        // This must come before crop/corner radius so the zoom is contained within the mask
+        // For video zoom, we use scale with eval=frame + crop
+        //
+        // To support multiple zoom clips, we build a combined expression that evaluates
+        // all zoom clips and returns the appropriate zoom level for any given time.
+        // We also need combined expressions for center_x and center_y since different
+        // zoom clips may have different center points.
+        if !clip_zoom_effects.is_empty() {
+            let clip_duration_sec = clip.duration_ms as f64 / 1000.0;
+
+            // Build combined zoom expression for all zoom clips
+            // Each zoom clip contributes its zoom level during its time range
+            // Outside all zoom ranges, zoom = 1
+            let mut zoom_expr_parts: Vec<(String, String)> = Vec::new();
+            let mut center_x_expr_parts: Vec<(String, String)> = Vec::new();
+            let mut center_y_expr_parts: Vec<(String, String)> = Vec::new();
+
+            for (idx, zc) in clip_zoom_effects.iter().enumerate() {
+                let zoom_start_in_clip = (zc.start_time_ms - clip.start_time_ms) as f64 / 1000.0;
+                let zoom_duration_sec = zc.duration_ms as f64 / 1000.0;
+                let zoom_end_in_clip = zoom_start_in_clip + zoom_duration_sec;
+
+                // Skip zoom clips that don't overlap with this video clip's time range
+                if zoom_end_in_clip <= 0.0 || zoom_start_in_clip >= clip_duration_sec {
+                    println!("ZOOM DEBUG: Skipping zoom clip {} - no overlap with video clip", idx);
+                    continue;
+                }
+
+                // Clamp zoom timing to the clip's boundaries
+                let zoom_start = zoom_start_in_clip.max(0.0);
+                let zoom_end = zoom_end_in_clip.min(clip_duration_sec);
+
+                println!("ZOOM DEBUG: Zoom clip {}: start={}s, end={}s, scale={}, center=({},{})",
+                    idx, zoom_start, zoom_end, zc.zoom_scale, zc.zoom_center_x, zc.zoom_center_y);
+
+                let ease_in_sec = (zc.ease_in_duration_ms as f64 / 1000.0).max(0.001);
+                let ease_out_sec = (zc.ease_out_duration_ms as f64 / 1000.0).max(0.001);
+                let ease_in_end = zoom_start + ease_in_sec;
+                let ease_out_start = zoom_end - ease_out_sec;
+
+                let zoom_scale = zc.zoom_scale;
+                let center_x = zc.zoom_center_x / 100.0;
+                let center_y = zc.zoom_center_y / 100.0;
+
+                // Build easing expression using quadratic ease-in-out
+                // Frontend formula: progress < 0.5 ? 2*p*p : 1 - pow(-2*p + 2, 2) / 2
+                // In FFmpeg: if(lt(p,0.5),2*p*p,1-pow(-2*p+2,2)/2)
+
+                // For ease-in phase: p = (t - zoom_start) / ease_in_dur
+                // eased_p = if(lt(p,0.5),2*p*p,1-pow(-2*p+2,2)/2)
+                // zoom = 1 + (zoom_scale - 1) * eased_p
+                let ease_in_p = format!("(t-{})/{}",zoom_start, ease_in_sec);
+                let ease_in_eased = format!("if(lt({p},0.5),2*{p}*{p},1-pow(-2*{p}+2,2)/2)", p = ease_in_p);
+
+                // For ease-out phase: p = (t - ease_out_start) / ease_out_dur
+                // zoom = zoom_scale - (zoom_scale - 1) * eased_p
+                let ease_out_p = format!("(t-{})/{}",ease_out_start, ease_out_sec);
+                let ease_out_eased = format!("if(lt({p},0.5),2*{p}*{p},1-pow(-2*{p}+2,2)/2)", p = ease_out_p);
+
+                // Build the zoom expression for this clip:
+                // if t < zoom_start: not in this clip's range (handled by outer logic)
+                // if t < ease_in_end: easing in
+                // if t < ease_out_start: holding at zoom_scale
+                // if t < zoom_end: easing out
+                // else: not in this clip's range
+                let clip_zoom_expr = format!(
+                    "if(lt(t,{zoom_start}),1,if(lt(t,{ease_in_end}),1+({zoom_scale}-1)*({ease_in_eased}),if(lt(t,{ease_out_start}),{zoom_scale},if(lt(t,{zoom_end}),{zoom_scale}-({zoom_scale}-1)*({ease_out_eased}),1))))",
+                    zoom_start = zoom_start,
+                    ease_in_end = ease_in_end,
+                    zoom_scale = zoom_scale,
+                    ease_in_eased = ease_in_eased,
+                    ease_out_start = ease_out_start,
+                    zoom_end = zoom_end,
+                    ease_out_eased = ease_out_eased,
+                );
+
+                // For multiple clips, we use if(gte(t,start)*lt(t,end), this_zoom, ...)
+                // to select the right zoom expression based on time
+                let time_check = format!("gte(t,{})*lt(t,{})", zoom_start, zoom_end);
+                zoom_expr_parts.push((time_check.clone(), clip_zoom_expr));
+                center_x_expr_parts.push((time_check.clone(), format!("{}", center_x)));
+                center_y_expr_parts.push((time_check, format!("{}", center_y)));
+            }
+
+            // Build the final combined expressions
+            if !zoom_expr_parts.is_empty() {
+                // Combine all zoom expressions: if(time_in_clip1, zoom1, if(time_in_clip2, zoom2, 1))
+                let mut combined_zoom = String::from("1"); // default: no zoom
+                let mut combined_cx = String::from("0.5"); // default center
+                let mut combined_cy = String::from("0.5");
+
+                // Build nested if expressions from the end
+                for (i, ((time_check, zoom_expr), ((_, cx), (_, cy)))) in zoom_expr_parts.iter()
+                    .zip(center_x_expr_parts.iter().zip(center_y_expr_parts.iter()))
+                    .enumerate().rev()
+                {
+                    combined_zoom = format!("if({},{},{})", time_check, zoom_expr, combined_zoom);
+                    combined_cx = format!("if({},{},{})", time_check, cx, combined_cx);
+                    combined_cy = format!("if({},{},{})", time_check, cy, combined_cy);
+                    println!("ZOOM DEBUG: Added zoom clip {} to combined expression", i);
+                }
+
+                println!("ZOOM DEBUG: Combined zoom expression length: {} chars", combined_zoom.len());
+
+                // Scale filter: dynamically resize based on zoom level
+                let scale_w = format!("iw*({})", combined_zoom);
+                let scale_h = format!("ih*({})", combined_zoom);
+
+                // Crop filter dimensions and position
+                // Crop size = scaled size / zoom = original size (dynamic)
+                let crop_w = format!("in_w/({})", combined_zoom);
+                let crop_h = format!("in_h/({})", combined_zoom);
+
+                // Crop x,y: center the crop on the zoom point
+                // Use the combined center expressions
+                let crop_x = format!("in_w*(1-1/({}))*{}", combined_zoom, combined_cx);
+                let crop_y = format!("in_h*(1-1/({}))*{}", combined_zoom, combined_cy);
+
+                // Combine scale (with eval=frame for time expressions) and crop
+                let zoom_filter = format!(
+                    ",scale=w='{}':h='{}':eval=frame,crop=w='{}':h='{}':x='{}':y='{}'",
+                    scale_w, scale_h, crop_w, crop_h, crop_x, crop_y
+                );
+                println!("ZOOM DEBUG: Generated combined zoom filter");
+                clip_filters.push_str(&zoom_filter);
+            }
+        }
+
+        // Apply crop and/or corner radius as alpha mask using geq filter AFTER zoom
+        // This ensures the zoom effect is contained within the crop/border-radius mask
         // This matches CSS clipPath: inset(top% right% bottom% left% round Xpx)
-        // We combine crop and corner radius into a single geq to avoid multiple format conversions
         if has_crop || corner_radius > 0 {
             clip_filters.push_str(",format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='");
 
@@ -789,11 +923,6 @@ pub async fn render_demo(
                 // - First check if pixel is outside crop region (alpha = 0)
                 // - Then check if pixel is in a corner region of the cropped area
                 // - Corner regions are measured from the crop boundaries, not from 0,0
-                //
-                // For top-left corner of cropped region:
-                //   corner center is at (crop_left + r, crop_top + r)
-                //   pixel is in corner zone if X < crop_left + r AND Y < crop_top + r
-                //   pixel is visible if distance from corner center <= r
                 format!(
                     "255*if(lt(X,{cl}),0,if(gt(X,{cr}),0,if(lt(Y,{ct}),0,if(gt(Y,{cb}),0,\
                     if(lt(X,{cl}+{r})*lt(Y,{ct}+{r}),if(lte(hypot({cl}+{r}-X,{ct}+{r}-Y),{r}),1,0),\
@@ -830,167 +959,6 @@ pub async fn render_demo(
                 clip_filters.push_str(",format=rgba");
             }
             clip_filters.push_str(&format!(",colorchannelmixer=aa={:.3}", opacity));
-        }
-
-        // Apply zoom effects using zoompan filter
-        // Zoom effects are relative to the clip's start time
-        for zc in &clip_zoom_effects {
-            // Calculate zoom timing relative to clip's timeline position
-            // The zoom clip times are in absolute timeline time, but the clip video starts at 0
-            // So we need to convert: zoom_time_in_clip = zoom_absolute_time - clip_start_time
-            let clip_duration_sec = clip.duration_ms as f64 / 1000.0;
-            let zoom_start_in_clip = (zc.start_time_ms - clip.start_time_ms) as f64 / 1000.0;
-            let zoom_duration_sec = zc.duration_ms as f64 / 1000.0;
-            let zoom_end_in_clip = zoom_start_in_clip + zoom_duration_sec;
-
-            // Skip zoom clips that don't overlap with this video clip's time range
-            if zoom_end_in_clip <= 0.0 || zoom_start_in_clip >= clip_duration_sec {
-                println!("ZOOM DEBUG: Skipping zoom clip - no overlap with video clip");
-                println!("  clip_duration_sec={}, zoom_start_in_clip={}, zoom_end_in_clip={}",
-                    clip_duration_sec, zoom_start_in_clip, zoom_end_in_clip);
-                continue;
-            }
-
-            // Clamp zoom timing to the clip's boundaries
-            // This handles cases where zoom extends beyond the video clip
-            let zoom_start_clamped = zoom_start_in_clip.max(0.0);
-            let zoom_end_clamped = zoom_end_in_clip.min(clip_duration_sec);
-
-            // Debug: Log zoom timing details
-            println!("ZOOM DEBUG: clip.start_time_ms={}, clip.duration_ms={}, zc.start_time_ms={}, zc.duration_ms={}",
-                clip.start_time_ms, clip.duration_ms, zc.start_time_ms, zc.duration_ms);
-            println!("ZOOM DEBUG: zoom_start_in_clip={}, zoom_end_in_clip={}, clamped: start={}, end={}",
-                zoom_start_in_clip, zoom_end_in_clip, zoom_start_clamped, zoom_end_clamped);
-
-            let ease_in_sec = zc.ease_in_duration_ms as f64 / 1000.0;
-            let ease_out_sec = zc.ease_out_duration_ms as f64 / 1000.0;
-
-            // Adjust ease-in duration if zoom starts before clip
-            let ease_in_adjusted = if zoom_start_in_clip < 0.0 {
-                (ease_in_sec + zoom_start_in_clip).max(0.001)
-            } else {
-                ease_in_sec.max(0.001)
-            };
-
-            // Adjust ease-out duration if zoom ends after clip
-            let ease_out_adjusted = if zoom_end_in_clip > clip_duration_sec {
-                (ease_out_sec - (zoom_end_in_clip - clip_duration_sec)).max(0.001)
-            } else {
-                ease_out_sec.max(0.001)
-            };
-
-            let ease_in_end = zoom_start_clamped + ease_in_adjusted;
-            let ease_out_start = zoom_end_clamped - ease_out_adjusted;
-
-            let zoom_scale = zc.zoom_scale;
-            let center_x = zc.zoom_center_x / 100.0; // Convert to 0-1 range
-            let center_y = zc.zoom_center_y / 100.0;
-            let fps = config.frame_rate as f64;
-
-            // Use zoompan for smooth animated zoom
-            // Note: In FFmpeg zoompan filter, 'on' is the output frame number (starts at 1, not 0)
-            // So we use (on-1)/fps to get time in seconds from 0
-            //
-            // z = zoom level (1 = no zoom, 2 = 2x zoom)
-            // x, y = pan position (top-left corner of the zoomed area)
-            // d = duration in output frames per input frame (1 = 1:1 mapping for video)
-            // s = output size
-            //
-            // The zoom expression calculates based on time:
-            // - Before zoom: z=1
-            // - During ease-in: z interpolates from 1 to zoom_scale
-            // - Holding: z=zoom_scale
-            // - During ease-out: z interpolates from zoom_scale to 1
-            // - After zoom: z=1
-
-            // Implement animated zoom using scale + crop approach
-            // The crop filter's x and y support time expressions, but w and h don't
-            // So we scale up by the max zoom factor first, then crop a moving window
-            //
-            // Strategy:
-            // 1. Scale the video up by zoom_scale (e.g., 2x)
-            // 2. Crop a window of original size that moves based on zoom level
-            // 3. When zoom=1, crop window = full scaled frame (shows everything smaller)
-            //    When zoom=max, crop window centered on zoom point
-            //
-            // Actually, simpler: scale to max zoom, then use crop x/y to animate position
-            // The zoom animation comes from the changing x/y making different parts visible
-
-            // Scale factor for the intermediate scaled version
-            let scale_up = zoom_scale;
-            let scaled_w = (target_w as f64 * scale_up) as i32;
-            let scaled_h = (target_h as f64 * scale_up) as i32;
-
-            // Build the zoom level expression as a function of time
-            let zoom_at_t = format!(
-                "if(lt(t,{zoom_start}),1,if(lt(t,{ease_in_end}),1+({zoom_scale}-1)*((t-{zoom_start})/{ease_in_dur}),if(lt(t,{ease_out_start}),{zoom_scale},if(lt(t,{zoom_end}),{zoom_scale}-({zoom_scale}-1)*((t-{ease_out_start})/{ease_out_dur}),1))))",
-                zoom_start = zoom_start_clamped,
-                ease_in_end = ease_in_end,
-                zoom_scale = zoom_scale,
-                ease_in_dur = ease_in_adjusted,
-                ease_out_start = ease_out_start,
-                zoom_end = zoom_end_clamped,
-                ease_out_dur = ease_out_adjusted,
-            );
-
-            // After scaling up by zoom_scale, we have a frame of scaled_w x scaled_h
-            // We crop a window of target_w x target_h from it
-            //
-            // The x,y position of the crop depends on:
-            // - current zoom level (1 to zoom_scale)
-            // - center point (center_x, center_y as 0-1)
-            //
-            // At zoom=1: show the whole original frame, so we need to scale DOWN or center
-            // At zoom=zoom_scale: show zoomed portion centered at (center_x, center_y)
-            //
-            // Crop x = (scaled_w - target_w) * center_x * (zoom - 1) / (zoom_scale - 1)
-            // At zoom=1: x = 0 (start of frame)
-            // At zoom=zoom_scale: x = (scaled_w - target_w) * center_x
-            //
-            // Wait, this is getting complex. Let me think differently.
-            //
-            // Alternative: Always scale by zoom_scale, then crop position based on zoom level
-            // When zoom_level = 1, we want to see the whole frame (need to scale it to fit)
-            // When zoom_level = zoom_scale, we see a portion
-            //
-            // Actually the issue is: at zoom=1 we need the full original frame
-            // But we've scaled it up, so we can't show it all in target_w x target_h
-            //
-            // Better approach: Scale by zoom_level dynamically... but scale doesn't support 't'
-            //
-            // Let's try a simpler approach using zoompan with a test constant zoom first
-
-            // TEST: Use a constant zoom to verify zoompan works
-            println!("ZOOM DEBUG: Using zoompan with animated zoom");
-            println!("ZOOM DEBUG: zoom_start={}, zoom_end={}, zoom_scale={}",
-                zoom_start_clamped, zoom_end_clamped, zoom_scale);
-
-            // The z expression uses 'on' (output frame number) for timing
-            // 'on' starts at 1 for the first frame
-            let z_expr = format!(
-                "if(lt((on-1)/{fps},{zoom_start}),1,if(lt((on-1)/{fps},{ease_in_end}),1+({zoom_scale}-1)*(((on-1)/{fps}-{zoom_start})/{ease_in_dur}),if(lt((on-1)/{fps},{ease_out_start}),{zoom_scale},if(lt((on-1)/{fps},{zoom_end}),{zoom_scale}-({zoom_scale}-1)*(((on-1)/{fps}-{ease_out_start})/{ease_out_dur}),1))))",
-                fps = fps,
-                zoom_start = zoom_start_clamped,
-                ease_in_end = ease_in_end,
-                zoom_scale = zoom_scale,
-                ease_in_dur = ease_in_adjusted,
-                ease_out_start = ease_out_start,
-                zoom_end = zoom_end_clamped,
-                ease_out_dur = ease_out_adjusted,
-            );
-
-            // x, y expressions use 'zoom' which is the current value from z expression
-            let x_expr = format!("iw*(1-1/zoom)*{}", center_x);
-            let y_expr = format!("ih*(1-1/zoom)*{}", center_y);
-
-            println!("ZOOM DEBUG: z_expr={}", z_expr);
-
-            let zoom_filter = format!(
-                ",zoompan=z='{}':x='{}':y='{}':d=1:s={}x{}:fps={}",
-                z_expr, x_expr, y_expr, target_w, target_h, config.frame_rate
-            );
-            println!("ZOOM DEBUG: Generated zoompan filter: {}", zoom_filter);
-            clip_filters.push_str(&zoom_filter);
         }
 
         clip_filters.push_str(&format!("[{}]", scaled_label));
