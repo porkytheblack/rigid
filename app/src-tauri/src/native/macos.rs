@@ -651,3 +651,114 @@ pub fn check_microphone_permission() -> PermissionStatus {
 pub fn request_microphone_permission() {
     unsafe { taka_request_microphone_permission() }
 }
+
+// =============================================================================
+// Video Compositor FFI
+// =============================================================================
+
+/// Progress callback type for compositor
+pub type CompositorProgressCallback =
+    extern "C" fn(export_id: *const c_char, percent: f32, current_frame: i64, total_frames: i64);
+
+/// Completion callback type for compositor
+pub type CompositorCompletionCallback =
+    extern "C" fn(export_id: *const c_char, error_code: c_int, output_path_or_error: *const c_char);
+
+// FFI declarations for compositor
+extern "C" {
+    fn taka_compositor_render(
+        export_id: *const c_char,
+        config_json: *const c_char,
+        progress_callback: Option<CompositorProgressCallback>,
+    ) -> c_int;
+
+    fn taka_compositor_render_async(
+        export_id: *const c_char,
+        config_json: *const c_char,
+        progress_callback: Option<CompositorProgressCallback>,
+        completion_callback: Option<CompositorCompletionCallback>,
+    ) -> c_int;
+
+    fn taka_compositor_cancel();
+}
+
+/// Render result from compositor
+#[derive(Debug)]
+pub enum CompositorResult {
+    Success(String),
+    Error(String),
+}
+
+/// Render a video composition synchronously using native AVFoundation
+///
+/// # Arguments
+/// * `export_id` - Unique identifier for this export
+/// * `config_json` - JSON string containing the render configuration
+/// * `progress_callback` - Optional callback for progress updates
+///
+/// # Returns
+/// Result with output path on success, error message on failure
+pub fn compositor_render_sync(
+    export_id: &str,
+    config_json: &str,
+    progress_callback: Option<CompositorProgressCallback>,
+) -> Result<String, String> {
+    let export_id_cstr = CString::new(export_id).map_err(|e| e.to_string())?;
+    let config_cstr = CString::new(config_json).map_err(|e| e.to_string())?;
+
+    let result = unsafe {
+        taka_compositor_render(
+            export_id_cstr.as_ptr(),
+            config_cstr.as_ptr(),
+            progress_callback,
+        )
+    };
+
+    match result {
+        0 => Ok(export_id.to_string()),
+        1 => Err("Not authorized".to_string()),
+        2 => Err("Invalid configuration".to_string()),
+        3 => Err("Render failed".to_string()),
+        _ => Err(format!("Unknown error: {}", result)),
+    }
+}
+
+/// Render a video composition asynchronously using native AVFoundation
+///
+/// # Arguments
+/// * `export_id` - Unique identifier for this export
+/// * `config_json` - JSON string containing the render configuration
+/// * `progress_callback` - Optional callback for progress updates
+/// * `completion_callback` - Optional callback when render completes
+///
+/// # Returns
+/// Ok(()) if render started successfully, Err with message on failure
+pub fn compositor_render_async(
+    export_id: &str,
+    config_json: &str,
+    progress_callback: Option<CompositorProgressCallback>,
+    completion_callback: Option<CompositorCompletionCallback>,
+) -> Result<(), String> {
+    let export_id_cstr = CString::new(export_id).map_err(|e| e.to_string())?;
+    let config_cstr = CString::new(config_json).map_err(|e| e.to_string())?;
+
+    let result = unsafe {
+        taka_compositor_render_async(
+            export_id_cstr.as_ptr(),
+            config_cstr.as_ptr(),
+            progress_callback,
+            completion_callback,
+        )
+    };
+
+    match result {
+        0 => Ok(()),
+        2 => Err("Invalid configuration".to_string()),
+        _ => Err(format!("Failed to start render: {}", result)),
+    }
+}
+
+/// Cancel any in-progress compositor render
+pub fn compositor_cancel() {
+    unsafe { taka_compositor_cancel() }
+}

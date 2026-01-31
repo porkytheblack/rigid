@@ -706,10 +706,43 @@ export interface RenderDemoConfig {
   clips: RenderClip[];
 }
 
+// Export progress event types
+export interface ExportStarted {
+  export_id: string;
+  output_path: string;
+  total_frames: number;
+  duration_ms: number;
+}
+
+export interface ExportProgress {
+  export_id: string;
+  percent: number;
+  stage: string;
+  current_frame: number;
+  total_frames: number;
+  fps: number;
+  elapsed_secs: number;
+  estimated_remaining_secs: number | null;
+}
+
+export interface ExportComplete {
+  export_id: string;
+  success: boolean;
+  output_path: string | null;
+  error: string | null;
+}
+
 // Demo rendering commands
 export const demoRender = {
   render: (config: RenderDemoConfig) =>
     invoke<string>('render_demo', { config }),
+
+  /** Start a background render that emits progress events */
+  renderBackground: (exportId: string, config: RenderDemoConfig) =>
+    invoke<string>('render_demo_background', { exportId, config }),
+  /** Render using native AVFoundation compositor (macOS only, much faster) */
+  renderNative: (exportId: string, config: RenderDemoConfig) =>
+    invoke<string>('render_demo_native', { exportId, config }),
 };
 
 // Diagram commands (mind maps, user flows, dependency graphs)

@@ -11,4 +11,5 @@ export { useRouterStore } from './router';
 export { useDiagramsStore } from './diagrams';
 export { useArchitectureDocsStore } from './architecture-docs';
 export { useDemosStore } from './demos';
+export { useExportsStore, type Export } from './exports';
 export type { Route } from './router';

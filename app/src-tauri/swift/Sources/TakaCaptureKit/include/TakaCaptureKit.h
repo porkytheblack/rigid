@@ -184,4 +184,37 @@ int32_t taka_capture_screenshot_region(
     bool capture_cursor
 );
 
+// ============================================================================
+// Video Compositor
+// ============================================================================
+
+// Progress callback for compositor
+// Parameters: export_id, percent (0-1), current_frame, total_frames
+typedef void (*TakaCompositorProgressCallback)(const char* export_id, float percent, int64_t current_frame, int64_t total_frames);
+
+// Completion callback for async compositor
+// Parameters: export_id, error_code (0=success), output_path_or_error
+typedef void (*TakaCompositorCompletionCallback)(const char* export_id, int32_t error_code, const char* output_path_or_error);
+
+// Render a video composition synchronously
+// config_json: JSON string containing CompositorConfig
+// Returns 0 on success, error code on failure
+int32_t taka_compositor_render(
+    const char* export_id,
+    const char* config_json,
+    TakaCompositorProgressCallback progress_callback
+);
+
+// Render a video composition asynchronously
+// Returns immediately, calls completion callback when done
+int32_t taka_compositor_render_async(
+    const char* export_id,
+    const char* config_json,
+    TakaCompositorProgressCallback progress_callback,
+    TakaCompositorCompletionCallback completion_callback
+);
+
+// Cancel an in-progress render
+void taka_compositor_cancel(void);
+
 #endif // TAKA_CAPTURE_KIT_H

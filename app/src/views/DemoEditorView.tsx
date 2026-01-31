@@ -43,7 +43,7 @@ import {
   Link2,
   Move,
 } from "lucide-react";
-import { useRouterStore, useDemosStore } from "@/lib/stores";
+import { useRouterStore, useDemosStore, useExportsStore } from "@/lib/stores";
 import { demoRecordings, demoScreenshots } from "@/lib/tauri/commands";
 import type { DemoTrackType, DemoClip, DemoTrack, DemoAsset, DemoBackground, DemoZoomClip, DemoBlurClip, DemoPanClip, Recording, Screenshot, DemoFormat } from "@/lib/tauri/types";
 import { DEMO_FORMAT_DIMENSIONS } from "@/lib/tauri/types";
@@ -5723,6 +5723,18 @@ function AppMediaPicker({
   );
 }
 
+// Format time for display (e.g., "2:15" or "1:23:45")
+const formatDuration = (seconds: number): string => {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${minutes}:${secs.toString().padStart(2, '0')}`;
+};
+
 // Export Modal Component
 function ExportModal({
   demo,
@@ -5745,17 +5757,22 @@ function ExportModal({
 }) {
   const [format, setFormat] = useState<"mp4" | "webm">("mp4");
   const [quality, setQuality] = useState<"draft" | "good" | "high" | "max">("good");
-  const [isExporting, setIsExporting] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [exportComplete, setExportComplete] = useState(false);
-  const [exportPath, setExportPath] = useState<string | null>(null);
+  const [currentExportId, setCurrentExportId] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // Get export state from store - use selector to subscribe to changes
+  const currentExport = useExportsStore((state) =>
+    currentExportId ? state.exports[currentExportId] : null
+  );
+  const clearExport = useExportsStore((state) => state.clearExport);
+
+  const isExporting = currentExport?.status === 'pending' || currentExport?.status === 'encoding';
+  const exportComplete = currentExport?.status === 'complete';
+  const hasError = currentExport?.status === 'error' || exportError !== null;
+  const errorMessage = currentExport?.error || exportError;
+
   const handleExport = async () => {
-    setIsExporting(true);
-    setExportComplete(false);
     setExportError(null);
-    setProgress(10);
 
     try {
       // Use Tauri's save dialog to get the output path
@@ -5774,22 +5791,19 @@ function ExportModal({
       });
 
       if (!selectedPath) {
-        setIsExporting(false);
         return; // User cancelled
       }
 
-      setProgress(20);
-      setExportPath(selectedPath);
+      // Generate a unique export ID
+      const exportId = `export_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      setCurrentExportId(exportId);
 
       // Build render clips from timeline clips (video, image, and audio)
-      // Ensure all time values are integers for Rust backend
-      // For z_index: lower sort_order = top of timeline = should be visually on top (higher z_index)
       const maxSortOrder = Math.max(...tracks.map(t => t.sort_order), 0);
       const renderClips = clips
         .filter(c => c.source_type === "video" || c.source_type === "image" || c.source_type === "audio")
         .map(clip => {
           const track = tracks.find(t => t.id === clip.track_id);
-          // Invert sort_order so that top of timeline (lower sort_order) = higher z_index (on top)
           const z_index = maxSortOrder - (track?.sort_order ?? 0);
           return {
             source_path: clip.source_path,
@@ -5807,35 +5821,21 @@ function ExportModal({
             crop_left: clip.crop_left,
             crop_right: clip.crop_right,
             z_index,
-            has_audio: clip.has_audio ?? (clip.source_type === "audio" ? true : null), // Use probed has_audio, fallback for audio clips
-            track_id: clip.track_id, // Include track_id for zoom clip linking
-            muted: clip.muted ?? false, // Whether to mute audio from this clip (for split audio)
+            has_audio: clip.has_audio ?? (clip.source_type === "audio" ? true : null),
+            track_id: clip.track_id,
+            muted: clip.muted ?? false,
           };
         });
 
-      // Build render zoom clips from zoom tracks
-      // Find zoom tracks and their associated zoom clips
-      console.log("EXPORT DEBUG: All zoom clips:", zoomClips);
-      console.log("EXPORT DEBUG: All tracks:", tracks.map(t => ({ id: t.id, type: t.track_type, target: t.target_track_id, visible: t.visible })));
-      console.log("EXPORT DEBUG: All video clips:", clips.filter(c => c.source_type === "video").map(c => ({ id: c.id, track_id: c.track_id })));
-
+      // Build render zoom clips
       const renderZoomClips = zoomClips
         .filter(zc => {
           const zoomTrack = tracks.find(t => t.id === zc.track_id);
-          const passes = zoomTrack && zoomTrack.visible && zoomTrack.target_track_id;
-          console.log("EXPORT DEBUG: Zoom clip filter:", {
-            zc_id: zc.id,
-            zc_track_id: zc.track_id,
-            zoomTrack_found: !!zoomTrack,
-            zoomTrack_visible: zoomTrack?.visible,
-            zoomTrack_target: zoomTrack?.target_track_id,
-            passes
-          });
-          return passes;
+          return zoomTrack && zoomTrack.visible && zoomTrack.target_track_id;
         })
         .map(zc => {
           const zoomTrack = tracks.find(t => t.id === zc.track_id)!;
-          const result = {
+          return {
             target_track_id: zoomTrack.target_track_id!,
             start_time_ms: Math.round(zc.start_time_ms),
             duration_ms: Math.round(zc.duration_ms),
@@ -5845,17 +5845,10 @@ function ExportModal({
             ease_in_duration_ms: Math.round(zc.ease_in_duration_ms),
             ease_out_duration_ms: Math.round(zc.ease_out_duration_ms),
           };
-          console.log("EXPORT DEBUG: Mapped zoom clip:", result);
-          return result;
         });
-
-      console.log("EXPORT DEBUG: Final renderZoomClips:", renderZoomClips);
 
       // Build render config
       const { demoRender } = await import("@/lib/tauri/commands");
-
-      setProgress(30);
-
       const config = {
         width: demo.width,
         height: demo.height,
@@ -5875,7 +5868,6 @@ function ExportModal({
         clips: renderClips,
         zoom_clips: renderZoomClips.length > 0 ? renderZoomClips : null,
         blur_clips: (() => {
-          // Build render blur clips from blur tracks
           const renderBlurClips = blurClips
             .filter(bc => {
               const blurTrack = tracks.find(t => t.id === bc.track_id);
@@ -5883,7 +5875,6 @@ function ExportModal({
             })
             .map(bc => {
               const blurTrack = tracks.find(t => t.id === bc.track_id);
-              // z_index: lower sort_order = top of timeline = higher z_index (on top)
               const z_index = maxSortOrder - (blurTrack?.sort_order ?? 0);
               return {
                 start_time_ms: Math.round(bc.start_time_ms),
@@ -5902,17 +5893,16 @@ function ExportModal({
           return renderBlurClips.length > 0 ? renderBlurClips : null;
         })(),
         pan_clips: (() => {
-          // Build render pan clips from pan tracks
           const renderPanClips = panClips
             .filter(pc => {
               const panTrack = tracks.find(t => t.id === pc.track_id);
-              return panTrack && panTrack.visible;
+              return panTrack && panTrack.visible && panTrack.target_track_id;
             })
             .map(pc => {
-              const panTrack = tracks.find(t => t.id === pc.track_id);
-              // z_index: lower sort_order = top of timeline = higher z_index (on top)
+              const panTrack = tracks.find(t => t.id === pc.track_id)!;
               const z_index = maxSortOrder - (panTrack?.sort_order ?? 0);
               return {
+                target_track_id: panTrack.target_track_id!,
                 start_time_ms: Math.round(pc.start_time_ms),
                 duration_ms: Math.round(pc.duration_ms),
                 start_x: pc.start_x,
@@ -5928,19 +5918,25 @@ function ExportModal({
         })(),
       };
 
-      setProgress(50);
-
-      // Call the render command
-      await demoRender.render(config);
-
-      setProgress(100);
-      setIsExporting(false);
-      setExportComplete(true);
+      // Start background render using native AVFoundation compositor (macOS)
+      // Falls back to FFmpeg on other platforms
+      await demoRender.renderNative(exportId, config);
     } catch (err) {
       console.error("Export failed:", err);
       setExportError(err instanceof Error ? err.message : String(err));
-      setIsExporting(false);
     }
+  };
+
+  const handleContinueInBackground = () => {
+    onClose();
+  };
+
+  const handleReset = () => {
+    if (currentExportId) {
+      clearExport(currentExportId);
+    }
+    setCurrentExportId(null);
+    setExportError(null);
   };
 
   return (
@@ -5962,7 +5958,7 @@ function ExportModal({
           </button>
         </div>
 
-        {exportError ? (
+        {hasError ? (
           <div className="p-6">
             <div className="flex items-center justify-center mb-4">
               <div className="w-12 h-12 rounded-full bg-[var(--status-error-bg)] flex items-center justify-center">
@@ -5971,11 +5967,11 @@ function ExportModal({
             </div>
             <h4 className="text-center text-[var(--text-primary)] font-medium mb-2">Export Failed</h4>
             <div className="bg-[var(--surface-primary)] p-3 border border-[var(--accent-error)] text-sm text-[var(--accent-error)] break-all font-mono max-h-40 overflow-auto">
-              {exportError}
+              {errorMessage}
             </div>
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => { setExportError(null); setProgress(0); }}
+                onClick={handleReset}
                 className="flex-1 h-10 border border-[var(--border-default)] text-[var(--text-primary)] font-medium hover:bg-[var(--surface-hover)]"
               >
                 Try Again
@@ -5999,9 +5995,14 @@ function ExportModal({
             <p className="text-center text-[var(--text-caption)] text-[var(--text-tertiary)] mb-4">
               Your video has been exported successfully.
             </p>
-            {exportPath && (
+            {currentExport?.outputPath && (
               <div className="bg-[var(--surface-primary)] p-3 border border-[var(--border-default)] text-sm text-[var(--text-secondary)] break-all font-mono">
-                {exportPath}
+                {currentExport.outputPath}
+              </div>
+            )}
+            {currentExport && (
+              <div className="mt-3 text-center text-sm text-[var(--text-tertiary)]">
+                Completed in {formatDuration(currentExport.elapsedSecs)}
               </div>
             )}
             <div className="flex gap-3 mt-6">
@@ -6015,19 +6016,62 @@ function ExportModal({
           </div>
         ) : isExporting ? (
           <div className="p-6">
+            {/* Progress bar */}
             <div className="mb-4">
-              <div className="h-2 bg-[var(--surface-active)] overflow-hidden">
+              <div className="h-2 bg-[var(--surface-active)] overflow-hidden rounded-full">
                 <div
-                  className="h-full bg-[var(--text-primary)] transition-all"
-                  style={{ width: `${progress}%` }}
+                  className="h-full bg-[var(--text-primary)] transition-all duration-300 ease-out"
+                  style={{ width: `${currentExport?.progress ?? 0}%` }}
                 />
               </div>
             </div>
-            <p className="text-center text-[var(--text-secondary)]">
-              Exporting... {progress}%
+
+            {/* Progress percentage and stage */}
+            <p className="text-center text-[var(--text-primary)] text-lg font-medium">
+              {(currentExport?.progress ?? 0).toFixed(1)}%
             </p>
-            <p className="text-center text-[var(--text-caption)] text-[var(--text-tertiary)] mt-2">
-              This may take a few minutes
+
+            {/* Detailed stats */}
+            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-[var(--surface-primary)] p-2 border border-[var(--border-default)]">
+                <div className="text-[var(--text-tertiary)]">Elapsed</div>
+                <div className="text-[var(--text-primary)] font-mono">
+                  {formatDuration(currentExport?.elapsedSecs ?? 0)}
+                </div>
+              </div>
+              <div className="bg-[var(--surface-primary)] p-2 border border-[var(--border-default)]">
+                <div className="text-[var(--text-tertiary)]">Remaining</div>
+                <div className="text-[var(--text-primary)] font-mono">
+                  {currentExport?.estimatedRemainingSecs != null
+                    ? formatDuration(currentExport.estimatedRemainingSecs)
+                    : '--:--'}
+                </div>
+              </div>
+              <div className="bg-[var(--surface-primary)] p-2 border border-[var(--border-default)]">
+                <div className="text-[var(--text-tertiary)]">Frame</div>
+                <div className="text-[var(--text-primary)] font-mono">
+                  {currentExport?.currentFrame ?? 0} / {currentExport?.totalFrames ?? 0}
+                </div>
+              </div>
+              <div className="bg-[var(--surface-primary)] p-2 border border-[var(--border-default)]">
+                <div className="text-[var(--text-tertiary)]">Speed</div>
+                <div className="text-[var(--text-primary)] font-mono">
+                  {(currentExport?.fps ?? 0).toFixed(1)} fps
+                </div>
+              </div>
+            </div>
+
+            {/* Continue in background button */}
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleContinueInBackground}
+                className="flex-1 h-10 bg-[var(--text-primary)] text-[var(--text-inverse)] font-medium hover:opacity-90"
+              >
+                Continue in Background
+              </button>
+            </div>
+            <p className="text-center text-[var(--text-caption)] text-[var(--text-tertiary)] mt-3">
+              You'll be notified when the export is complete
             </p>
           </div>
         ) : (

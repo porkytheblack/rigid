@@ -225,6 +225,8 @@ pub fn run() {
             commands::trim_video,
             commands::cut_video,
             commands::render_demo,
+            commands::render_demo_background,
+            commands::render_demo_native,
             commands::probe_media,
             // Document block commands
             commands::create_document_block,
