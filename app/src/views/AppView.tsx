@@ -432,11 +432,6 @@ export function AppView({ appId }: AppViewProps) {
                       {demo.name}
                     </h3>
 
-                    {/* Format info */}
-                    <p className="text-[var(--text-caption)] text-[var(--text-tertiary)] mb-2">
-                      {demo.width} × {demo.height} • {demo.frame_rate}fps
-                    </p>
-
                     {/* Metadata */}
                     <div className="mt-auto pt-4 border-t border-[var(--border-subtle)]">
                       <p className="text-[var(--text-caption)] text-[var(--text-tertiary)] uppercase tracking-wide">

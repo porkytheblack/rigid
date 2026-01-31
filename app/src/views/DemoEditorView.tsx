@@ -370,7 +370,17 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
 
     if (currentClip) {
       const clipRelativeTime = effectiveTimeMs - currentClip.start_time_ms;
-      const videoTime = ((currentClip.in_point_ms || 0) + clipRelativeTime) / 1000;
+      const clipSpeed = Math.max(0.25, Math.min(4, currentClip.speed ?? 1));
+
+      // Calculate video time - if freeze frame is enabled, always show the frozen frame
+      let videoTime: number;
+      if (currentClip.freeze_frame && currentClip.freeze_frame_time_ms != null) {
+        // Freeze frame: always show the specified frame time
+        videoTime = currentClip.freeze_frame_time_ms / 1000;
+      } else {
+        // At 2x speed: timeline 2.5s = source 5s (play faster through more source content)
+        videoTime = ((currentClip.in_point_ms || 0) + clipRelativeTime * clipSpeed) / 1000;
+      }
 
       // Sync time when starting playback
       const playStateChanged = lastVideoSyncRef.current.wasPlaying !== playback.isPlaying;
@@ -380,18 +390,23 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
 
       lastVideoSyncRef.current = { clipId: currentClip.id, wasPlaying: playback.isPlaying };
 
-      // Sync play/pause state
-      if (isGapFill) {
+      // Sync play/pause state - freeze frame clips are always paused (showing still image)
+      if (isGapFill || currentClip.freeze_frame) {
         if (!video.paused) video.pause();
+        // Keep seeking to frozen frame for freeze frame clips
+        if (currentClip.freeze_frame && Math.abs(video.currentTime - videoTime) > 0.05) {
+          video.currentTime = videoTime;
+        }
       } else if (playback.isPlaying && video.paused) {
         video.play().catch(() => {});
       } else if (!playback.isPlaying && !video.paused) {
         video.pause();
       }
 
-      // Sync volume and muted
+      // Sync volume, muted, and playback speed
       video.volume = playback.volume;
       video.muted = playback.isMuted || (currentClip.muted ?? false);
+      video.playbackRate = currentClip.freeze_frame ? 0 : clipSpeed;
     } else {
       lastVideoSyncRef.current = { clipId: null, wasPlaying: playback.isPlaying };
       if (!video.paused) video.pause();
@@ -436,11 +451,23 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
 
     if (currentClip) {
       const clipRelativeTime = effectiveTimeMs - currentClip.start_time_ms;
-      const videoTime = ((currentClip.in_point_ms || 0) + clipRelativeTime) / 1000;
+      const clipSpeed = Math.max(0.25, Math.min(4, currentClip.speed ?? 1));
+
+      // Calculate video time - if freeze frame is enabled, always show the frozen frame
+      let videoTime: number;
+      if (currentClip.freeze_frame && currentClip.freeze_frame_time_ms != null) {
+        videoTime = currentClip.freeze_frame_time_ms / 1000;
+      } else {
+        // At 2x speed: timeline 2.5s = source 5s (play faster through more source content)
+        videoTime = ((currentClip.in_point_ms || 0) + clipRelativeTime * clipSpeed) / 1000;
+      }
+
       const timeDrift = Math.abs(video.currentTime - videoTime);
       if (timeDrift > 0.05) {
         video.currentTime = videoTime;
       }
+      // Also set playback rate during scrubbing so preview is ready (0 for freeze frame)
+      video.playbackRate = currentClip.freeze_frame ? 0 : clipSpeed;
     }
   }, [playback.currentTimeMs, playback.isPlaying, currentDemo]);
 
@@ -493,10 +520,27 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
           audioElementsRef.current.set(clip.id, audio);
         }
 
-        // Set volume
+        // Calculate volume with fade in/out
         const trackVolume = track.volume ?? 1;
         const clipVolume = clip.volume ?? 1;
-        audio.volume = playback.isMuted ? 0 : Math.min(1, trackVolume * clipVolume * playback.volume);
+        const clipRelativeTimeMs = currentTimeMs - clipStart;
+        const clipDurationMs = clipEnd - clipStart;
+
+        // Calculate fade multiplier
+        let fadeMultiplier = 1;
+        const fadeInMs = clip.audio_fade_in_ms ?? 0;
+        const fadeOutMs = clip.audio_fade_out_ms ?? 0;
+
+        if (fadeInMs > 0 && clipRelativeTimeMs < fadeInMs) {
+          // During fade in - linear ramp up
+          fadeMultiplier = clipRelativeTimeMs / fadeInMs;
+        } else if (fadeOutMs > 0 && clipRelativeTimeMs > (clipDurationMs - fadeOutMs)) {
+          // During fade out - linear ramp down
+          const fadeOutStart = clipDurationMs - fadeOutMs;
+          fadeMultiplier = 1 - (clipRelativeTimeMs - fadeOutStart) / fadeOutMs;
+        }
+
+        audio.volume = playback.isMuted ? 0 : Math.min(1, trackVolume * clipVolume * playback.volume * fadeMultiplier);
 
         // Only sync time on play start or seek
         if ((isPlaying && !wasPlaying) || isSeeking) {
@@ -584,9 +628,18 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
       const isVisible = currentTimeMs >= clipStart && currentTimeMs < clipEnd;
 
       if (isVisible) {
-        // Calculate video time
+        // Calculate video time (accounting for speed and freeze frame)
         const clipRelativeTime = currentTimeMs - clipStart;
-        const videoTime = ((clip.in_point_ms || 0) + clipRelativeTime) / 1000;
+        const clipSpeed = Math.max(0.25, Math.min(4, clip.speed ?? 1));
+
+        let videoTime: number;
+        if (clip.freeze_frame && clip.freeze_frame_time_ms != null) {
+          // Freeze frame: always show the specified frame time
+          videoTime = clip.freeze_frame_time_ms / 1000;
+        } else {
+          // At 2x speed: timeline 2.5s = source 5s (play faster through more source content)
+          videoTime = ((clip.in_point_ms || 0) + clipRelativeTime * clipSpeed) / 1000;
+        }
 
         // Sync time on state changes or seeks
         if (playStateChanged || isSeeking) {
@@ -596,16 +649,35 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
           }
         }
 
-        // Sync play/pause state
-        if (isPlaying && video.paused) {
+        // Sync play/pause state - freeze frame clips are always paused
+        if (clip.freeze_frame) {
+          if (!video.paused) video.pause();
+          if (Math.abs(video.currentTime - videoTime) > 0.05) {
+            video.currentTime = videoTime;
+          }
+        } else if (isPlaying && video.paused) {
           video.play().catch(() => {});
         } else if (!isPlaying && !video.paused) {
           video.pause();
         }
 
-        // Sync volume and muted
-        video.volume = playback.volume;
+        // Calculate volume with fade in/out for video audio
+        const clipDurationMs = clip.duration_ms;
+        let videoFadeMultiplier = 1;
+        const videoFadeInMs = clip.audio_fade_in_ms ?? 0;
+        const videoFadeOutMs = clip.audio_fade_out_ms ?? 0;
+
+        if (videoFadeInMs > 0 && clipRelativeTime < videoFadeInMs) {
+          videoFadeMultiplier = clipRelativeTime / videoFadeInMs;
+        } else if (videoFadeOutMs > 0 && clipRelativeTime > (clipDurationMs - videoFadeOutMs)) {
+          const fadeOutStart = clipDurationMs - videoFadeOutMs;
+          videoFadeMultiplier = 1 - (clipRelativeTime - fadeOutStart) / videoFadeOutMs;
+        }
+
+        // Sync volume, muted, and playback speed
+        video.volume = playback.volume * Math.max(0, Math.min(1, videoFadeMultiplier));
         video.muted = playback.isMuted || (clip.muted ?? false);
+        video.playbackRate = clip.freeze_frame ? 0 : clipSpeed;
       } else {
         // Pause non-visible clips
         if (!video.paused) {
@@ -2898,6 +2970,96 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
                     }
                   }
 
+                  // Calculate entrance/exit transition effects
+                  let transitionOpacity = 1;
+                  let transitionTranslateX = 0;
+                  let transitionTranslateY = 0;
+                  let transitionScale = 1;
+                  let transitionBlur = 0;
+                  const clipTime = effectiveTime - clip.start_time_ms; // Time within clip
+                  const clipDuration = clip.duration_ms;
+
+                  // Entrance transition
+                  if (clip.transition_in_type && clip.transition_in_duration_ms) {
+                    const inDuration = clip.transition_in_duration_ms;
+                    if (clipTime < inDuration) {
+                      const progress = clipTime / inDuration;
+                      // Ease out cubic for smooth entrance
+                      const eased = 1 - Math.pow(1 - progress, 3);
+
+                      switch (clip.transition_in_type) {
+                        case 'fade':
+                          transitionOpacity = eased;
+                          break;
+                        case 'slide_up':
+                          transitionTranslateY = (1 - eased) * 30; // Start 30% below
+                          transitionOpacity = eased;
+                          break;
+                        case 'slide_down':
+                          transitionTranslateY = (1 - eased) * -30; // Start 30% above
+                          transitionOpacity = eased;
+                          break;
+                        case 'slide_left':
+                          transitionTranslateX = (1 - eased) * 30; // Start 30% right
+                          transitionOpacity = eased;
+                          break;
+                        case 'slide_right':
+                          transitionTranslateX = (1 - eased) * -30; // Start 30% left
+                          transitionOpacity = eased;
+                          break;
+                        case 'scale':
+                          transitionScale = 0.8 + 0.2 * eased; // Start at 80%
+                          transitionOpacity = eased;
+                          break;
+                        case 'blur':
+                          transitionBlur = (1 - eased) * 10; // Start with 10px blur
+                          transitionOpacity = eased;
+                          break;
+                      }
+                    }
+                  }
+
+                  // Exit transition
+                  if (clip.transition_out_type && clip.transition_out_duration_ms) {
+                    const outDuration = clip.transition_out_duration_ms;
+                    const outStart = clipDuration - outDuration;
+                    if (clipTime >= outStart) {
+                      const progress = (clipTime - outStart) / outDuration;
+                      // Ease in cubic for smooth exit
+                      const eased = progress * progress * progress;
+
+                      switch (clip.transition_out_type) {
+                        case 'fade':
+                          transitionOpacity *= (1 - eased);
+                          break;
+                        case 'slide_up':
+                          transitionTranslateY = eased * -30; // End 30% above
+                          transitionOpacity *= (1 - eased);
+                          break;
+                        case 'slide_down':
+                          transitionTranslateY = eased * 30; // End 30% below
+                          transitionOpacity *= (1 - eased);
+                          break;
+                        case 'slide_left':
+                          transitionTranslateX = eased * -30; // End 30% left
+                          transitionOpacity *= (1 - eased);
+                          break;
+                        case 'slide_right':
+                          transitionTranslateX = eased * 30; // End 30% right
+                          transitionOpacity *= (1 - eased);
+                          break;
+                        case 'scale':
+                          transitionScale *= (1 - 0.2 * eased); // End at 80%
+                          transitionOpacity *= (1 - eased);
+                          break;
+                        case 'blur':
+                          transitionBlur = eased * 10; // End with 10px blur
+                          transitionOpacity *= (1 - eased);
+                          break;
+                      }
+                    }
+                  }
+
                   // Build combined transform string
                   const transforms: string[] = [];
                   if (hasZoomEffect) {
@@ -2906,6 +3068,13 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
                   if (hasPanEffect) {
                     // Pan offset is percentage of container, translate by that amount
                     transforms.push(`translate(${panOffsetX}%, ${panOffsetY}%)`);
+                  }
+                  // Add transition transforms
+                  if (transitionTranslateX !== 0 || transitionTranslateY !== 0) {
+                    transforms.push(`translate(${transitionTranslateX}%, ${transitionTranslateY}%)`);
+                  }
+                  if (transitionScale !== 1) {
+                    transforms.push(`scale(${transitionScale})`);
                   }
                   const combinedTransform = transforms.length > 0 ? transforms.join(' ') : undefined;
                   const hasEffect = hasZoomEffect || hasPanEffect;
@@ -2920,7 +3089,8 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
                         transform: `translate(-50%, -50%)`,
                         width: `${(clip.scale || 0.8) * 100}%`,
                         height: `${(clip.scale || 0.8) * 100}%`,
-                        opacity: isVisible ? (clip.opacity ?? 1) : 0, // Hide non-visible clips with opacity
+                        // Apply both clip opacity and transition opacity
+                        opacity: isVisible ? (clip.opacity ?? 1) * transitionOpacity : 0,
                         // z-index: lower sort_order = top of timeline = higher z-index (on top visually)
                         zIndex: isVisible ? maxSortOrder - (track?.sort_order ?? 0) + 1 : -1,
                         boxShadow: isVisible && clip.shadow_enabled
@@ -2931,6 +3101,7 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
                         justifyContent: "center",
                         overflow: hasEffect ? "hidden" : undefined, // Hide overflow during zoom/pan
                         pointerEvents: isVisible ? "auto" : "none", // Disable interaction for hidden clips
+                        filter: transitionBlur > 0 ? `blur(${transitionBlur}px)` : undefined,
                       }}
                       onMouseDown={(e) => isVisible && handleCanvasClipDragStart(e, clip.id)}
                     >
@@ -4505,6 +4676,168 @@ function ClipInspector({
         </CollapsibleSection>
       )}
 
+      {/* Speed (only for video) */}
+      {clip.source_type === "video" && (
+        <CollapsibleSection title="Speed" defaultExpanded={true}>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Playback Speed</label>
+              <span className="text-[var(--text-caption)] text-[var(--text-secondary)]">
+                {(clip.speed ?? 1).toFixed(2)}x
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0.25"
+              max="4"
+              step="0.05"
+              value={clip.speed ?? 1}
+              onChange={(e) => onUpdate({ speed: parseFloat(e.target.value) })}
+              className="w-full accent-[var(--text-primary)]"
+            />
+            <div className="flex justify-between text-[10px] text-[var(--text-tertiary)] mt-1">
+              <span>0.25x</span>
+              <span>1x</span>
+              <span>2x</span>
+              <span>4x</span>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-2">
+            {[0.5, 1, 1.5, 2].map((speedPreset) => (
+              <button
+                key={speedPreset}
+                onClick={() => onUpdate({ speed: speedPreset })}
+                className={`flex-1 h-7 text-xs border transition-colors ${
+                  Math.abs((clip.speed ?? 1) - speedPreset) < 0.01
+                    ? "bg-[var(--text-primary)] text-[var(--surface-primary)] border-transparent"
+                    : "border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                }`}
+              >
+                {speedPreset}x
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Freeze Frame (only for video) */}
+      {clip.source_type === "video" && (
+        <CollapsibleSection title="Freeze Frame" defaultExpanded={false}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[var(--text-caption)] text-[var(--text-secondary)]">Convert to Still</span>
+            <button
+              onClick={() => onUpdate({
+                freeze_frame: !clip.freeze_frame,
+                freeze_frame_time_ms: !clip.freeze_frame ? (clip.in_point_ms || 0) : null
+              })}
+              className={`w-10 h-5 rounded-full relative transition-colors ${
+                clip.freeze_frame ? "bg-[var(--text-primary)]" : "bg-[var(--surface-active)]"
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                  clip.freeze_frame ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
+          {clip.freeze_frame && (
+            <div>
+              <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Freeze at (ms from source start)</label>
+              <input
+                type="number"
+                min="0"
+                max={clip.source_duration_ms ?? clip.duration_ms}
+                value={clip.freeze_frame_time_ms ?? 0}
+                onChange={(e) => onUpdate({ freeze_frame_time_ms: parseInt(e.target.value) || 0 })}
+                className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+              />
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                Video will show a single frame at this time
+              </p>
+            </div>
+          )}
+        </CollapsibleSection>
+      )}
+
+      {/* Transitions (for video/image) */}
+      {clip.source_type !== "audio" && (
+        <CollapsibleSection title="Transitions" defaultExpanded={false}>
+          <div className="space-y-3">
+            {/* Entrance Transition */}
+            <div>
+              <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Entrance</label>
+              <select
+                value={clip.transition_in_type ?? ""}
+                onChange={(e) => onUpdate({
+                  transition_in_type: e.target.value || null,
+                  transition_in_duration_ms: e.target.value ? (clip.transition_in_duration_ms ?? 300) : null
+                })}
+                className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+              >
+                <option value="">None</option>
+                <option value="fade">Fade In</option>
+                <option value="slide_up">Slide Up</option>
+                <option value="slide_down">Slide Down</option>
+                <option value="slide_left">Slide Left</option>
+                <option value="slide_right">Slide Right</option>
+                <option value="scale">Scale Up</option>
+                <option value="blur">Blur In</option>
+              </select>
+              {clip.transition_in_type && (
+                <div className="mt-1">
+                  <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Duration (ms)</label>
+                  <input
+                    type="number"
+                    min="50"
+                    max="2000"
+                    step="50"
+                    value={clip.transition_in_duration_ms ?? 300}
+                    onChange={(e) => onUpdate({ transition_in_duration_ms: parseInt(e.target.value) || 300 })}
+                    className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+                  />
+                </div>
+              )}
+            </div>
+            {/* Exit Transition */}
+            <div>
+              <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Exit</label>
+              <select
+                value={clip.transition_out_type ?? ""}
+                onChange={(e) => onUpdate({
+                  transition_out_type: e.target.value || null,
+                  transition_out_duration_ms: e.target.value ? (clip.transition_out_duration_ms ?? 300) : null
+                })}
+                className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+              >
+                <option value="">None</option>
+                <option value="fade">Fade Out</option>
+                <option value="slide_up">Slide Up</option>
+                <option value="slide_down">Slide Down</option>
+                <option value="slide_left">Slide Left</option>
+                <option value="slide_right">Slide Right</option>
+                <option value="scale">Scale Down</option>
+                <option value="blur">Blur Out</option>
+              </select>
+              {clip.transition_out_type && (
+                <div className="mt-1">
+                  <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Duration (ms)</label>
+                  <input
+                    type="number"
+                    min="50"
+                    max="2000"
+                    step="50"
+                    value={clip.transition_out_duration_ms ?? 300}
+                    onChange={(e) => onUpdate({ transition_out_duration_ms: parseInt(e.target.value) || 300 })}
+                    className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </CollapsibleSection>
+      )}
+
       {/* Audio (only for video/audio) */}
       {clip.source_type !== "image" && (
         <CollapsibleSection title="Audio" defaultExpanded={true}>
@@ -4523,6 +4856,42 @@ function ClipInspector({
               {Math.round((clip.volume ?? 1) * 100)}%
             </span>
           </div>
+          <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-[var(--border-default)]">
+            <div>
+              <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Fade In (ms)</label>
+              <input
+                type="number"
+                min="0"
+                max={clip.duration_ms / 2}
+                step="50"
+                value={clip.audio_fade_in_ms ?? 0}
+                onChange={(e) => onUpdate({ audio_fade_in_ms: parseInt(e.target.value) || null })}
+                className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+                placeholder="0"
+              />
+            </div>
+            <div>
+              <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Fade Out (ms)</label>
+              <input
+                type="number"
+                min="0"
+                max={clip.duration_ms / 2}
+                step="50"
+                value={clip.audio_fade_out_ms ?? 0}
+                onChange={(e) => onUpdate({ audio_fade_out_ms: parseInt(e.target.value) || null })}
+                className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+                placeholder="0"
+              />
+            </div>
+          </div>
+          {((clip.audio_fade_in_ms ?? 0) > 0 || (clip.audio_fade_out_ms ?? 0) > 0) && (
+            <button
+              onClick={() => onUpdate({ audio_fade_in_ms: null, audio_fade_out_ms: null })}
+              className="w-full mt-2 h-7 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+            >
+              Clear Fades
+            </button>
+          )}
         </CollapsibleSection>
       )}
 
@@ -5896,6 +6265,18 @@ function ExportModal({
             has_audio: clip.has_audio ?? (clip.source_type === "audio" ? true : null),
             track_id: clip.track_id,
             muted: clip.muted ?? false,
+            speed: clip.speed ?? null,
+            // Freeze frame support
+            freeze_frame: clip.freeze_frame ?? false,
+            freeze_frame_time_ms: clip.freeze_frame_time_ms ?? null,
+            // Transition effects
+            transition_in_type: clip.transition_in_type ?? null,
+            transition_in_duration_ms: clip.transition_in_duration_ms ?? null,
+            transition_out_type: clip.transition_out_type ?? null,
+            transition_out_duration_ms: clip.transition_out_duration_ms ?? null,
+            // Audio fade
+            audio_fade_in_ms: clip.audio_fade_in_ms ?? null,
+            audio_fade_out_ms: clip.audio_fade_out_ms ?? null,
           };
         });
 
@@ -6302,7 +6683,7 @@ function DemoInfoInspector({
       <div>
         <h3 className="font-medium text-[var(--text-primary)] text-sm mb-1 flex items-center gap-2">
           <Film className="w-4 h-4 text-[var(--accent-interactive)]" />
-          Demo Settings
+          Video Settings
         </h3>
         <p className="text-[var(--text-caption)] text-[var(--text-tertiary)]">
           {width} × {height} • {formatTime(duration_ms)}

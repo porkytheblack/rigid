@@ -414,8 +414,8 @@ impl DemoRepository {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
-            "INSERT INTO demo_clips (id, track_id, name, source_path, source_type, source_duration_ms, start_time_ms, duration_ms, in_point_ms, out_point_ms, position_x, position_y, scale, rotation, crop_top, crop_bottom, crop_left, crop_right, corner_radius, opacity, shadow_enabled, shadow_blur, shadow_offset_x, shadow_offset_y, shadow_color, volume, muted, linked_clip_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO demo_clips (id, track_id, name, source_path, source_type, source_duration_ms, start_time_ms, duration_ms, in_point_ms, out_point_ms, position_x, position_y, scale, rotation, crop_top, crop_bottom, crop_left, crop_right, corner_radius, opacity, shadow_enabled, shadow_blur, shadow_offset_x, shadow_offset_y, shadow_color, volume, muted, speed, freeze_frame, freeze_frame_time_ms, transition_in_type, transition_in_duration_ms, transition_out_type, transition_out_duration_ms, audio_fade_in_ms, audio_fade_out_ms, linked_clip_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
         .bind(&new.track_id)
@@ -444,6 +444,15 @@ impl DemoRepository {
         .bind(&new.shadow_color)
         .bind(new.volume.unwrap_or(1.0))
         .bind(new.muted.unwrap_or(false))
+        .bind(new.speed.unwrap_or(1.0))
+        .bind(new.freeze_frame.unwrap_or(false))
+        .bind(new.freeze_frame_time_ms)
+        .bind(&new.transition_in_type)
+        .bind(new.transition_in_duration_ms)
+        .bind(&new.transition_out_type)
+        .bind(new.transition_out_duration_ms)
+        .bind(new.audio_fade_in_ms)
+        .bind(new.audio_fade_out_ms)
         .bind(&new.linked_clip_id)
         .bind(&now)
         .bind(&now)
@@ -484,6 +493,15 @@ impl DemoRepository {
                 shadow_color = COALESCE(?, shadow_color),
                 volume = COALESCE(?, volume),
                 muted = COALESCE(?, muted),
+                speed = COALESCE(?, speed),
+                freeze_frame = COALESCE(?, freeze_frame),
+                freeze_frame_time_ms = COALESCE(?, freeze_frame_time_ms),
+                transition_in_type = COALESCE(?, transition_in_type),
+                transition_in_duration_ms = COALESCE(?, transition_in_duration_ms),
+                transition_out_type = COALESCE(?, transition_out_type),
+                transition_out_duration_ms = COALESCE(?, transition_out_duration_ms),
+                audio_fade_in_ms = COALESCE(?, audio_fade_in_ms),
+                audio_fade_out_ms = COALESCE(?, audio_fade_out_ms),
                 linked_clip_id = COALESCE(?, linked_clip_id),
                 updated_at = ?
              WHERE id = ?"
@@ -510,6 +528,15 @@ impl DemoRepository {
         .bind(&updates.shadow_color)
         .bind(updates.volume)
         .bind(updates.muted)
+        .bind(updates.speed)
+        .bind(updates.freeze_frame)
+        .bind(updates.freeze_frame_time_ms)
+        .bind(&updates.transition_in_type)
+        .bind(updates.transition_in_duration_ms)
+        .bind(&updates.transition_out_type)
+        .bind(updates.transition_out_duration_ms)
+        .bind(updates.audio_fade_in_ms)
+        .bind(updates.audio_fade_out_ms)
         .bind(&updates.linked_clip_id)
         .bind(&now)
         .bind(id)

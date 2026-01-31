@@ -6,7 +6,7 @@ use crate::error::RigidError;
 pub type DbPool = SqlitePool;
 
 const SCHEMA: &str = include_str!("schema.sql");
-const CURRENT_VERSION: i32 = 13;
+const CURRENT_VERSION: i32 = 15;
 
 /// Initialize the database connection and run migrations
 pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, RigidError> {
@@ -118,12 +118,23 @@ async fn run_migrations(pool: &DbPool) -> Result<(), RigidError> {
             run_v10_to_v11_migration(pool).await?;
             run_v11_to_v12_migration(pool).await?;
         } else if current_version == 11 {
-            // Run v11 to v12, then v12 to v13
+            // Run v11 to v12, then v12 to v13, then v13 to v14, then v14 to v15
             run_v11_to_v12_migration(pool).await?;
             run_v12_to_v13_migration(pool).await?;
+            run_v13_to_v14_migration(pool).await?;
+            run_v14_to_v15_migration(pool).await?;
         } else if current_version == 12 {
-            // Run v12 to v13 migration only (add demo_videos table)
+            // Run v12 to v13, then v13 to v14, then v14 to v15 migrations
             run_v12_to_v13_migration(pool).await?;
+            run_v13_to_v14_migration(pool).await?;
+            run_v14_to_v15_migration(pool).await?;
+        } else if current_version == 13 {
+            // Run v13 to v14, then v14 to v15 migration
+            run_v13_to_v14_migration(pool).await?;
+            run_v14_to_v15_migration(pool).await?;
+        } else if current_version == 14 {
+            // Run v14 to v15 migration only (add transitions and fade fields)
+            run_v14_to_v15_migration(pool).await?;
         } else {
             // Fresh install or from v1 - apply full schema
             for statement in SCHEMA.split(';') {
@@ -867,6 +878,62 @@ async fn run_v12_to_v13_migration(pool: &DbPool) -> Result<(), RigidError> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_videos_created ON demo_videos(created_at DESC)")
         .execute(pool)
         .await?;
+
+    Ok(())
+}
+
+/// Migration from v13 to v14: Add speed column to demo_clips
+/// This allows controlling playback speed of video clips
+async fn run_v13_to_v14_migration(pool: &DbPool) -> Result<(), RigidError> {
+    // Add speed column to demo_clips table (default 1.0 = normal speed)
+    sqlx::query("ALTER TABLE demo_clips ADD COLUMN speed REAL NOT NULL DEFAULT 1.0")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    Ok(())
+}
+
+/// Migration from v14 to v15: Add freeze frame, transitions, and audio fade columns
+/// This allows freeze frame on video clips, entrance/exit animations, and audio fades
+async fn run_v14_to_v15_migration(pool: &DbPool) -> Result<(), RigidError> {
+    // Add freeze frame columns
+    sqlx::query("ALTER TABLE demo_clips ADD COLUMN freeze_frame INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE demo_clips ADD COLUMN freeze_frame_time_ms INTEGER")
+        .execute(pool)
+        .await
+        .ok();
+
+    // Add transition columns
+    sqlx::query("ALTER TABLE demo_clips ADD COLUMN transition_in_type TEXT")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE demo_clips ADD COLUMN transition_in_duration_ms INTEGER")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE demo_clips ADD COLUMN transition_out_type TEXT")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE demo_clips ADD COLUMN transition_out_duration_ms INTEGER")
+        .execute(pool)
+        .await
+        .ok();
+
+    // Add audio fade columns
+    sqlx::query("ALTER TABLE demo_clips ADD COLUMN audio_fade_in_ms INTEGER")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE demo_clips ADD COLUMN audio_fade_out_ms INTEGER")
+        .execute(pool)
+        .await
+        .ok();
 
     Ok(())
 }

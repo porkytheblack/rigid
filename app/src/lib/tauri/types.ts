@@ -1153,10 +1153,18 @@ export interface DemoClip {
   border_color: string | null;
   // Audio
   volume: number | null;
-  fade_in_ms: number | null;
-  fade_out_ms: number | null;
+  audio_fade_in_ms: number | null;
+  audio_fade_out_ms: number | null;
   // Speed
   speed: number | null;
+  // Freeze frame (still image from video)
+  freeze_frame: boolean;
+  freeze_frame_time_ms: number | null;
+  // Entrance/exit transitions
+  transition_in_type: string | null; // fade, slide_up, slide_down, slide_left, slide_right, scale, blur
+  transition_in_duration_ms: number | null;
+  transition_out_type: string | null;
+  transition_out_duration_ms: number | null;
   // Zoom effect (for demo highlights)
   zoom_enabled: boolean;
   zoom_scale: number | null;       // Target zoom scale (e.g., 2.0 for 200%)
@@ -1188,6 +1196,7 @@ export interface NewDemoClip {
   position_x?: number | null;
   position_y?: number | null;
   scale?: number | null;
+  speed?: number | null;
   has_audio?: boolean | null;
   linked_clip_id?: string | null;
   muted?: boolean;
@@ -1219,9 +1228,15 @@ export interface UpdateDemoClip {
   border_width?: number | null;
   border_color?: string | null;
   volume?: number | null;
-  fade_in_ms?: number | null;
-  fade_out_ms?: number | null;
+  audio_fade_in_ms?: number | null;
+  audio_fade_out_ms?: number | null;
   speed?: number | null;
+  freeze_frame?: boolean | null;
+  freeze_frame_time_ms?: number | null;
+  transition_in_type?: string | null;
+  transition_in_duration_ms?: number | null;
+  transition_out_type?: string | null;
+  transition_out_duration_ms?: number | null;
   linked_clip_id?: string | null;
   muted?: boolean | null;
 }

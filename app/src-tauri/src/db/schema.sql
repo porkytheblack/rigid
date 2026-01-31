@@ -433,6 +433,19 @@ CREATE TABLE IF NOT EXISTS demo_clips (
     -- Audio
     volume REAL NOT NULL DEFAULT 1.0,
     muted INTEGER NOT NULL DEFAULT 0,
+    -- Playback speed
+    speed REAL NOT NULL DEFAULT 1.0,
+    -- Freeze frame (still image from video)
+    freeze_frame INTEGER NOT NULL DEFAULT 0,
+    freeze_frame_time_ms INTEGER,
+    -- Entrance/exit transitions (for product launch videos)
+    transition_in_type TEXT, -- fade, slide_up, slide_down, slide_left, slide_right, scale, blur
+    transition_in_duration_ms INTEGER,
+    transition_out_type TEXT,
+    transition_out_duration_ms INTEGER,
+    -- Audio fade
+    audio_fade_in_ms INTEGER,
+    audio_fade_out_ms INTEGER,
     -- Linked clips (for video with audio)
     linked_clip_id TEXT REFERENCES demo_clips(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,

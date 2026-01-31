@@ -420,6 +420,18 @@ pub struct RenderClip {
     pub has_audio: Option<bool>, // Whether video clip has audio track
     pub track_id: Option<String>, // Track ID for linking with zoom clips
     pub muted: Option<bool>,     // Whether to mute audio from this clip (for split audio)
+    pub speed: Option<f64>,      // Playback speed multiplier (e.g., 0.5 = half speed, 2.0 = double speed)
+    // Freeze frame
+    pub freeze_frame: Option<bool>,       // Convert video to still image
+    pub freeze_frame_time_ms: Option<i64>, // Time in source to freeze at
+    // Transitions
+    pub transition_in_type: Option<String>,    // fade, slide_up, slide_down, slide_left, slide_right, scale, blur
+    pub transition_in_duration_ms: Option<i64>,
+    pub transition_out_type: Option<String>,
+    pub transition_out_duration_ms: Option<i64>,
+    // Audio fade
+    pub audio_fade_in_ms: Option<i64>,
+    pub audio_fade_out_ms: Option<i64>,
 }
 
 /// Background data for rendering
@@ -681,15 +693,30 @@ pub async fn render_demo(
                     "-i".to_string(), clip.source_path.clone(),
                 ]);
             } else {
-                if clip.in_point_ms > 0 {
+                // Check if this is a freeze frame (still image from video)
+                let is_freeze_frame = clip.freeze_frame.unwrap_or(false);
+
+                if is_freeze_frame {
+                    // For freeze frame: seek to the specific time and loop the single frame
+                    let freeze_time_ms = clip.freeze_frame_time_ms.unwrap_or(0);
                     ffmpeg_args.extend(vec![
-                        "-ss".to_string(), format_ffmpeg_time(clip.in_point_ms),
+                        "-ss".to_string(), format_ffmpeg_time(freeze_time_ms),
+                        "-loop".to_string(), "1".to_string(),
+                        "-t".to_string(), format!("{:.3}", clip.duration_ms as f64 / 1000.0),
+                        "-i".to_string(), clip.source_path.clone(),
+                    ]);
+                } else {
+                    // Normal video playback
+                    if clip.in_point_ms > 0 {
+                        ffmpeg_args.extend(vec![
+                            "-ss".to_string(), format_ffmpeg_time(clip.in_point_ms),
+                        ]);
+                    }
+                    ffmpeg_args.extend(vec![
+                        "-t".to_string(), format!("{:.3}", clip.duration_ms as f64 / 1000.0),
+                        "-i".to_string(), clip.source_path.clone(),
                     ]);
                 }
-                ffmpeg_args.extend(vec![
-                    "-t".to_string(), format!("{:.3}", clip.duration_ms as f64 / 1000.0),
-                    "-i".to_string(), clip.source_path.clone(),
-                ]);
             }
             video_inputs.push((input_index, clip));
             input_index += 1;
@@ -791,9 +818,18 @@ pub async fn render_demo(
         // Screen recordings often have variable frame rates, and the 't' variable in FFmpeg
         // filters uses the frame timestamp. Without fps normalization, timestamps can be
         // irregular causing time-based effects (like zoom) to have incorrect timing.
+        //
+        // Speed adjustment: setpts=PTS/speed where speed > 1 = faster, speed < 1 = slower
+        // e.g., speed=2.0 means setpts=PTS/2.0 (half the timestamps = twice as fast)
+        let speed = clip.speed.unwrap_or(1.0).max(0.25).min(4.0);
+        let setpts_expr = if (speed - 1.0).abs() < 0.001 {
+            "PTS-STARTPTS".to_string()
+        } else {
+            format!("(PTS-STARTPTS)/{}", speed)
+        };
         let mut clip_filters = format!(
-            "[{}:v]fps={},format=rgba,scale={}:{}:force_original_aspect_ratio=decrease,setpts=PTS-STARTPTS",
-            input_idx, config.frame_rate, target_w, target_h
+            "[{}:v]fps={},format=rgba,scale={}:{}:force_original_aspect_ratio=decrease,setpts={}",
+            input_idx, config.frame_rate, target_w, target_h, setpts_expr
         );
 
         // Apply zoom effects FIRST using scale + crop filters
@@ -974,14 +1010,73 @@ pub async fn render_demo(
             clip_filters.push_str("'");
         }
 
-        // Apply opacity if less than 1.0
-        // Use colorchannelmixer to multiply the alpha channel by the opacity value
-        if opacity < 1.0 {
+        // Apply opacity - combine base opacity with transition effects
+        // Build opacity expression that includes both base opacity and transitions
+        let start_sec = clip.start_time_ms as f64 / 1000.0;
+        let end_sec = (clip.start_time_ms + clip.duration_ms) as f64 / 1000.0;
+        let duration_sec = clip.duration_ms as f64 / 1000.0;
+
+        // Build transition opacity expression
+        let mut opacity_expr = format!("{:.3}", opacity);
+
+        // Fade in transition
+        if let Some(ref trans_in) = clip.transition_in_type {
+            if trans_in == "fade" || trans_in == "slide_up" || trans_in == "slide_down" ||
+               trans_in == "slide_left" || trans_in == "slide_right" || trans_in == "scale" || trans_in == "blur" {
+                let in_dur = clip.transition_in_duration_ms.unwrap_or(300) as f64 / 1000.0;
+                if in_dur > 0.0 {
+                    // Fade in: opacity ramps from 0 to base_opacity during in_dur
+                    // Using cubic ease-out: 1 - (1-t)^3
+                    let fade_in_expr = format!(
+                        "if(lt(t-{start},{in_dur}),(1-pow(1-((t-{start})/{in_dur}),3))*{base_op},{base_op})",
+                        start = start_sec,
+                        in_dur = in_dur,
+                        base_op = opacity
+                    );
+                    opacity_expr = fade_in_expr;
+                }
+            }
+        }
+
+        // Fade out transition (combine with fade in)
+        if let Some(ref trans_out) = clip.transition_out_type {
+            if trans_out == "fade" || trans_out == "slide_up" || trans_out == "slide_down" ||
+               trans_out == "slide_left" || trans_out == "slide_right" || trans_out == "scale" || trans_out == "blur" {
+                let out_dur = clip.transition_out_duration_ms.unwrap_or(300) as f64 / 1000.0;
+                if out_dur > 0.0 {
+                    let out_start = end_sec - out_dur;
+                    // Fade out: opacity ramps from current to 0 during out_dur
+                    // Using cubic ease-in: t^3
+                    let current_opacity_expr = opacity_expr.clone();
+                    opacity_expr = format!(
+                        "if(gte(t,{out_start}),({current_op})*(1-pow((t-{out_start})/{out_dur},3)),{current_op})",
+                        out_start = out_start,
+                        out_dur = out_dur,
+                        current_op = current_opacity_expr
+                    );
+                }
+            }
+        }
+
+        // Apply opacity using expression-based colorchannelmixer
+        let needs_opacity_filter = opacity < 1.0 ||
+            clip.transition_in_type.is_some() ||
+            clip.transition_out_type.is_some();
+
+        if needs_opacity_filter {
             // If we haven't applied geq yet (no crop/corner radius), add format=rgba first
             if !has_crop && corner_radius == 0 {
                 clip_filters.push_str(",format=rgba");
             }
-            clip_filters.push_str(&format!(",colorchannelmixer=aa={:.3}", opacity));
+            // Use geq for time-based alpha if we have transitions, otherwise simple colorchannelmixer
+            if clip.transition_in_type.is_some() || clip.transition_out_type.is_some() {
+                clip_filters.push_str(&format!(
+                    ",colorchannelmixer=aa='({})'",
+                    opacity_expr
+                ));
+            } else {
+                clip_filters.push_str(&format!(",colorchannelmixer=aa={:.3}", opacity));
+            }
         }
 
         clip_filters.push_str(&format!("[{}]", scaled_label));
@@ -991,16 +1086,78 @@ pub async fn render_demo(
         // 'w' and 'h' refer to overlay dimensions, 'W' and 'H' refer to main video dimensions
         // overlay_x = pos_x - overlay_width/2
         // overlay_y = pos_y - overlay_height/2
-        let overlay_x_expr = format!("{}-w/2", pos_x as i32);
-        let overlay_y_expr = format!("{}-h/2", pos_y as i32);
+        let base_overlay_x = pos_x as i32;
+        let base_overlay_y = pos_y as i32;
 
-        let start_sec = clip.start_time_ms as f64 / 1000.0;
-        let end_sec = (clip.start_time_ms + clip.duration_ms) as f64 / 1000.0;
+        // Build overlay position expressions with slide transitions
+        let mut overlay_x_expr = format!("{}-w/2", base_overlay_x);
+        let mut overlay_y_expr = format!("{}-h/2", base_overlay_y);
+
+        // Slide-in transitions
+        if let Some(ref trans_in) = clip.transition_in_type {
+            let in_dur = clip.transition_in_duration_ms.unwrap_or(300) as f64 / 1000.0;
+            if in_dur > 0.0 {
+                // Calculate ease-out progress: 1 - (1-t)^3
+                let ease_expr = format!("(1-pow(1-min((t-{})/{},1),3))", start_sec, in_dur);
+                match trans_in.as_str() {
+                    "slide_up" => {
+                        // Start below (+ 30% of height), slide to center
+                        overlay_y_expr = format!("{}-h/2+H*0.3*(1-{})", base_overlay_y, ease_expr);
+                    }
+                    "slide_down" => {
+                        // Start above (- 30% of height), slide to center
+                        overlay_y_expr = format!("{}-h/2-H*0.3*(1-{})", base_overlay_y, ease_expr);
+                    }
+                    "slide_left" => {
+                        // Start right (+ 30% of width), slide to center
+                        overlay_x_expr = format!("{}-w/2+W*0.3*(1-{})", base_overlay_x, ease_expr);
+                    }
+                    "slide_right" => {
+                        // Start left (- 30% of width), slide to center
+                        overlay_x_expr = format!("{}-w/2-W*0.3*(1-{})", base_overlay_x, ease_expr);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Slide-out transitions
+        if let Some(ref trans_out) = clip.transition_out_type {
+            let out_dur = clip.transition_out_duration_ms.unwrap_or(300) as f64 / 1000.0;
+            if out_dur > 0.0 {
+                let out_start = end_sec - out_dur;
+                // Calculate ease-in progress: t^3
+                let ease_expr = format!("pow(max(t-{},0)/{},3)", out_start, out_dur);
+                match trans_out.as_str() {
+                    "slide_up" => {
+                        // Slide up and out (- 30% of height)
+                        let current_y = overlay_y_expr.clone();
+                        overlay_y_expr = format!("if(gte(t,{}),{}-H*0.3*{},{})", out_start, current_y, ease_expr, current_y);
+                    }
+                    "slide_down" => {
+                        // Slide down and out (+ 30% of height)
+                        let current_y = overlay_y_expr.clone();
+                        overlay_y_expr = format!("if(gte(t,{}),{}+H*0.3*{},{})", out_start, current_y, ease_expr, current_y);
+                    }
+                    "slide_left" => {
+                        // Slide left and out (- 30% of width)
+                        let current_x = overlay_x_expr.clone();
+                        overlay_x_expr = format!("if(gte(t,{}),{}-W*0.3*{},{})", out_start, current_x, ease_expr, current_x);
+                    }
+                    "slide_right" => {
+                        // Slide right and out (+ 30% of width)
+                        let current_x = overlay_x_expr.clone();
+                        overlay_x_expr = format!("if(gte(t,{}),{}+W*0.3*{},{})", out_start, current_x, ease_expr, current_x);
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         let output_label = format!("out{}", i);
         // Use format=auto to preserve alpha channel properly in overlay
         filter_parts.push(format!(
-            "{}[{}]overlay={}:{}:enable='between(t,{:.3},{:.3})':format=auto[{}]",
+            "{}[{}]overlay=x='{}':y='{}':enable='between(t,{:.3},{:.3})':format=auto[{}]",
             current_output, scaled_label, overlay_x_expr, overlay_y_expr, start_sec, end_sec, output_label
         ));
 
@@ -1155,13 +1312,63 @@ pub async fn render_demo(
     let mut audio_filter_parts: Vec<String> = vec![];
     let mut audio_labels: Vec<String> = vec![];
 
+    // Helper function to build atempo filter chain for a given speed
+    // atempo only supports 0.5-2.0, so we chain multiple filters for extreme speeds
+    fn build_atempo_chain(speed: f64) -> String {
+        if (speed - 1.0).abs() < 0.001 {
+            return String::new();
+        }
+        let mut chain = Vec::new();
+        let mut remaining_speed = speed.max(0.25).min(4.0);
+        while remaining_speed > 2.0 {
+            chain.push("atempo=2.0".to_string());
+            remaining_speed /= 2.0;
+        }
+        while remaining_speed < 0.5 {
+            chain.push("atempo=0.5".to_string());
+            remaining_speed /= 0.5;
+        }
+        if (remaining_speed - 1.0).abs() >= 0.001 {
+            chain.push(format!("atempo={:.4}", remaining_speed));
+        }
+        if chain.is_empty() {
+            String::new()
+        } else {
+            format!(",{}", chain.join(","))
+        }
+    }
+
     for (i, (input_idx, clip)) in audio_inputs.iter().enumerate() {
         let delay_ms = clip.start_time_ms;
         let audio_label = format!("aud{}", i);
-        // Delay audio to start at the right time, then pad to full duration
+        let speed = clip.speed.unwrap_or(1.0);
+        let atempo_chain = build_atempo_chain(speed);
+
+        // Build audio fade chain
+        let mut afade_chain = String::new();
+        let clip_duration_sec = clip.duration_ms as f64 / 1000.0;
+
+        // Audio fade in
+        if let Some(fade_in_ms) = clip.audio_fade_in_ms {
+            if fade_in_ms > 0 {
+                let fade_in_sec = fade_in_ms as f64 / 1000.0;
+                afade_chain.push_str(&format!(",afade=t=in:st=0:d={:.3}", fade_in_sec));
+            }
+        }
+
+        // Audio fade out
+        if let Some(fade_out_ms) = clip.audio_fade_out_ms {
+            if fade_out_ms > 0 {
+                let fade_out_sec = fade_out_ms as f64 / 1000.0;
+                let fade_out_start = (clip_duration_sec - fade_out_sec).max(0.0);
+                afade_chain.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}", fade_out_start, fade_out_sec));
+            }
+        }
+
+        // Delay audio to start at the right time, apply speed change, audio fades, then pad to full duration
         audio_filter_parts.push(format!(
-            "[{}:a]adelay={}|{},apad=whole_dur={:.3}[{}]",
-            input_idx, delay_ms, delay_ms, duration_sec, audio_label
+            "[{}:a]adelay={}|{}{}{},apad=whole_dur={:.3}[{}]",
+            input_idx, delay_ms, delay_ms, atempo_chain, afade_chain, duration_sec, audio_label
         ));
         audio_labels.push(format!("[{}]", audio_label));
     }
@@ -1171,12 +1378,39 @@ pub async fn render_demo(
     for (i, (input_idx, clip)) in video_inputs.iter().enumerate() {
         // Only extract audio from video clips that have audio tracks and are not muted
         // Muted clips have their audio split out to a separate audio track
-        if clip.source_type == "video" && clip.has_audio.unwrap_or(false) && !clip.muted.unwrap_or(false) {
+        // Freeze frame clips have no audio
+        let is_freeze_frame = clip.freeze_frame.unwrap_or(false);
+        if clip.source_type == "video" && clip.has_audio.unwrap_or(false) && !clip.muted.unwrap_or(false) && !is_freeze_frame {
             let delay_ms = clip.start_time_ms;
             let audio_label = format!("vaud{}", i);
+            let speed = clip.speed.unwrap_or(1.0);
+            let atempo_chain = build_atempo_chain(speed);
+
+            // Build audio fade chain for video audio
+            let mut afade_chain = String::new();
+            let clip_duration_sec = clip.duration_ms as f64 / 1000.0;
+
+            // Audio fade in
+            if let Some(fade_in_ms) = clip.audio_fade_in_ms {
+                if fade_in_ms > 0 {
+                    let fade_in_sec = fade_in_ms as f64 / 1000.0;
+                    afade_chain.push_str(&format!(",afade=t=in:st=0:d={:.3}", fade_in_sec));
+                }
+            }
+
+            // Audio fade out
+            if let Some(fade_out_ms) = clip.audio_fade_out_ms {
+                if fade_out_ms > 0 {
+                    let fade_out_sec = fade_out_ms as f64 / 1000.0;
+                    let fade_out_start = (clip_duration_sec - fade_out_sec).max(0.0);
+                    afade_chain.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}", fade_out_start, fade_out_sec));
+                }
+            }
+
+            // Apply speed change and audio fades to video's audio track
             audio_filter_parts.push(format!(
-                "[{}:a]adelay={}|{},apad=whole_dur={:.3}[{}]",
-                input_idx, delay_ms, delay_ms, duration_sec, audio_label
+                "[{}:a]adelay={}|{}{}{},apad=whole_dur={:.3}[{}]",
+                input_idx, delay_ms, delay_ms, atempo_chain, afade_chain, duration_sec, audio_label
             ));
             video_audio_labels.push(format!("[{}]", audio_label));
         }
@@ -1703,15 +1937,30 @@ async fn build_ffmpeg_args(
                     "-i".to_string(), clip.source_path.clone(),
                 ]);
             } else {
-                if clip.in_point_ms > 0 {
+                // Check if this is a freeze frame (still image from video)
+                let is_freeze_frame = clip.freeze_frame.unwrap_or(false);
+
+                if is_freeze_frame {
+                    // For freeze frame: seek to the specific time and loop the single frame
+                    let freeze_time_ms = clip.freeze_frame_time_ms.unwrap_or(0);
                     ffmpeg_args.extend(vec![
-                        "-ss".to_string(), format_ffmpeg_time(clip.in_point_ms),
+                        "-ss".to_string(), format_ffmpeg_time(freeze_time_ms),
+                        "-loop".to_string(), "1".to_string(),
+                        "-t".to_string(), format!("{:.3}", clip.duration_ms as f64 / 1000.0),
+                        "-i".to_string(), clip.source_path.clone(),
+                    ]);
+                } else {
+                    // Normal video playback
+                    if clip.in_point_ms > 0 {
+                        ffmpeg_args.extend(vec![
+                            "-ss".to_string(), format_ffmpeg_time(clip.in_point_ms),
+                        ]);
+                    }
+                    ffmpeg_args.extend(vec![
+                        "-t".to_string(), format!("{:.3}", clip.duration_ms as f64 / 1000.0),
+                        "-i".to_string(), clip.source_path.clone(),
                     ]);
                 }
-                ffmpeg_args.extend(vec![
-                    "-t".to_string(), format!("{:.3}", clip.duration_ms as f64 / 1000.0),
-                    "-i".to_string(), clip.source_path.clone(),
-                ]);
             }
             video_inputs.push((input_index, clip.clone()));
             input_index += 1;
@@ -2050,24 +2299,99 @@ async fn build_ffmpeg_args(
     let mut audio_filter_parts: Vec<String> = vec![];
     let mut audio_labels: Vec<String> = vec![];
 
+    // Helper function to build atempo filter chain for a given speed
+    fn build_atempo_chain_bg(speed: f64) -> String {
+        if (speed - 1.0).abs() < 0.001 {
+            return String::new();
+        }
+        let mut chain = Vec::new();
+        let mut remaining_speed = speed.max(0.25).min(4.0);
+        while remaining_speed > 2.0 {
+            chain.push("atempo=2.0".to_string());
+            remaining_speed /= 2.0;
+        }
+        while remaining_speed < 0.5 {
+            chain.push("atempo=0.5".to_string());
+            remaining_speed /= 0.5;
+        }
+        if (remaining_speed - 1.0).abs() >= 0.001 {
+            chain.push(format!("atempo={:.4}", remaining_speed));
+        }
+        if chain.is_empty() {
+            String::new()
+        } else {
+            format!(",{}", chain.join(","))
+        }
+    }
+
     for (i, (input_idx, clip)) in audio_inputs.iter().enumerate() {
         let delay_ms = clip.start_time_ms;
         let audio_label = format!("aud{}", i);
+        let speed = clip.speed.unwrap_or(1.0);
+        let atempo_chain = build_atempo_chain_bg(speed);
+
+        // Build audio fade chain
+        let mut afade_chain = String::new();
+        let clip_duration_sec = clip.duration_ms as f64 / 1000.0;
+
+        // Audio fade in
+        if let Some(fade_in_ms) = clip.audio_fade_in_ms {
+            if fade_in_ms > 0 {
+                let fade_in_sec = fade_in_ms as f64 / 1000.0;
+                afade_chain.push_str(&format!(",afade=t=in:st=0:d={:.3}", fade_in_sec));
+            }
+        }
+
+        // Audio fade out
+        if let Some(fade_out_ms) = clip.audio_fade_out_ms {
+            if fade_out_ms > 0 {
+                let fade_out_sec = fade_out_ms as f64 / 1000.0;
+                let fade_out_start = (clip_duration_sec - fade_out_sec).max(0.0);
+                afade_chain.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}", fade_out_start, fade_out_sec));
+            }
+        }
+
         audio_filter_parts.push(format!(
-            "[{}:a]adelay={}|{},apad=whole_dur={:.3}[{}]",
-            input_idx, delay_ms, delay_ms, duration_sec, audio_label
+            "[{}:a]adelay={}|{}{}{},apad=whole_dur={:.3}[{}]",
+            input_idx, delay_ms, delay_ms, atempo_chain, afade_chain, duration_sec, audio_label
         ));
         audio_labels.push(format!("[{}]", audio_label));
     }
 
     let mut video_audio_labels: Vec<String> = vec![];
     for (i, (input_idx, clip)) in video_inputs.iter().enumerate() {
-        if clip.source_type == "video" && clip.has_audio.unwrap_or(false) && !clip.muted.unwrap_or(false) {
+        // Skip freeze frame clips - they have no audio
+        let is_freeze_frame = clip.freeze_frame.unwrap_or(false);
+        if clip.source_type == "video" && clip.has_audio.unwrap_or(false) && !clip.muted.unwrap_or(false) && !is_freeze_frame {
             let delay_ms = clip.start_time_ms;
             let audio_label = format!("vaud{}", i);
+            let speed = clip.speed.unwrap_or(1.0);
+            let atempo_chain = build_atempo_chain_bg(speed);
+
+            // Build audio fade chain for video audio
+            let mut afade_chain = String::new();
+            let clip_duration_sec = clip.duration_ms as f64 / 1000.0;
+
+            // Audio fade in
+            if let Some(fade_in_ms) = clip.audio_fade_in_ms {
+                if fade_in_ms > 0 {
+                    let fade_in_sec = fade_in_ms as f64 / 1000.0;
+                    afade_chain.push_str(&format!(",afade=t=in:st=0:d={:.3}", fade_in_sec));
+                }
+            }
+
+            // Audio fade out
+            if let Some(fade_out_ms) = clip.audio_fade_out_ms {
+                if fade_out_ms > 0 {
+                    let fade_out_sec = fade_out_ms as f64 / 1000.0;
+                    let fade_out_start = (clip_duration_sec - fade_out_sec).max(0.0);
+                    afade_chain.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}", fade_out_start, fade_out_sec));
+                }
+            }
+
             audio_filter_parts.push(format!(
-                "[{}:a]adelay={}|{},apad=whole_dur={:.3}[{}]",
-                input_idx, delay_ms, delay_ms, duration_sec, audio_label
+                "[{}:a]adelay={}|{}{}{},apad=whole_dur={:.3}[{}]",
+                input_idx, delay_ms, delay_ms, atempo_chain, afade_chain, duration_sec, audio_label
             ));
             video_audio_labels.push(format!("[{}]", audio_label));
         }
@@ -2250,6 +2574,35 @@ pub async fn render_demo_native(
         duration_ms,
     });
 
+    // Pre-download external image URLs for background (native compositor can't fetch URLs)
+    let resolved_bg_media_path: Option<String> = if let Some(ref bg) = config.background {
+        if bg.background_type == "image" {
+            // Priority: media_path (local) > image_url (external, downloaded first)
+            if let Some(ref local_path) = bg.media_path {
+                if std::path::Path::new(local_path).exists() {
+                    Some(local_path.clone())
+                } else {
+                    None
+                }
+            } else if let Some(ref url) = bg.image_url {
+                // Download external URL to temp file
+                match download_url_to_temp(&app, url).await {
+                    Ok(path) => Some(path.to_string_lossy().to_string()),
+                    Err(e) => {
+                        println!("Warning: Failed to download background image: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            bg.media_path.clone()
+        }
+    } else {
+        None
+    };
+
     // Convert config to JSON for the native compositor
     let compositor_config = serde_json::json!({
         "width": config.width,
@@ -2264,8 +2617,8 @@ pub async fn render_demo_native(
             "color": bg.color,
             "gradient_stops": bg.gradient_stops.as_ref().and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()),
             "gradient_angle": bg.gradient_angle,
-            "image_url": bg.image_url,
-            "media_path": bg.media_path,
+            "image_url": None::<String>,  // Don't pass URL, use downloaded path
+            "media_path": resolved_bg_media_path.clone().or_else(|| bg.media_path.clone()),
         })),
         "clips": config.clips.iter().map(|c| serde_json::json!({
             "source_path": c.source_path,
@@ -2286,6 +2639,15 @@ pub async fn render_demo_native(
             "has_audio": c.has_audio,
             "track_id": c.track_id,
             "muted": c.muted,
+            "speed": c.speed,
+            "freeze_frame": c.freeze_frame,
+            "freeze_frame_time_ms": c.freeze_frame_time_ms,
+            "transition_in_type": c.transition_in_type,
+            "transition_in_duration_ms": c.transition_in_duration_ms,
+            "transition_out_type": c.transition_out_type,
+            "transition_out_duration_ms": c.transition_out_duration_ms,
+            "audio_fade_in_ms": c.audio_fade_in_ms,
+            "audio_fade_out_ms": c.audio_fade_out_ms,
         })).collect::<Vec<_>>(),
         "zoom_clips": config.zoom_clips.as_ref().map(|zcs| zcs.iter().map(|zc| serde_json::json!({
             "target_track_id": zc.target_track_id,

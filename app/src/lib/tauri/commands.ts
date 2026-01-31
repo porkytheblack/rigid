@@ -686,6 +686,9 @@ export interface RenderClip {
   crop_right: number | null;
   z_index: number;
   has_audio: boolean | null; // Whether video clip has audio track
+  track_id: string | null;   // Track ID for linking with zoom clips
+  muted: boolean | null;     // Whether to mute audio from this clip
+  speed: number | null;      // Playback speed multiplier (e.g., 0.5 = half speed, 2.0 = double speed)
 }
 
 export interface RenderBackground {

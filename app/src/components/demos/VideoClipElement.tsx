@@ -41,11 +41,20 @@ export const VideoClipElement = memo(function VideoClipElement({
   const volume = useDemosStore((state) => state.playback.volume);
   const isMuted = useDemosStore((state) => state.playback.isMuted);
 
-  // Calculate video time from timeline time
+  // Get playback speed (clamped to valid range)
+  const playbackSpeed = Math.max(0.25, Math.min(4, clip.speed ?? 1));
+
+  // Calculate video source time from timeline time
+  // We use playbackRate for speed, so getVideoTime just maps timeline position to source position
+  // The speed multiplication happens naturally via playbackRate during playback
+  //
+  // For scrubbing (paused), we need to multiply by speed to get correct frame
+  // For playback start, we also multiply by speed since we're setting initial position
   const getVideoTime = useCallback((timelineTimeMs: number) => {
     const clipRelativeTime = timelineTimeMs - clip.start_time_ms;
-    return ((clip.in_point_ms || 0) + clipRelativeTime) / 1000;
-  }, [clip.start_time_ms, clip.in_point_ms]);
+    // Multiply by speed: at 2x, timeline position 2.5s = source position 5s
+    return ((clip.in_point_ms || 0) + clipRelativeTime * playbackSpeed) / 1000;
+  }, [clip.start_time_ms, clip.in_point_ms, playbackSpeed]);
 
   // Check if clip is active at given time
   const isClipActive = useCallback((timelineTimeMs: number) => {
@@ -61,8 +70,13 @@ export const VideoClipElement = memo(function VideoClipElement({
     if (el) {
       el.volume = volume;
       el.muted = isMuted || (clip.muted ?? false);
+      el.playbackRate = playbackSpeed;
     }
-  }, [onRef, clip.muted, volume, isMuted]);
+  }, [onRef, clip.muted, volume, isMuted, playbackSpeed]);
+
+  // Track if we've synced position for current playback session
+  const hasSyncedForPlayback = useRef(false);
+  const lastIsPlaying = useRef(false);
 
   // Handle play/pause state changes
   useEffect(() => {
@@ -71,16 +85,30 @@ export const VideoClipElement = memo(function VideoClipElement({
 
     const shouldBeActive = isClipActive(currentTimeMs) && isVisible;
 
+    // Detect play state change
+    if (isPlaying && !lastIsPlaying.current) {
+      hasSyncedForPlayback.current = false;
+    }
+    lastIsPlaying.current = isPlaying;
+
     if (isPlaying) {
       if (shouldBeActive) {
-        const videoTime = getVideoTime(currentTimeMs);
-        video.currentTime = Math.max(0, videoTime);
-        video.play().catch(() => {});
+        // Only sync position once at the start of playback
+        if (!hasSyncedForPlayback.current) {
+          const videoTime = getVideoTime(currentTimeMs);
+          video.currentTime = Math.max(0, videoTime);
+          hasSyncedForPlayback.current = true;
+        }
+
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
       }
     } else {
       if (!video.paused) {
         video.pause();
       }
+      hasSyncedForPlayback.current = false;
     }
   }, [isPlaying, track.visible, isVisible, currentTimeMs, getVideoTime, isClipActive]);
 
@@ -116,6 +144,14 @@ export const VideoClipElement = memo(function VideoClipElement({
     }
   }, [isMuted, clip.muted]);
 
+  // Handle playback speed changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed]);
+
   // Handle visibility changes
   useEffect(() => {
     const video = videoRef.current;
@@ -123,12 +159,14 @@ export const VideoClipElement = memo(function VideoClipElement({
 
     const shouldBeActive = isClipActive(currentTimeMs) && isVisible;
 
-    if (shouldBeActive && isPlaying) {
+    if (shouldBeActive && isPlaying && !hasSyncedForPlayback.current) {
       const videoTime = getVideoTime(currentTimeMs);
       video.currentTime = Math.max(0, videoTime);
+      hasSyncedForPlayback.current = true;
       video.play().catch(() => {});
     } else if (!shouldBeActive && !video.paused) {
       video.pause();
+      hasSyncedForPlayback.current = false;
     }
   }, [isVisible, track.visible, currentTimeMs, isPlaying, getVideoTime, isClipActive]);
 
@@ -154,12 +192,13 @@ export const VideoClipElement = memo(function VideoClipElement({
   );
 }, (prevProps, nextProps) => {
   // Custom comparison to avoid re-renders during playback
-  // Only re-render if non-time props change, OR if time changes while paused
+  // Only re-render if non-time props change, OR if time changes while paused (scrubbing)
   const isPlaying = useDemosStore.getState().playback.isPlaying;
 
   // Always compare non-time props
   if (
     prevProps.clip !== nextProps.clip ||
+    prevProps.clip.speed !== nextProps.clip.speed || // Explicit speed check for playbackRate updates
     prevProps.track !== nextProps.track ||
     prevProps.src !== nextProps.src ||
     prevProps.isVisible !== nextProps.isVisible ||
@@ -170,7 +209,7 @@ export const VideoClipElement = memo(function VideoClipElement({
     return false; // Re-render
   }
 
-  // Only compare currentTimeMs if paused
+  // Only compare currentTimeMs if paused (for scrubbing)
   if (!isPlaying && prevProps.currentTimeMs !== nextProps.currentTimeMs) {
     return false; // Re-render for scrubbing
   }

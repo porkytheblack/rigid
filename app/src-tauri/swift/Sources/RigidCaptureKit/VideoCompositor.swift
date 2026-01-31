@@ -65,6 +65,18 @@ struct CompositorClip: Codable {
     let hasAudio: Bool?
     let trackId: String?
     let muted: Bool?
+    let speed: Double?  // Playback speed multiplier (e.g., 0.5 = half speed, 2.0 = double speed)
+    // Freeze frame
+    let freezeFrame: Bool?
+    let freezeFrameTimeMs: Int64?
+    // Transitions
+    let transitionInType: String?    // fade, slide_up, slide_down, slide_left, slide_right, scale, blur
+    let transitionInDurationMs: Int64?
+    let transitionOutType: String?
+    let transitionOutDurationMs: Int64?
+    // Audio fade
+    let audioFadeInMs: Int64?
+    let audioFadeOutMs: Int64?
 
     enum CodingKeys: String, CodingKey {
         case sourcePath = "source_path"
@@ -85,6 +97,15 @@ struct CompositorClip: Codable {
         case hasAudio = "has_audio"
         case trackId = "track_id"
         case muted
+        case speed
+        case freezeFrame = "freeze_frame"
+        case freezeFrameTimeMs = "freeze_frame_time_ms"
+        case transitionInType = "transition_in_type"
+        case transitionInDurationMs = "transition_in_duration_ms"
+        case transitionOutType = "transition_out_type"
+        case transitionOutDurationMs = "transition_out_duration_ms"
+        case audioFadeInMs = "audio_fade_in_ms"
+        case audioFadeOutMs = "audio_fade_out_ms"
     }
 }
 
@@ -734,14 +755,22 @@ class CustomVideoCompositor: NSObject, AVVideoCompositing {
                 height: regionH
             )
 
+            // Clamp blur rect to image bounds
+            let clampedRect = blurRect.intersection(resultImage.extent)
+            guard !clampedRect.isEmpty else { continue }
+
             // Extract region, blur it, composite back
-            let regionImage = resultImage.cropped(to: blurRect)
+            let regionImage = resultImage.cropped(to: clampedRect)
 
+            // Apply blur - CIGaussianBlur extends the image bounds, so we use clampedToExtent
             guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { continue }
-            blurFilter.setValue(regionImage, forKey: kCIInputImageKey)
-            blurFilter.setValue(blur.blurIntensity * 0.5, forKey: kCIInputRadiusKey)
+            let blurRadius = max(blur.blurIntensity * 0.5, 1.0)
+            blurFilter.setValue(regionImage.clampedToExtent(), forKey: kCIInputImageKey)
+            blurFilter.setValue(blurRadius, forKey: kCIInputRadiusKey)
 
-            guard let blurredRegion = blurFilter.outputImage?.cropped(to: blurRect) else { continue }
+            // Crop back to the original rect
+            guard let blurredOutput = blurFilter.outputImage else { continue }
+            let blurredRegion = blurredOutput.cropped(to: clampedRect)
 
             resultImage = blurredRegion.composited(over: resultImage)
         }
@@ -840,7 +869,21 @@ class VideoCompositorEngine {
                     withMediaType: .audio,
                     preferredTrackID: kCMPersistentTrackID_Invalid
                    ) {
-                    try audioCompTrack.insertTimeRange(timeRange, of: audioTrack, at: startTime)
+                    // For speed changes, we need to insert more source audio and then scale the time
+                    let speed = min(max(clip.speed ?? 1.0, 0.25), 4.0)
+                    if abs(speed - 1.0) < 0.001 {
+                        // No speed change, insert normally
+                        try audioCompTrack.insertTimeRange(timeRange, of: audioTrack, at: startTime)
+                    } else {
+                        // With speed change: insert source_duration * speed of audio, then scale it
+                        // For 2x speed, we need 2x as much source audio to fill the same timeline duration
+                        let scaledSourceDuration = CMTimeMultiplyByFloat64(duration, multiplier: speed)
+                        let scaledTimeRange = CMTimeRange(start: inPoint, duration: scaledSourceDuration)
+                        try audioCompTrack.insertTimeRange(scaledTimeRange, of: audioTrack, at: startTime)
+                        // Scale the inserted segment to fit the original duration (applies speed)
+                        let insertedRange = CMTimeRange(start: startTime, duration: scaledSourceDuration)
+                        audioCompTrack.scaleTimeRange(insertedRange, toDuration: duration)
+                    }
                     audioTracks.append((audioCompTrack, clip))
                 }
             }
@@ -870,13 +913,73 @@ class VideoCompositorEngine {
             let duration = CMTime(value: CMTimeValue(clip.durationMs), timescale: 1000)
             let inPoint = CMTime(value: CMTimeValue(clip.inPointMs), timescale: 1000)
 
-            try compositionTrack.insertTimeRange(
-                CMTimeRange(start: inPoint, duration: duration),
-                of: audioTrack,
-                at: startTime
-            )
+            // Apply speed to audio-only clips
+            let speed = min(max(clip.speed ?? 1.0, 0.25), 4.0)
+            if abs(speed - 1.0) < 0.001 {
+                try compositionTrack.insertTimeRange(
+                    CMTimeRange(start: inPoint, duration: duration),
+                    of: audioTrack,
+                    at: startTime
+                )
+            } else {
+                // With speed change: insert more source audio, then scale it
+                let scaledSourceDuration = CMTimeMultiplyByFloat64(duration, multiplier: speed)
+                let scaledTimeRange = CMTimeRange(start: inPoint, duration: scaledSourceDuration)
+                try compositionTrack.insertTimeRange(scaledTimeRange, of: audioTrack, at: startTime)
+                // Scale the inserted segment to fit the original duration (applies speed)
+                let insertedRange = CMTimeRange(start: startTime, duration: scaledSourceDuration)
+                compositionTrack.scaleTimeRange(insertedRange, toDuration: duration)
+            }
 
             audioTracks.append((compositionTrack, clip))
+        }
+
+        // Build audio mix for fade effects
+        var audioMix: AVMutableAudioMix? = nil
+        if !audioTracks.isEmpty {
+            let mix = AVMutableAudioMix()
+            var inputParams: [AVMutableAudioMixInputParameters] = []
+
+            for (track, clip) in audioTracks {
+                let params = AVMutableAudioMixInputParameters(track: track)
+
+                // Set track ID explicitly
+                params.trackID = track.trackID
+
+                // Get clip timing
+                let startTime = CMTime(value: CMTimeValue(clip.startTimeMs), timescale: 1000)
+                let clipDuration = CMTime(value: CMTimeValue(clip.durationMs), timescale: 1000)
+                let endTime = CMTimeAdd(startTime, clipDuration)
+
+                let hasFadeIn = (clip.audioFadeInMs ?? 0) > 0
+                let hasFadeOut = (clip.audioFadeOutMs ?? 0) > 0
+
+                // Apply audio fade in
+                if hasFadeIn {
+                    let fadeInMs = clip.audioFadeInMs!
+                    let fadeInDuration = CMTime(value: CMTimeValue(fadeInMs), timescale: 1000)
+                    let fadeInEnd = CMTimeAdd(startTime, fadeInDuration)
+                    params.setVolumeRamp(fromStartVolume: 0.0, toEndVolume: 1.0,
+                                         timeRange: CMTimeRange(start: startTime, end: fadeInEnd))
+                    print("VideoCompositor: Audio fade in for track \(track.trackID): \(CMTimeGetSeconds(startTime))s to \(CMTimeGetSeconds(fadeInEnd))s")
+                }
+
+                // Apply audio fade out
+                if hasFadeOut {
+                    let fadeOutMs = clip.audioFadeOutMs!
+                    let fadeOutDuration = CMTime(value: CMTimeValue(fadeOutMs), timescale: 1000)
+                    let fadeOutStart = CMTimeSubtract(endTime, fadeOutDuration)
+                    params.setVolumeRamp(fromStartVolume: 1.0, toEndVolume: 0.0,
+                                         timeRange: CMTimeRange(start: fadeOutStart, end: endTime))
+                    print("VideoCompositor: Audio fade out for track \(track.trackID): \(CMTimeGetSeconds(fadeOutStart))s to \(CMTimeGetSeconds(endTime))s")
+                }
+
+                inputParams.append(params)
+            }
+
+            mix.inputParameters = inputParams
+            audioMix = mix
+            print("VideoCompositor: Created audio mix with \(inputParams.count) input parameters")
         }
 
         // Always use direct frame generation - it's more reliable and gives us full control
@@ -885,7 +988,8 @@ class VideoCompositorEngine {
         try await exportWithDirectFrameGeneration(
             outputURL: outputURL,
             config: config,
-            audioComposition: composition.tracks(withMediaType: .audio).isEmpty ? nil : composition
+            audioComposition: composition.tracks(withMediaType: .audio).isEmpty ? nil : composition,
+            audioMix: audioMix
         )
 
         return config.outputPath
@@ -900,6 +1004,7 @@ class VideoCompositorEngine {
         let clipEndSec: Double
         let inPointSec: Double
         let sourceFrameRate: Double
+        let speed: Double  // Playback speed multiplier
 
         // Use AVAssetImageGenerator for random access (simpler and works for our use case)
         let imageGenerator: AVAssetImageGenerator
@@ -909,6 +1014,8 @@ class VideoCompositorEngine {
             self.clipStartSec = Double(clip.startTimeMs) / 1000.0
             self.clipEndSec = clipStartSec + Double(clip.durationMs) / 1000.0
             self.inPointSec = Double(clip.inPointMs) / 1000.0
+            // Clamp speed to reasonable range (0.25x to 4x)
+            self.speed = min(max(clip.speed ?? 1.0, 0.25), 4.0)
 
             let url = URL(fileURLWithPath: clip.sourcePath)
             self.asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
@@ -931,7 +1038,7 @@ class VideoCompositorEngine {
             imageGenerator.requestedTimeToleranceBefore = CMTime(seconds: 0.1, preferredTimescale: 600)
             imageGenerator.requestedTimeToleranceAfter = CMTime(seconds: 0.1, preferredTimescale: 600)
 
-            print("VideoCompositor: Initialized source for \(clip.sourcePath), frameRate: \(sourceFrameRate)")
+            print("VideoCompositor: Initialized source for \(clip.sourcePath), frameRate: \(sourceFrameRate), speed: \(speed)")
         }
 
         func isActive(at compositionTimeSec: Double) -> Bool {
@@ -940,7 +1047,8 @@ class VideoCompositorEngine {
 
         func getSourceTime(at compositionTimeSec: Double) -> CMTime {
             let relativeTime = compositionTimeSec - clipStartSec
-            let sourceTime = inPointSec + relativeTime
+            // Apply speed: faster speed means we advance through source video faster
+            let sourceTime = inPointSec + (relativeTime * speed)
             return CMTime(seconds: sourceTime, preferredTimescale: 600)
         }
     }
@@ -950,7 +1058,8 @@ class VideoCompositorEngine {
     private func exportWithDirectFrameGeneration(
         outputURL: URL,
         config: CompositorConfig,
-        audioComposition: AVComposition?
+        audioComposition: AVComposition?,
+        audioMix: AVMutableAudioMix? = nil
     ) async throws {
         print("VideoCompositor: Starting export to \(outputURL.path)")
 
@@ -1025,6 +1134,10 @@ class VideoCompositorEngine {
 
             let reader = try AVAssetReader(asset: audioComp)
             let ao = AVAssetReaderAudioMixOutput(audioTracks: audioComp.tracks(withMediaType: .audio), audioSettings: nil)
+            // Apply audio mix for fade effects
+            if let mix = audioMix {
+                ao.audioMix = mix
+            }
             reader.add(ao)
             audioOutput = ao
             audioReader = reader
@@ -1180,15 +1293,30 @@ class VideoCompositorEngine {
             var clipImage: CIImage?
 
             if clip.sourceType == .video {
-                // Find the source for this clip
-                if let source = videoSources.first(where: { $0.clip.sourcePath == clip.sourcePath && $0.isActive(at: timeSec) }) {
-                    let sourceTime = source.getSourceTime(at: timeSec)
+                // Find the source for this clip - match by both path and timeline position
+                if let source = videoSources.first(where: {
+                    $0.clip.sourcePath == clip.sourcePath &&
+                    $0.clip.startTimeMs == clip.startTimeMs
+                }) {
+                    // Check if this is a freeze frame
+                    let isFreezeFrame = clip.freezeFrame ?? false
+                    let sourceTime: CMTime
+                    if isFreezeFrame {
+                        // Use the frozen time from the source video
+                        let freezeTimeSec = Double(clip.freezeFrameTimeMs ?? 0) / 1000.0
+                        sourceTime = CMTime(seconds: freezeTimeSec, preferredTimescale: 600)
+                    } else {
+                        sourceTime = source.getSourceTime(at: timeSec)
+                    }
                     do {
                         let cgImage = try source.imageGenerator.copyCGImage(at: sourceTime, actualTime: nil)
                         clipImage = CIImage(cgImage: cgImage)
                     } catch {
                         // Frame not available, skip
+                        print("VideoCompositor: Failed to get frame at \(CMTimeGetSeconds(sourceTime))s for \(clip.sourcePath)")
                     }
+                } else {
+                    print("VideoCompositor: No source found for video clip at \(timeSec)s, path: \(clip.sourcePath)")
                 }
             } else if clip.sourceType == .image {
                 if let nsImage = NSImage(contentsOfFile: clip.sourcePath),
@@ -1251,10 +1379,102 @@ class VideoCompositorEngine {
             let offsetY = flippedY - image.extent.height / 2
             image = image.transformed(by: CGAffineTransform(translationX: offsetX, y: offsetY))
 
-            // Apply opacity
-            if let opacity = clip.opacity, opacity < 1.0 {
+            // Calculate transition effects
+            let clipTimeSec = timeSec - clipStartSec
+            let clipDurationSec = Double(clip.durationMs) / 1000.0
+            var transitionOpacity: Double = 1.0
+            var transitionTranslateX: CGFloat = 0
+            var transitionTranslateY: CGFloat = 0
+            var transitionScale: CGFloat = 1.0
+
+            // Entrance transition
+            if let transInType = clip.transitionInType, let transInDur = clip.transitionInDurationMs, transInDur > 0 {
+                let inDurSec = Double(transInDur) / 1000.0
+                if clipTimeSec < inDurSec {
+                    let progress = clipTimeSec / inDurSec
+                    // Cubic ease-out: 1 - (1-t)^3
+                    let eased = 1.0 - pow(1.0 - progress, 3.0)
+                    switch transInType {
+                    case "fade":
+                        transitionOpacity = eased
+                    case "slide_up":
+                        transitionTranslateY = CGFloat((1.0 - eased) * 0.3) * outputSize.height
+                        transitionOpacity = eased
+                    case "slide_down":
+                        transitionTranslateY = -CGFloat((1.0 - eased) * 0.3) * outputSize.height
+                        transitionOpacity = eased
+                    case "slide_left":
+                        transitionTranslateX = CGFloat((1.0 - eased) * 0.3) * outputSize.width
+                        transitionOpacity = eased
+                    case "slide_right":
+                        transitionTranslateX = -CGFloat((1.0 - eased) * 0.3) * outputSize.width
+                        transitionOpacity = eased
+                    case "scale":
+                        transitionScale = CGFloat(0.8 + 0.2 * eased)
+                        transitionOpacity = eased
+                    case "blur":
+                        transitionOpacity = eased
+                    default:
+                        break
+                    }
+                }
+            }
+
+            // Exit transition
+            if let transOutType = clip.transitionOutType, let transOutDur = clip.transitionOutDurationMs, transOutDur > 0 {
+                let outDurSec = Double(transOutDur) / 1000.0
+                let outStartSec = clipDurationSec - outDurSec
+                if clipTimeSec >= outStartSec {
+                    let progress = (clipTimeSec - outStartSec) / outDurSec
+                    // Cubic ease-in: t^3
+                    let eased = pow(progress, 3.0)
+                    switch transOutType {
+                    case "fade":
+                        transitionOpacity *= (1.0 - eased)
+                    case "slide_up":
+                        transitionTranslateY -= CGFloat(eased * 0.3) * outputSize.height
+                        transitionOpacity *= (1.0 - eased)
+                    case "slide_down":
+                        transitionTranslateY += CGFloat(eased * 0.3) * outputSize.height
+                        transitionOpacity *= (1.0 - eased)
+                    case "slide_left":
+                        transitionTranslateX -= CGFloat(eased * 0.3) * outputSize.width
+                        transitionOpacity *= (1.0 - eased)
+                    case "slide_right":
+                        transitionTranslateX += CGFloat(eased * 0.3) * outputSize.width
+                        transitionOpacity *= (1.0 - eased)
+                    case "scale":
+                        transitionScale *= CGFloat(1.0 - 0.2 * eased)
+                        transitionOpacity *= (1.0 - eased)
+                    case "blur":
+                        transitionOpacity *= (1.0 - eased)
+                    default:
+                        break
+                    }
+                }
+            }
+
+            // Apply transition scale (around center of clip)
+            if transitionScale != 1.0 {
+                let centerX = image.extent.midX
+                let centerY = image.extent.midY
+                image = image
+                    .transformed(by: CGAffineTransform(translationX: -centerX, y: -centerY))
+                    .transformed(by: CGAffineTransform(scaleX: transitionScale, y: transitionScale))
+                    .transformed(by: CGAffineTransform(translationX: centerX, y: centerY))
+            }
+
+            // Apply transition translation
+            if transitionTranslateX != 0 || transitionTranslateY != 0 {
+                image = image.transformed(by: CGAffineTransform(translationX: transitionTranslateX, y: -transitionTranslateY))
+            }
+
+            // Apply opacity (combine base opacity with transition opacity)
+            let baseOpacity = clip.opacity ?? 1.0
+            let finalOpacity = baseOpacity * transitionOpacity
+            if finalOpacity < 1.0 {
                 image = image.applyingFilter("CIColorMatrix", parameters: [
-                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: CGFloat(opacity))
+                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: CGFloat(finalOpacity))
                 ])
             }
 
@@ -1494,14 +1714,24 @@ class VideoCompositorEngine {
                 height: regionH
             )
 
-            let regionImage = resultImage.cropped(to: blurRect)
+            // Clamp blur rect to image bounds
+            let clampedRect = blurRect.intersection(resultImage.extent)
+            guard !clampedRect.isEmpty else { continue }
 
+            // Crop the region first
+            let regionImage = resultImage.cropped(to: clampedRect)
+
+            // Apply blur - CIGaussianBlur extends the image bounds, so we use clampedToExtent
             guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { continue }
-            blurFilter.setValue(regionImage, forKey: kCIInputImageKey)
-            blurFilter.setValue(blur.blurIntensity * 0.5, forKey: kCIInputRadiusKey)
+            let blurRadius = max(blur.blurIntensity * 0.5, 1.0)
+            blurFilter.setValue(regionImage.clampedToExtent(), forKey: kCIInputImageKey)
+            blurFilter.setValue(blurRadius, forKey: kCIInputRadiusKey)
 
-            guard let blurredRegion = blurFilter.outputImage?.cropped(to: blurRect) else { continue }
+            // Crop back to the original rect and translate to correct position
+            guard let blurredOutput = blurFilter.outputImage else { continue }
+            let blurredRegion = blurredOutput.cropped(to: clampedRect)
 
+            // Composite the blurred region over the result
             resultImage = blurredRegion.composited(over: resultImage)
         }
 
@@ -1716,10 +1946,74 @@ class VideoCompositorEngine {
             let offsetY = CGFloat(posY) - clipImage.extent.height / 2
             clipImage = clipImage.transformed(by: CGAffineTransform(translationX: offsetX, y: offsetY))
 
-            // Apply opacity
-            if let opacity = clip.opacity, opacity < 1.0 {
+            // Calculate transition effects
+            let clipTimeSec = currentSec - clipStartSec
+            let clipDurationSec = Double(clip.durationMs) / 1000.0
+            var transitionOpacity: Double = 1.0
+            var transitionTranslateX: CGFloat = 0
+            var transitionTranslateY: CGFloat = 0
+            var transitionScale: CGFloat = 1.0
+
+            // Entrance transition
+            if let transInType = clip.transitionInType, let transInDur = clip.transitionInDurationMs, transInDur > 0 {
+                let inDurSec = Double(transInDur) / 1000.0
+                if clipTimeSec < inDurSec {
+                    let progress = clipTimeSec / inDurSec
+                    let eased = 1.0 - pow(1.0 - progress, 3.0)
+                    switch transInType {
+                    case "fade": transitionOpacity = eased
+                    case "slide_up": transitionTranslateY = CGFloat((1.0 - eased) * 0.3) * outputSize.height; transitionOpacity = eased
+                    case "slide_down": transitionTranslateY = -CGFloat((1.0 - eased) * 0.3) * outputSize.height; transitionOpacity = eased
+                    case "slide_left": transitionTranslateX = CGFloat((1.0 - eased) * 0.3) * outputSize.width; transitionOpacity = eased
+                    case "slide_right": transitionTranslateX = -CGFloat((1.0 - eased) * 0.3) * outputSize.width; transitionOpacity = eased
+                    case "scale": transitionScale = CGFloat(0.8 + 0.2 * eased); transitionOpacity = eased
+                    case "blur": transitionOpacity = eased
+                    default: break
+                    }
+                }
+            }
+
+            // Exit transition
+            if let transOutType = clip.transitionOutType, let transOutDur = clip.transitionOutDurationMs, transOutDur > 0 {
+                let outDurSec = Double(transOutDur) / 1000.0
+                let outStartSec = clipDurationSec - outDurSec
+                if clipTimeSec >= outStartSec {
+                    let progress = (clipTimeSec - outStartSec) / outDurSec
+                    let eased = pow(progress, 3.0)
+                    switch transOutType {
+                    case "fade": transitionOpacity *= (1.0 - eased)
+                    case "slide_up": transitionTranslateY -= CGFloat(eased * 0.3) * outputSize.height; transitionOpacity *= (1.0 - eased)
+                    case "slide_down": transitionTranslateY += CGFloat(eased * 0.3) * outputSize.height; transitionOpacity *= (1.0 - eased)
+                    case "slide_left": transitionTranslateX -= CGFloat(eased * 0.3) * outputSize.width; transitionOpacity *= (1.0 - eased)
+                    case "slide_right": transitionTranslateX += CGFloat(eased * 0.3) * outputSize.width; transitionOpacity *= (1.0 - eased)
+                    case "scale": transitionScale *= CGFloat(1.0 - 0.2 * eased); transitionOpacity *= (1.0 - eased)
+                    case "blur": transitionOpacity *= (1.0 - eased)
+                    default: break
+                    }
+                }
+            }
+
+            // Apply transition scale
+            if transitionScale != 1.0 {
+                let centerX = clipImage.extent.midX
+                let centerY = clipImage.extent.midY
+                clipImage = clipImage
+                    .transformed(by: CGAffineTransform(translationX: -centerX, y: -centerY))
+                    .transformed(by: CGAffineTransform(scaleX: transitionScale, y: transitionScale))
+                    .transformed(by: CGAffineTransform(translationX: centerX, y: centerY))
+            }
+
+            // Apply transition translation
+            if transitionTranslateX != 0 || transitionTranslateY != 0 {
+                clipImage = clipImage.transformed(by: CGAffineTransform(translationX: transitionTranslateX, y: -transitionTranslateY))
+            }
+
+            // Apply opacity (combine base opacity with transition opacity)
+            let baseOpacity = clip.opacity ?? 1.0
+            let finalOpacity = baseOpacity * transitionOpacity
+            if finalOpacity < 1.0 {
                 clipImage = clipImage.applyingFilter("CIColorMatrix", parameters: [
-                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: CGFloat(opacity))
+                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: CGFloat(finalOpacity))
                 ])
             }
 

@@ -675,6 +675,17 @@ export const useDemosStore = create<DemosStore>()(
               crop_bottom: clip.crop_bottom,
               crop_left: clip.crop_left,
               crop_right: clip.crop_right,
+              // Freeze frame
+              freeze_frame: clip.freeze_frame,
+              freeze_frame_time_ms: clip.freeze_frame_time_ms,
+              // Transitions
+              transition_in_type: clip.transition_in_type,
+              transition_in_duration_ms: clip.transition_in_duration_ms,
+              transition_out_type: clip.transition_out_type,
+              transition_out_duration_ms: clip.transition_out_duration_ms,
+              // Audio fade
+              audio_fade_in_ms: clip.audio_fade_in_ms,
+              audio_fade_out_ms: clip.audio_fade_out_ms,
               // Don't set linked_clip_id here - will be set in second pass
               muted: clip.muted,
             });
@@ -692,6 +703,7 @@ export const useDemosStore = create<DemosStore>()(
               position_x: clip.position_x,
               position_y: clip.position_y,
               scale: clip.scale,
+              speed: clip.speed,
               has_audio: clip.has_audio,
               // Don't set linked_clip_id here - will be set in second pass
               muted: clip.muted,
@@ -1150,9 +1162,15 @@ export const useDemosStore = create<DemosStore>()(
         border_width: null,
         border_color: null,
         volume: 1,
-        fade_in_ms: null,
-        fade_out_ms: null,
+        audio_fade_in_ms: null,
+        audio_fade_out_ms: null,
         speed: 1,
+        freeze_frame: false,
+        freeze_frame_time_ms: null,
+        transition_in_type: null,
+        transition_in_duration_ms: null,
+        transition_out_type: null,
+        transition_out_duration_ms: null,
         zoom_enabled: false,
         zoom_scale: null,
         zoom_center_x: null,
@@ -1191,9 +1209,30 @@ export const useDemosStore = create<DemosStore>()(
         if (state.currentDemo) {
           const index = state.currentDemo.clips.findIndex((c) => c.id === id);
           if (index !== -1) {
+            const clip = state.currentDemo.clips[index];
+            let finalUpdates = { ...updates };
+
+            // When speed changes, adjust duration_ms accordingly
+            // The same source content should play faster/slower, changing the timeline duration
+            // Example: 10s source at 1x = 10s timeline, at 2x = 5s timeline (same content, plays faster)
+            if (updates.speed !== undefined && updates.speed !== null && clip.source_type === 'video') {
+              const oldSpeed = clip.speed ?? 1;
+              const newSpeed = Math.max(0.25, Math.min(4, updates.speed));
+
+              if (Math.abs(oldSpeed - newSpeed) > 0.001) {
+                // Calculate the source content duration currently being shown
+                // sourceContentShown = duration_ms * oldSpeed
+                // To show the same source content at new speed: newDuration = sourceContentShown / newSpeed
+                // Simplified: newDuration = duration_ms * oldSpeed / newSpeed
+                const newDuration = Math.round(clip.duration_ms * oldSpeed / newSpeed);
+
+                finalUpdates.duration_ms = newDuration;
+              }
+            }
+
             state.currentDemo.clips[index] = {
-              ...state.currentDemo.clips[index],
-              ...updates,
+              ...clip,
+              ...finalUpdates,
               updated_at: new Date().toISOString(),
             };
           }
