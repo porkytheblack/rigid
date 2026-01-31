@@ -34,15 +34,34 @@ export function useEditorState({
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
 
+  // Use refs to avoid stale closure issues in undo/redo
+  const undoStackRef = useRef(undoStack);
+  undoStackRef.current = undoStack;
+  const redoStackRef = useRef(redoStack);
+  redoStackRef.current = redoStack;
+
+  // Track if we're making internal edits (to avoid resetting undo stack)
+  const isInternalEditRef = useRef(false);
+
   // Sync with initialBlocks when they change externally (e.g., after data loads)
   useEffect(() => {
+    // Skip if this is an internal edit (triggered by our own setBlocks)
+    if (isInternalEditRef.current) {
+      isInternalEditRef.current = false;
+      prevInitialBlocksRef.current = initialBlocks;
+      return;
+    }
+
     // Only sync if initialBlocks changed and has content
     if (initialBlocks && initialBlocks.length > 0) {
       // Check if initialBlocks actually changed (not just a reference change)
       const prevIds = prevInitialBlocksRef.current?.map(b => b.id).join(',') || '';
       const newIds = initialBlocks.map(b => b.id).join(',');
 
-      if (prevIds !== newIds) {
+      // Also check if these are the same blocks we currently have (meaning it's from our own edit)
+      const currentIds = blocksRef.current.map(b => b.id).join(',');
+
+      if (prevIds !== newIds && newIds !== currentIds) {
         setBlocks(initialBlocks);
         setUndoStack([]);
         setRedoStack([]);
@@ -79,23 +98,25 @@ export function useEditorState({
 
   // Undo
   const undo = useCallback(() => {
-    if (undoStack.length === 0) return;
+    const currentUndoStack = undoStackRef.current;
+    if (currentUndoStack.length === 0) return;
 
-    const previousState = undoStack[undoStack.length - 1];
+    const previousState = currentUndoStack[currentUndoStack.length - 1];
     setRedoStack(prev => [...prev, blocksRef.current]);
     setUndoStack(prev => prev.slice(0, -1));
     setBlocks(previousState);
-  }, [undoStack]);
+  }, []);
 
   // Redo
   const redo = useCallback(() => {
-    if (redoStack.length === 0) return;
+    const currentRedoStack = redoStackRef.current;
+    if (currentRedoStack.length === 0) return;
 
-    const nextState = redoStack[redoStack.length - 1];
+    const nextState = currentRedoStack[currentRedoStack.length - 1];
     setUndoStack(prev => [...prev, blocksRef.current]);
     setRedoStack(prev => prev.slice(0, -1));
     setBlocks(nextState);
-  }, [redoStack]);
+  }, []);
 
   // Update a specific block
   const updateBlock = useCallback((blockId: string, updates: Partial<Block>) => {
@@ -140,6 +161,35 @@ export function useEditorState({
     return newBlock.id;
   }, [blocks, saveToUndo]);
 
+  // Insert multiple blocks after a specific position (for paste)
+  const insertBlocksAfter = useCallback((afterId: string, newBlocks: Block[]) => {
+    if (newBlocks.length === 0) return;
+
+    saveToUndo();
+    const index = blocks.findIndex(b => b.id === afterId);
+
+    setBlocks(prev => {
+      const result = [...prev];
+      result.splice(index + 1, 0, ...newBlocks);
+      return result;
+    });
+
+    // Focus the last inserted block
+    const lastBlock = newBlocks[newBlocks.length - 1];
+    setTimeout(() => setFocusedBlockId(lastBlock.id), 0);
+  }, [blocks, saveToUndo]);
+
+  // Replace all blocks (for paste replacing all content)
+  const replaceAllBlocks = useCallback((newBlocks: Block[]) => {
+    if (newBlocks.length === 0) return;
+
+    saveToUndo();
+    setBlocks(newBlocks);
+
+    // Focus the first block
+    setTimeout(() => setFocusedBlockId(newBlocks[0].id), 0);
+  }, [saveToUndo]);
+
   // Delete a block
   const deleteBlock = useCallback((blockId: string) => {
     saveToUndo();
@@ -158,6 +208,32 @@ export function useEditorState({
     const focusId = blocks[focusIndex]?.id;
     if (focusId && focusId !== blockId) {
       setTimeout(() => setFocusedBlockId(focusId), 0);
+    }
+  }, [blocks, saveToUndo]);
+
+  // Delete multiple blocks at once (single undo entry)
+  const deleteBlocks = useCallback((blockIds: string[]) => {
+    if (blockIds.length === 0) return;
+
+    saveToUndo();
+    const idsToDelete = new Set(blockIds);
+
+    // If we're deleting all blocks, leave one empty paragraph
+    if (idsToDelete.size >= blocks.length) {
+      setBlocks([createBlock('paragraph', '')]);
+      return;
+    }
+
+    // Find the first non-deleted block to focus
+    const firstDeletedIndex = blocks.findIndex(b => idsToDelete.has(b.id));
+    const remainingBlocks = blocks.filter(b => !idsToDelete.has(b.id));
+
+    setBlocks(remainingBlocks);
+
+    // Focus the block at the position of first deleted, or previous if at end
+    const focusIndex = Math.min(firstDeletedIndex, remainingBlocks.length - 1);
+    if (remainingBlocks[focusIndex]) {
+      setTimeout(() => setFocusedBlockId(remainingBlocks[focusIndex].id), 0);
     }
   }, [blocks, saveToUndo]);
 
@@ -288,6 +364,23 @@ export function useEditorState({
     setSelectedBlockIds(new Set());
   }, []);
 
+  // Select a range of blocks (from startId to endId inclusive)
+  const selectBlockRange = useCallback((startId: string, endId: string) => {
+    const startIndex = blocks.findIndex(b => b.id === startId);
+    const endIndex = blocks.findIndex(b => b.id === endId);
+
+    if (startIndex === -1 || endIndex === -1) return;
+
+    const minIndex = Math.min(startIndex, endIndex);
+    const maxIndex = Math.max(startIndex, endIndex);
+
+    const selectedIds = new Set<string>();
+    for (let i = minIndex; i <= maxIndex; i++) {
+      selectedIds.add(blocks[i].id);
+    }
+    setSelectedBlockIds(selectedIds);
+  }, [blocks]);
+
   return {
     // State
     blocks,
@@ -304,7 +397,10 @@ export function useEditorState({
     updateBlock,
     insertBlockAfter,
     insertBlockBefore,
+    insertBlocksAfter,
+    replaceAllBlocks,
     deleteBlock,
+    deleteBlocks,
     moveBlockUp,
     moveBlockDown,
     duplicateBlock,
@@ -314,6 +410,7 @@ export function useEditorState({
     focusNextBlock,
     focusPreviousBlock,
     selectBlock,
+    selectBlockRange,
     clearSelection,
     undo,
     redo,

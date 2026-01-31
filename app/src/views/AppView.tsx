@@ -86,6 +86,10 @@ export function AppView({ appId }: AppViewProps) {
     (doc) => doc.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const filteredDemos = demos.filter(
+    (demo) => demo.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   const handleCreateExploration = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newExplorationData.name.trim()) return;
@@ -177,6 +181,12 @@ export function AppView({ appId }: AppViewProps) {
     navigate({ name: "architecture-doc", appId, docId });
   };
 
+  const handleSearchSelectDemo = (demoId: string) => {
+    setShowSearchModal(false);
+    setSearchQuery("");
+    navigate({ name: "demo-view", appId, demoId });
+  };
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     const now = new Date();
@@ -209,14 +219,11 @@ export function AppView({ appId }: AppViewProps) {
           <button onClick={() => navigate({ name: "home" })} className="p-2 -ml-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-[var(--text-primary)] flex items-center justify-center">
-              <span className="text-[var(--text-inverse)] font-bold text-lg">{app?.name.charAt(0).toUpperCase() || "?"}</span>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-[var(--text-primary)] flex items-center justify-center flex-shrink-0">
+              <span className="text-[var(--text-inverse)] font-bold text-sm">{app?.name.charAt(0).toUpperCase() || "?"}</span>
             </div>
-            <div>
-              <h1 className="font-bold text-[var(--text-primary)] text-lg tracking-tight">{app?.name || "Loading..."}</h1>
-              {app?.description && <p className="text-[var(--text-caption)] text-[var(--text-secondary)] max-w-xs truncate">{app.description}</p>}
-            </div>
+            <span className="font-semibold text-[var(--text-primary)] text-[var(--text-body-md)]">{app?.name || "Loading..."}</span>
           </div>
         </div>
         <button onClick={() => navigate({ name: "settings" })} className="p-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]">
@@ -507,7 +514,7 @@ export function AppView({ appId }: AppViewProps) {
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search explorations, architecture docs..."
+                placeholder="Search explorations, architecture docs, demos..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none text-[var(--text-body-lg)]"
@@ -517,7 +524,7 @@ export function AppView({ appId }: AppViewProps) {
               </button>
             </div>
             <div className="max-h-96 overflow-auto">
-              {filteredExplorations.length === 0 && filteredArchDocs.length === 0 ? (
+              {filteredExplorations.length === 0 && filteredArchDocs.length === 0 && filteredDemos.length === 0 ? (
                 <div className="px-5 py-12 text-center">
                   <p className="text-[var(--text-body-md)] text-[var(--text-secondary)]">
                     {searchQuery ? "No results found" : "Start typing to search"}
@@ -572,6 +579,32 @@ export function AppView({ appId }: AppViewProps) {
                           </button>
                         );
                       })}
+                    </>
+                  )}
+
+                  {/* Demos Section */}
+                  {filteredDemos.length > 0 && (
+                    <>
+                      <div className="px-5 py-2 text-[var(--text-caption)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wide">
+                        Demos
+                      </div>
+                      {filteredDemos.map((demo) => (
+                        <button
+                          key={demo.id}
+                          onClick={() => handleSearchSelectDemo(demo.id)}
+                          className="w-full px-5 py-4 flex items-center gap-4 hover:bg-[var(--surface-hover)] transition-colors text-left border-b border-[var(--border-subtle)] last:border-b-0"
+                        >
+                          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 bg-[var(--surface-hover)]">
+                            <Video className="w-5 h-5 text-[var(--text-secondary)]" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-[var(--text-primary)] truncate">{demo.name}</p>
+                            <p className="text-[var(--text-caption)] text-[var(--text-tertiary)]">
+                              {demo.width} × {demo.height} • {demo.frame_rate}fps
+                            </p>
+                          </div>
+                        </button>
+                      ))}
                     </>
                   )}
                 </div>

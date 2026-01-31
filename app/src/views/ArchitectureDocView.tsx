@@ -346,6 +346,7 @@ export function ArchitectureDocView({ appId, docId }: ArchitectureDocViewProps) 
                   title: s.title,
                   imagePath: getAssetUrl(s.image_path) || ''
                 }))}
+                showCopyButton
               />
             ) : (
               <div className="flex items-center justify-center h-full">

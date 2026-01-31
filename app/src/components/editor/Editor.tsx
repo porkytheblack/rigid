@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Block, BlockType, EditorProps } from "./types";
+import { Copy, Check } from "lucide-react";
+import { Block, BlockType, EditorProps, createBlock } from "./types";
 import { useEditorState } from "./hooks/useEditorState";
+import { parseMarkdownToBlocks, blocksToMarkdown } from "./utils";
 import { BlockHandle } from "./ui/BlockHandle";
 import { BlockMenu } from "./ui/BlockMenu";
+import { SelectionMenu } from "./ui/SelectionMenu";
 import { SlashCommandMenu } from "./ui/SlashCommandMenu";
 import { FormattingToolbar } from "./ui/FormattingToolbar";
 import { TextBlock } from "./blocks/TextBlock";
@@ -28,6 +31,7 @@ export function Editor({
   autoFocus = true,
   className = "",
   screenshots = [],
+  showCopyButton = false,
 }: EditorProps) {
   const {
     blocks,
@@ -39,13 +43,18 @@ export function Editor({
     updateBlock,
     insertBlockAfter,
     insertBlockBefore,
+    insertBlocksAfter,
+    replaceAllBlocks,
     deleteBlock,
+    deleteBlocks,
     moveBlockUp,
     moveBlockDown,
     duplicateBlock,
     turnBlockInto,
     indentBlock,
     outdentBlock,
+    selectBlockRange,
+    clearSelection,
     undo,
     redo,
   } = useEditorState({ initialBlocks, onChange, onSave });
@@ -64,9 +73,21 @@ export function Editor({
   const [blockMenuPosition, setBlockMenuPosition] = useState({ x: 0, y: 0 });
   const [blockMenuBlockId, setBlockMenuBlockId] = useState<string | null>(null);
 
+  // Selection menu state (context menu for selected blocks)
+  const [selectionMenuOpen, setSelectionMenuOpen] = useState(false);
+  const [selectionMenuPosition, setSelectionMenuPosition] = useState({ x: 0, y: 0 });
+
   // Formatting toolbar state
   const [formattingToolbarOpen, setFormattingToolbarOpen] = useState(false);
   const [formattingToolbarPosition] = useState({ x: 0, y: 0 });
+
+  // Copy state
+  const [copied, setCopied] = useState(false);
+
+  // Drag selection state
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartBlockRef = useRef<string | null>(null);
+  const justFinishedDraggingRef = useRef(false);
 
   // Auto-focus first block
   useEffect(() => {
@@ -78,6 +99,27 @@ export function Editor({
   // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Delete selected blocks with Backspace or Delete
+      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedBlockIds.size > 0) {
+        e.preventDefault();
+        // Delete all selected blocks (single undo entry)
+        deleteBlocks(Array.from(selectedBlockIds));
+        clearSelection();
+        return;
+      }
+
+      // Cut selected blocks with Cmd+X
+      if ((e.metaKey || e.ctrlKey) && e.key === 'x' && selectedBlockIds.size > 0) {
+        e.preventDefault();
+        const selectedBlocks = blocks.filter(b => selectedBlockIds.has(b.id));
+        const markdown = blocksToMarkdown(selectedBlocks);
+        navigator.clipboard.writeText(markdown);
+        // Delete all selected blocks (single undo entry)
+        deleteBlocks(Array.from(selectedBlockIds));
+        clearSelection();
+        return;
+      }
+
       // Undo
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -98,11 +140,276 @@ export function Editor({
         duplicateBlock(focusedBlockId);
         return;
       }
+
+      // Escape clears selection
+      if (e.key === 'Escape' && selectedBlockIds.size > 0) {
+        e.preventDefault();
+        clearSelection();
+        return;
+      }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [focusedBlockId, undo, redo, duplicateBlock]);
+  }, [focusedBlockId, selectedBlockIds, blocks, undo, redo, duplicateBlock, deleteBlocks, clearSelection]);
+
+  // Handle paste events (markdown and images)
+  const handlePaste = useCallback(async (e: ClipboardEvent) => {
+    if (readOnly) return;
+
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+
+    // Check for images first
+    const items = clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        // Convert to base64 data URL
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          const newBlock = createBlock('image', '', { src: dataUrl, alt: 'Pasted image' });
+
+          if (focusedBlockId) {
+            insertBlocksAfter(focusedBlockId, [newBlock]);
+          } else if (blocks.length > 0) {
+            insertBlocksAfter(blocks[blocks.length - 1].id, [newBlock]);
+          } else {
+            replaceAllBlocks([newBlock]);
+          }
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+    }
+
+    // Check for text/markdown content
+    const text = clipboardData.getData('text/plain');
+    if (!text) return;
+
+    // Detect if text looks like markdown
+    const looksLikeMarkdown = /^(#{1,3}\s|[-*]\s|\d+\.\s|```|>|\[.*\]\(.*\)|!\[.*\]\(.*\))/.test(text) ||
+      text.includes('\n');
+
+    if (looksLikeMarkdown) {
+      e.preventDefault();
+
+      const newBlocks = parseMarkdownToBlocks(text);
+
+      if (focusedBlockId) {
+        // Check if current block is empty - replace it
+        const currentBlock = blocks.find(b => b.id === focusedBlockId);
+        if (currentBlock && !currentBlock.content.trim()) {
+          // Replace current empty block with first parsed block, then insert rest after
+          if (newBlocks.length > 0) {
+            updateBlock(focusedBlockId, { type: newBlocks[0].type, content: newBlocks[0].content, meta: newBlocks[0].meta });
+            if (newBlocks.length > 1) {
+              insertBlocksAfter(focusedBlockId, newBlocks.slice(1));
+            }
+          }
+        } else {
+          insertBlocksAfter(focusedBlockId, newBlocks);
+        }
+      } else if (blocks.length === 1 && !blocks[0].content.trim()) {
+        // Replace single empty block with pasted content
+        replaceAllBlocks(newBlocks);
+      } else if (blocks.length > 0) {
+        insertBlocksAfter(blocks[blocks.length - 1].id, newBlocks);
+      } else {
+        replaceAllBlocks(newBlocks);
+      }
+    }
+    // If it doesn't look like markdown, let the default paste behavior happen
+  }, [readOnly, focusedBlockId, blocks, insertBlocksAfter, replaceAllBlocks, updateBlock]);
+
+  // Handle copy events (copy as markdown)
+  const handleCopy = useCallback((e: ClipboardEvent) => {
+    // First check if we have block-level selection
+    if (selectedBlockIds.size > 0) {
+      e.preventDefault();
+      const selectedBlocks = blocks.filter(b => selectedBlockIds.has(b.id));
+      const markdown = blocksToMarkdown(selectedBlocks);
+      e.clipboardData?.setData('text/plain', markdown);
+      e.clipboardData?.setData('text/markdown', markdown);
+      // Clear selection after copy
+      clearSelection();
+      return;
+    }
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    // Check if we're copying from within the editor
+    const range = selection.getRangeAt(0);
+    if (!editorRef.current?.contains(range.commonAncestorContainer)) return;
+
+    const selectedText = selection.toString();
+    if (!selectedText) return;
+
+    // Find which blocks are involved in the selection by checking if the range intersects each block
+    const intersectedBlocks: Block[] = [];
+    for (const block of blocks) {
+      const blockElement = editorRef.current?.querySelector(`[data-block-id="${block.id}"]`);
+      if (!blockElement) continue;
+
+      // Check if this block intersects with the selection range
+      try {
+        if (range.intersectsNode(blockElement)) {
+          intersectedBlocks.push(block);
+        }
+      } catch {
+        // Fallback: check if selection contains the node
+        if (selection.containsNode(blockElement, true)) {
+          intersectedBlocks.push(block);
+        }
+      }
+    }
+
+    // If multiple blocks are selected, convert to markdown
+    if (intersectedBlocks.length > 1) {
+      e.preventDefault();
+      const markdown = blocksToMarkdown(intersectedBlocks);
+      e.clipboardData?.setData('text/plain', markdown);
+      e.clipboardData?.setData('text/markdown', markdown);
+    }
+    // For single block or no blocks detected, let default behavior happen (copies plain text)
+  }, [blocks, selectedBlockIds, clearSelection]);
+
+  // Copy all content as markdown
+  const handleCopyAll = useCallback(async () => {
+    const markdown = blocksToMarkdown(blocks);
+    await navigator.clipboard.writeText(markdown);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [blocks]);
+
+  // Attach paste and copy handlers
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    editor.addEventListener('paste', handlePaste);
+    editor.addEventListener('copy', handleCopy);
+
+    return () => {
+      editor.removeEventListener('paste', handlePaste);
+      editor.removeEventListener('copy', handleCopy);
+    };
+  }, [handlePaste, handleCopy]);
+
+  // Get block ID from an element (walks up the DOM tree)
+  const getBlockIdFromElement = useCallback((element: Element | null): string | null => {
+    while (element && element !== editorRef.current) {
+      if (element.hasAttribute('data-block-id')) {
+        return element.getAttribute('data-block-id');
+      }
+      element = element.parentElement;
+    }
+    return null;
+  }, []);
+
+  // Handle mouse down for drag selection
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    const blockId = getBlockIdFromElement(e.target as Element);
+    if (blockId) {
+      dragStartBlockRef.current = blockId;
+      // Don't set isDragging yet - wait for mousemove to cross block boundary
+    }
+  }, [getBlockIdFromElement]);
+
+  // Handle mouse move for drag selection
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragStartBlockRef.current) return;
+    if (e.buttons !== 1) return; // Only left mouse button
+
+    const currentBlockId = getBlockIdFromElement(e.target as Element);
+    if (currentBlockId && currentBlockId !== dragStartBlockRef.current) {
+      // We've crossed into a different block - start block selection
+      setIsDragging(true);
+      selectBlockRange(dragStartBlockRef.current, currentBlockId);
+    }
+  }, [getBlockIdFromElement, selectBlockRange]);
+
+  // Handle mouse up to end drag selection
+  const handleMouseUp = useCallback(() => {
+    if (isDragging) {
+      // Keep the selection active, but end the drag
+      setIsDragging(false);
+      // Mark that we just finished dragging so click handler doesn't clear selection
+      justFinishedDraggingRef.current = true;
+      // Reset the flag after a short delay (after click event fires)
+      setTimeout(() => {
+        justFinishedDraggingRef.current = false;
+      }, 0);
+    }
+    dragStartBlockRef.current = null;
+  }, [isDragging]);
+
+  // Clear selection on click outside selected blocks (but not right after dragging)
+  const handleEditorClick = useCallback((e: React.MouseEvent) => {
+    // Don't clear selection if we just finished a drag selection
+    if (justFinishedDraggingRef.current) {
+      return;
+    }
+
+    // Close selection menu if open
+    if (selectionMenuOpen) {
+      setSelectionMenuOpen(false);
+    }
+
+    const blockId = getBlockIdFromElement(e.target as Element);
+    // If clicking anywhere, clear the block selection
+    if (selectedBlockIds.size > 0) {
+      clearSelection();
+    }
+    // Focus last block if clicking on empty area
+    if (!focusedBlockId && blocks.length > 0 && !blockId) {
+      setFocusedBlockId(blocks[blocks.length - 1].id);
+    }
+  }, [getBlockIdFromElement, selectedBlockIds, clearSelection, focusedBlockId, blocks, setFocusedBlockId, selectionMenuOpen]);
+
+  // Handle right-click context menu for selected blocks
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    // Only show custom menu if we have selected blocks
+    if (selectedBlockIds.size > 0) {
+      const blockId = getBlockIdFromElement(e.target as Element);
+      // Check if right-clicking on a selected block
+      if (blockId && selectedBlockIds.has(blockId)) {
+        e.preventDefault();
+        setSelectionMenuPosition({ x: e.clientX, y: e.clientY });
+        setSelectionMenuOpen(true);
+      }
+    }
+  }, [selectedBlockIds, getBlockIdFromElement]);
+
+  // Selection menu actions
+  const handleSelectionCopy = useCallback(() => {
+    const selectedBlocks = blocks.filter(b => selectedBlockIds.has(b.id));
+    const markdown = blocksToMarkdown(selectedBlocks);
+    navigator.clipboard.writeText(markdown);
+    clearSelection();
+  }, [blocks, selectedBlockIds, clearSelection]);
+
+  const handleSelectionCut = useCallback(() => {
+    const selectedBlocks = blocks.filter(b => selectedBlockIds.has(b.id));
+    const markdown = blocksToMarkdown(selectedBlocks);
+    navigator.clipboard.writeText(markdown);
+    // Delete all selected blocks (single undo entry)
+    deleteBlocks(Array.from(selectedBlockIds));
+    clearSelection();
+  }, [blocks, selectedBlockIds, deleteBlocks, clearSelection]);
+
+  const handleSelectionDelete = useCallback(() => {
+    // Delete all selected blocks (single undo entry)
+    deleteBlocks(Array.from(selectedBlockIds));
+    clearSelection();
+  }, [selectedBlockIds, deleteBlocks, clearSelection]);
 
   // Handle slash command selection
   const handleSlashSelect = useCallback((type: BlockType) => {
@@ -318,6 +625,7 @@ export function Editor({
     return (
       <div
         key={block.id}
+        data-block-id={block.id}
         className={`
           group relative flex items-start gap-2 py-1
           ${isSelected ? 'bg-[var(--accent-muted)] border-l-[3px] border-[var(--accent-interactive)]' : ''}
@@ -345,12 +653,11 @@ export function Editor({
     <div
       ref={editorRef}
       className={`relative min-h-full ${className}`}
-      onClick={() => {
-        // Click on empty area focuses last block
-        if (!focusedBlockId && blocks.length > 0) {
-          setFocusedBlockId(blocks[blocks.length - 1].id);
-        }
-      }}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onClick={handleEditorClick}
+      onContextMenu={handleContextMenu}
     >
       {/* Editor content area */}
       <div className="max-w-[720px] mx-auto px-24 py-12">
@@ -382,10 +689,38 @@ export function Editor({
         )}
       </div>
 
-      {/* Saving indicator */}
-      {isSaving !== undefined && (
-        <div className="fixed bottom-4 right-4 text-[var(--text-caption)] text-[var(--text-tertiary)]">
-          {isSaving ? 'Saving...' : lastSaved ? `Saved ${formatTime(lastSaved)}` : ''}
+      {/* Bottom toolbar - positioned relative to the editor content, not fixed */}
+      {(showCopyButton || isSaving !== undefined) && (
+        <div className="sticky bottom-4 flex justify-end px-24 pointer-events-none">
+          <div className="flex items-center gap-3 pointer-events-auto">
+            {/* Copy as Markdown button */}
+            {showCopyButton && (
+              <button
+                onClick={handleCopyAll}
+                className="flex items-center gap-2 px-3 py-1.5 text-[var(--text-caption)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] bg-[var(--surface-primary)] border border-[var(--border-default)] transition-colors"
+                title="Copy as Markdown"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-[var(--accent-success)]" />
+                    <span className="text-[var(--accent-success)]">Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy as Markdown</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Saving indicator */}
+            {isSaving !== undefined && (
+              <span className="text-[var(--text-caption)] text-[var(--text-tertiary)]">
+                {isSaving ? 'Saving...' : lastSaved ? `Saved ${formatTime(lastSaved)}` : ''}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -413,6 +748,17 @@ export function Editor({
           onMoveDown={() => moveBlockDown(blockMenuBlockId)}
         />
       )}
+
+      {/* Selection menu (context menu for selected blocks) */}
+      <SelectionMenu
+        isOpen={selectionMenuOpen}
+        position={selectionMenuPosition}
+        onClose={() => setSelectionMenuOpen(false)}
+        onCopy={handleSelectionCopy}
+        onCut={handleSelectionCut}
+        onDelete={handleSelectionDelete}
+        selectedCount={selectedBlockIds.size}
+      />
 
       {/* Formatting toolbar */}
       <FormattingToolbar

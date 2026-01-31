@@ -272,3 +272,202 @@ export function debounce<T extends (...args: never[]) => void>(
 export function createDefaultBlocks(): Block[] {
   return [createBlock('paragraph', '')];
 }
+
+/**
+ * Calculate indentation level from leading spaces/tabs
+ */
+function getIndentLevel(line: string): number {
+  const match = line.match(/^(\s*)/);
+  if (!match) return 0;
+  const spaces = match[1];
+  // Count tabs as 2 spaces, then divide by 2 for indent level
+  const spaceCount = spaces.replace(/\t/g, '  ').length;
+  return Math.floor(spaceCount / 2);
+}
+
+/**
+ * Parse markdown text into blocks with support for nesting and mermaid
+ */
+export function parseMarkdownToBlocks(markdown: string): Block[] {
+  const lines = markdown.split('\n');
+  const blocks: Block[] = [];
+  let inCodeBlock = false;
+  let codeBlockContent: string[] = [];
+  let codeBlockLanguage = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trimStart();
+    const indentLevel = getIndentLevel(line);
+
+    // Handle code blocks (including mermaid)
+    if (trimmedLine.startsWith('```')) {
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeBlockLanguage = trimmedLine.slice(3).trim() || 'plaintext';
+        codeBlockContent = [];
+      } else {
+        // End of code block - check if it's mermaid
+        if (codeBlockLanguage === 'mermaid') {
+          blocks.push(createBlock('mermaid', '', { mermaidCode: codeBlockContent.join('\n') }));
+        } else {
+          blocks.push(createBlock('code', codeBlockContent.join('\n'), { language: codeBlockLanguage }));
+        }
+        inCodeBlock = false;
+        codeBlockLanguage = '';
+        codeBlockContent = [];
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeBlockContent.push(line);
+      continue;
+    }
+
+    // Empty line - skip
+    if (trimmedLine === '') {
+      continue;
+    }
+
+    // Headings
+    if (trimmedLine.startsWith('### ')) {
+      blocks.push(createBlock('heading3', trimmedLine.slice(4)));
+      continue;
+    }
+    if (trimmedLine.startsWith('## ')) {
+      blocks.push(createBlock('heading2', trimmedLine.slice(3)));
+      continue;
+    }
+    if (trimmedLine.startsWith('# ')) {
+      blocks.push(createBlock('heading1', trimmedLine.slice(2)));
+      continue;
+    }
+
+    // Divider
+    if (trimmedLine.match(/^(-{3,}|\*{3,}|_{3,})$/)) {
+      blocks.push(createBlock('divider', ''));
+      continue;
+    }
+
+    // Checkbox / Todo items (with nesting support)
+    if (trimmedLine.match(/^[-*]\s*\[[ x]\]\s/i)) {
+      const isChecked = !!trimmedLine.match(/\[[xX]\]/);
+      const content = trimmedLine.replace(/^[-*]\s*\[[ xX]\]\s*/, '');
+      blocks.push(createBlock('todo', content, { checked: isChecked, indent: indentLevel }));
+      continue;
+    }
+
+    // Bullet list (with nesting support)
+    if (trimmedLine.match(/^[-*]\s/)) {
+      const content = trimmedLine.slice(2);
+      blocks.push(createBlock('bulletList', content, { indent: indentLevel }));
+      continue;
+    }
+
+    // Numbered list (with nesting support)
+    if (trimmedLine.match(/^\d+\.\s/)) {
+      const content = trimmedLine.replace(/^\d+\.\s/, '');
+      blocks.push(createBlock('numberedList', content, { indent: indentLevel }));
+      continue;
+    }
+
+    // Blockquote
+    if (trimmedLine.startsWith('> ')) {
+      blocks.push(createBlock('quote', trimmedLine.slice(2)));
+      continue;
+    }
+
+    // Image
+    const imgMatch = trimmedLine.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (imgMatch) {
+      blocks.push(createBlock('image', '', { alt: imgMatch[1], src: imgMatch[2] }));
+      continue;
+    }
+
+    // Default: paragraph
+    blocks.push(createBlock('paragraph', trimmedLine));
+  }
+
+  // Handle unclosed code block
+  if (inCodeBlock && codeBlockContent.length > 0) {
+    if (codeBlockLanguage === 'mermaid') {
+      blocks.push(createBlock('mermaid', '', { mermaidCode: codeBlockContent.join('\n') }));
+    } else {
+      blocks.push(createBlock('code', codeBlockContent.join('\n'), { language: codeBlockLanguage }));
+    }
+  }
+
+  return blocks.length > 0 ? blocks : [createBlock('paragraph', '')];
+}
+
+/**
+ * Convert blocks to markdown with proper indentation
+ */
+export function blocksToMarkdown(blocks: Block[]): string {
+  let result: string[] = [];
+  let prevWasList = false;
+
+  for (const block of blocks) {
+    const indent = '  '.repeat(block.meta?.indent || 0);
+    const isListItem = ['bulletList', 'numberedList', 'todo'].includes(block.type);
+
+    // Add blank line before non-list items, or when transitioning from list to non-list
+    if (result.length > 0 && (!isListItem || (prevWasList && !isListItem))) {
+      if (!prevWasList || !isListItem) {
+        result.push('');
+      }
+    }
+
+    switch (block.type) {
+      case 'heading1':
+        result.push(`# ${block.content}`);
+        break;
+      case 'heading2':
+        result.push(`## ${block.content}`);
+        break;
+      case 'heading3':
+        result.push(`### ${block.content}`);
+        break;
+      case 'paragraph':
+        result.push(block.content);
+        break;
+      case 'quote':
+        result.push(`> ${block.content}`);
+        break;
+      case 'code':
+        result.push(`\`\`\`${block.meta?.language || ''}\n${block.content}\n\`\`\``);
+        break;
+      case 'bulletList':
+        result.push(`${indent}- ${block.content}`);
+        break;
+      case 'numberedList':
+        result.push(`${indent}1. ${block.content}`);
+        break;
+      case 'todo':
+        result.push(`${indent}- [${block.meta?.checked ? 'x' : ' '}] ${block.content}`);
+        break;
+      case 'divider':
+        result.push('---');
+        break;
+      case 'image':
+        result.push(`![${block.meta?.alt || ''}](${block.meta?.src || ''})`);
+        break;
+      case 'callout':
+        result.push(`> **${block.meta?.calloutType || 'info'}:** ${block.content}`);
+        break;
+      case 'toggle':
+        result.push(`<details>\n<summary>${block.content}</summary>\n${block.children ? blocksToMarkdown(block.children) : ''}\n</details>`);
+        break;
+      case 'mermaid':
+        result.push(`\`\`\`mermaid\n${block.meta?.mermaidCode || block.content}\n\`\`\``);
+        break;
+      default:
+        result.push(block.content);
+    }
+
+    prevWasList = isListItem;
+  }
+
+  return result.join('\n');
+}

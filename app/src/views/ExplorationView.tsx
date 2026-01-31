@@ -870,6 +870,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
                     title: s.title,
                     imagePath: getAssetUrl(s.image_path) || ''
                   }))}
+                  showCopyButton
                 />
               </div>
 

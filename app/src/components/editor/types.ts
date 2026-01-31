@@ -106,6 +106,8 @@ export interface EditorProps {
   autoFocus?: boolean;
   className?: string;
   screenshots?: EditorScreenshot[];
+  /** Show copy as markdown button */
+  showCopyButton?: boolean;
 }
 
 export interface BlockProps {
