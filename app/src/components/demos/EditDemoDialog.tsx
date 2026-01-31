@@ -3,23 +3,27 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 
-interface NewDemoDialogProps {
-  appId: string;
+interface EditDemoDialogProps {
+  demoId: string;
+  currentName: string;
   onClose: () => void;
-  onCreate: (name: string) => void;
+  onSave: (name: string) => void;
 }
 
-export function NewDemoDialog({ appId: _appId, onClose, onCreate }: NewDemoDialogProps) {
-  const [name, setName] = useState("My Demo");
+export function EditDemoDialog({ demoId: _demoId, currentName, onClose, onSave }: EditDemoDialogProps) {
+  const [name, setName] = useState(currentName);
 
-  const handleCreate = () => {
+  const handleSave = () => {
     if (!name.trim()) return;
-    onCreate(name.trim());
+    onSave(name.trim());
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && name.trim()) {
-      handleCreate();
+      handleSave();
+    }
+    if (e.key === "Escape") {
+      onClose();
     }
   };
 
@@ -33,7 +37,7 @@ export function NewDemoDialog({ appId: _appId, onClose, onCreate }: NewDemoDialo
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-[var(--border-default)]">
-          <h3 className="font-semibold text-[var(--text-primary)]">New Demo</h3>
+          <h3 className="font-semibold text-[var(--text-primary)]">Edit Demo</h3>
           <button
             onClick={onClose}
             className="p-1 hover:bg-[var(--surface-hover)] text-[var(--text-secondary)]"
@@ -65,11 +69,11 @@ export function NewDemoDialog({ appId: _appId, onClose, onCreate }: NewDemoDialo
             Cancel
           </button>
           <button
-            onClick={handleCreate}
-            disabled={!name.trim()}
+            onClick={handleSave}
+            disabled={!name.trim() || name.trim() === currentName}
             className="flex-1 h-10 bg-[var(--text-primary)] text-[var(--text-inverse)] font-medium hover:opacity-90 disabled:opacity-50"
           >
-            Create
+            Save
           </button>
         </div>
       </div>

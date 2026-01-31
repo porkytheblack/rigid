@@ -79,6 +79,14 @@ export default function App() {
           demoId={route.demoId}
         />
       );
+    case "demo-video-editor":
+      return (
+        <DemoEditorView
+          appId={route.appId}
+          demoId={route.demoId}
+          videoId={route.videoId}
+        />
+      );
     case "settings":
       return <SettingsView />;
     default:

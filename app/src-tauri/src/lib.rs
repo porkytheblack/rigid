@@ -343,6 +343,12 @@ pub fn run() {
             commands::demo_screenshots_list_with_data,
             commands::demo_screenshots_add,
             commands::demo_screenshots_remove,
+            // Demo video commands
+            commands::demo_videos_list,
+            commands::demo_videos_get,
+            commands::demo_videos_create,
+            commands::demo_videos_update,
+            commands::demo_videos_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

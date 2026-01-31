@@ -42,6 +42,7 @@ import {
   recordings as recordingsApi,
   demoRecordings as demoRecordingsApi,
   demoScreenshots as demoScreenshotsApi,
+  demoVideos as demoVideosApi,
   type AudioDevice,
   type WebcamAudioDevice,
   type WebcamVideoDevice,
@@ -52,9 +53,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { copyFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
-import type { Demo, DemoFormat, Recording, Screenshot } from "@/lib/tauri/types";
+import type { Demo, DemoFormat, DemoVideo, Recording, Screenshot } from "@/lib/tauri/types";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
+import { EditDemoDialog } from "@/components/demos/EditDemoDialog";
+import { CreateVideoDialog } from "@/components/demos/CreateVideoDialog";
 
 type Tab = "recordings" | "screenshots" | "videos";
 type PickerMode = "screenshot" | "recording";
@@ -93,18 +96,16 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     delete: deleteScreenshot,
   } = useScreenshotsStore();
   const {
-    items: demos,
     loadByApp: loadDemos,
     getById: getDemoById,
-    create: createDemo,
     update: updateDemo,
-    delete: deleteDemo,
   } = useDemosStore();
   const { items: settings, load: loadSettings } = useSettingsStore();
 
-  // Demo-specific recordings and screenshots (linked to this demo)
+  // Demo-specific recordings, screenshots, and videos (linked to this demo)
   const [demoRecordings, setDemoRecordings] = useState<Recording[]>([]);
   const [demoScreenshots, setDemoScreenshots] = useState<Screenshot[]>([]);
+  const [demoVideosList, setDemoVideosList] = useState<DemoVideo[]>([]);
   const [loadingDemoMedia, setLoadingDemoMedia] = useState(false);
 
   // Available recordings/screenshots for this app (to add to demo)
@@ -142,6 +143,8 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
   const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>("none");
   const [showCursorInRecording, setShowCursorInRecording] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showEditDemoModal, setShowEditDemoModal] = useState(false);
+  const [showCreateVideoModal, setShowCreateVideoModal] = useState(false);
   const [recordWithWebcam, setRecordWithWebcam] = useState(false);
   const [webcamAudioDevices, setWebcamAudioDevices] = useState<WebcamAudioDevice[]>([]);
   const [selectedWebcamAudioDevice, setSelectedWebcamAudioDevice] = useState<string>("0");
@@ -165,17 +168,19 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     }
   }, [appId, loadRecordings, loadScreenshots, loadDemos]);
 
-  // Load demo-specific recordings and screenshots
+  // Load demo-specific recordings, screenshots, and videos
   const loadDemoMedia = useCallback(async () => {
     if (!demoId) return;
     setLoadingDemoMedia(true);
     try {
-      const [recordings, screenshots] = await Promise.all([
+      const [recordings, screenshots, videos] = await Promise.all([
         demoRecordingsApi.listWithData(demoId),
         demoScreenshotsApi.listWithData(demoId),
+        demoVideosApi.list(demoId),
       ]);
       setDemoRecordings(recordings);
       setDemoScreenshots(screenshots);
+      setDemoVideosList(videos);
     } catch (err) {
       console.error("Failed to load demo media:", err);
     } finally {
@@ -691,37 +696,67 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     }
   };
 
-  // Create a new demo video
-  const handleCreateDemoVideo = async () => {
+  // Show modal to create a new video
+  const handleCreateDemoVideo = () => {
+    setShowCreateVideoModal(true);
+  };
+
+  // Create a video record and navigate to the editor
+  const handleVideoCreate = async (name: string, format: DemoFormat, width: number, height: number) => {
     try {
-      const newDemo = await createDemo({
-        app_id: appId,
-        name: `Demo Video ${demos.filter((d: Demo) => d.app_id === appId).length + 1}`,
-        format: "landscape_16_9" as DemoFormat,
-        width: 1920,
-        height: 1080,
-        frame_rate: 60,
+      // Create the video record in the database
+      const video = await demoVideosApi.create({
+        demo_id: demoId,
+        name: name,
+        file_path: "", // Will be set when exported
+        duration_ms: 0, // Will be updated when exported
+        width: width,
+        height: height,
+        format: format === "youtube" || format === "youtube_4k" ? "mp4" : "mp4",
       });
-      // Navigate to the demo editor
-      navigate({ name: "demo-editor", appId, demoId: newDemo.id });
+
+      setShowCreateVideoModal(false);
+
+      // Navigate to the video editor with the video ID
+      navigate({ name: "demo-video-editor", appId, demoId, videoId: video.id });
     } catch (err) {
-      console.error("Failed to create demo:", err);
+      console.error("Failed to create video:", err);
       addToast({
         type: "error",
         title: "Failed to create video",
-        description: "Could not create a new demo video. Please try again.",
+        description: "Could not create the video. Please try again.",
+      });
+    }
+  };
+
+  // Handle demo edit from modal
+  const handleDemoEdit = async (newName: string) => {
+    try {
+      await updateDemo(demoId, { name: newName });
+      setShowEditDemoModal(false);
+      addToast({
+        type: "success",
+        title: "Demo updated",
+        description: "The demo name has been updated.",
+      });
+    } catch (err) {
+      console.error("Failed to update demo:", err);
+      addToast({
+        type: "error",
+        title: "Failed to update",
+        description: "Could not update the demo. Please try again.",
       });
     }
   };
 
   // Delete a demo video
-  const handleDeleteDemoVideo = async (demoToDelete: Demo) => {
-    if (deletingIds.has(demoToDelete.id)) return;
+  const handleDeleteDemoVideo = async (videoToDelete: DemoVideo) => {
+    if (deletingIds.has(videoToDelete.id)) return;
 
     const confirmed = await confirm({
-      title: "Delete Demo Video",
+      title: "Delete Video",
       description:
-        "Are you sure you want to delete this demo video? This action cannot be undone.",
+        "Are you sure you want to delete this video? This action cannot be undone.",
       confirmLabel: "Delete",
       cancelLabel: "Cancel",
       variant: "destructive",
@@ -729,27 +764,29 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
 
     if (!confirmed) return;
 
-    setDeletingIds((prev: Set<string>) => new Set(prev).add(demoToDelete.id));
+    setDeletingIds((prev: Set<string>) => new Set(prev).add(videoToDelete.id));
     try {
-      await deleteDemo(demoToDelete.id);
+      await demoVideosApi.delete(videoToDelete.id);
       addToast({
         type: "success",
-        title: "Demo deleted",
-        description: "The demo video has been removed.",
+        title: "Video deleted",
+        description: "The video has been removed.",
       });
     } catch (err) {
-      console.error("Failed to delete demo:", err);
+      console.error("Failed to delete video:", err);
       addToast({
         type: "error",
         title: "Failed to delete",
-        description: "Could not delete the demo video. Please try again.",
+        description: "Could not delete the video. Please try again.",
       });
     } finally {
       setDeletingIds((prev: Set<string>) => {
         const next = new Set(prev);
-        next.delete(demoToDelete.id);
+        next.delete(videoToDelete.id);
         return next;
       });
+      // Reload the demo media to refresh the list
+      loadDemoMedia();
     }
   };
 
@@ -812,9 +849,6 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     (r) => r.recording_path && (r.status === "completed" || r.status === "recording")
   );
 
-  // Filter demos for this app
-  const appDemos = demos.filter((d: Demo) => d.app_id === appId);
-
   const navItems = [
     {
       id: "recordings" as Tab,
@@ -832,7 +866,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
       id: "videos" as Tab,
       icon: Video,
       label: "Videos",
-      count: appDemos.length,
+      count: demoVideosList.length,
     },
   ];
 
@@ -893,7 +927,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                     {demo?.name || "Demo"}
                   </span>
                   <button
-                    onClick={handleStartEditingDemoName}
+                    onClick={() => setShowEditDemoModal(true)}
                     className="p-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--surface-hover)] text-[var(--text-tertiary)] transition-opacity"
                   >
                     <Pencil className="w-3 h-3" />
@@ -1277,46 +1311,53 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                   </button>
                 </div>
 
-                {appDemos.length === 0 ? (
+                {demoVideosList.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
                     <Film className="w-12 h-12 text-[var(--text-tertiary)] mb-4" />
                     <h3 className="text-[var(--text-body-md)] font-medium text-[var(--text-primary)] mb-2">
-                      No demo videos yet
+                      No videos yet
                     </h3>
                     <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)] mb-4 max-w-md">
-                      Create demo videos using your recordings and screenshots.
-                      Click &quot;Create Video&quot; to open the video editor.
+                      Create videos by exporting from the demo editor.
+                      Click &quot;Create Video&quot; to open the editor.
                     </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {appDemos.map((demoItem) => {
-                      const isDeleting = deletingIds.has(demoItem.id);
+                    {demoVideosList.map((videoItem) => {
+                      const isDeleting = deletingIds.has(videoItem.id);
                       return (
                         <div
-                          key={demoItem.id}
-                          onClick={() =>
-                            !isDeleting &&
-                            navigate({
-                              name: "demo-editor",
-                              appId,
-                              demoId: demoItem.id,
-                            })
-                          }
+                          key={videoItem.id}
+                          onClick={() => {
+                            if (!isDeleting) {
+                              navigate({ name: "demo-video-editor", appId, demoId, videoId: videoItem.id });
+                            }
+                          }}
                           className={`group relative aspect-video bg-[var(--surface-secondary)] border border-[var(--border-default)] overflow-hidden transition-all ${
                             isDeleting
                               ? "opacity-50 cursor-wait"
                               : "hover:border-[var(--border-strong)] cursor-pointer"
                           }`}
                         >
-                          <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
-                            <Film className="w-8 h-8 text-[var(--text-tertiary)] mb-2" />
-                            <p className="text-[var(--text-body-sm)] font-medium text-[var(--text-primary)] text-center truncate max-w-full">
-                              {demoItem.name}
+                          {videoItem.thumbnail_path ? (
+                            <img
+                              src={convertFileSrc(videoItem.thumbnail_path)}
+                              alt={videoItem.name}
+                              className="absolute inset-0 w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <Video className="w-8 h-8 text-[var(--text-tertiary)]" />
+                            </div>
+                          )}
+                          <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/70 to-transparent">
+                            <p className="text-[var(--text-body-sm)] font-medium text-white truncate">
+                              {videoItem.name}
                             </p>
-                            <p className="text-[var(--text-caption)] text-[var(--text-tertiary)]">
-                              {formatDuration(demoItem.duration_ms)} &bull;{" "}
-                              {demoItem.width}x{demoItem.height}
+                            <p className="text-[var(--text-caption)] text-white/70">
+                              {formatDuration(videoItem.duration_ms)} &bull;{" "}
+                              {videoItem.width}x{videoItem.height}
                             </p>
                           </div>
                           {isDeleting && (
@@ -1324,14 +1365,25 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                               <Loader2 className="w-6 h-6 text-white animate-spin" />
                             </div>
                           )}
-                          <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDeleteDemoVideo(demoItem);
+                                navigate({ name: "demo-video-editor", appId, demoId, videoId: videoItem.id });
+                              }}
+                              className="p-1.5 bg-black/50 text-white hover:bg-black/70"
+                              title="Edit video"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteDemoVideo(videoItem);
                               }}
                               disabled={isDeleting}
                               className="p-1.5 bg-black/50 text-white hover:bg-black/70 disabled:cursor-wait"
+                              title="Delete video"
                             >
                               {isDeleting ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1937,6 +1989,25 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit Demo Modal */}
+      {showEditDemoModal && demo && (
+        <EditDemoDialog
+          demoId={demoId}
+          currentName={demo.name}
+          onClose={() => setShowEditDemoModal(false)}
+          onSave={handleDemoEdit}
+        />
+      )}
+
+      {/* Create Video Modal */}
+      {showCreateVideoModal && (
+        <CreateVideoDialog
+          demoId={demoId}
+          onClose={() => setShowCreateVideoModal(false)}
+          onCreate={handleVideoCreate}
+        />
       )}
 
       {/* Screenshot Viewer Modal */}

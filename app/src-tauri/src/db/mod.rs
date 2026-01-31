@@ -6,7 +6,7 @@ use crate::error::TakaError;
 pub type DbPool = SqlitePool;
 
 const SCHEMA: &str = include_str!("schema.sql");
-const CURRENT_VERSION: i32 = 12;
+const CURRENT_VERSION: i32 = 13;
 
 /// Initialize the database connection and run migrations
 pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, TakaError> {
@@ -118,8 +118,12 @@ async fn run_migrations(pool: &DbPool) -> Result<(), TakaError> {
             run_v10_to_v11_migration(pool).await?;
             run_v11_to_v12_migration(pool).await?;
         } else if current_version == 11 {
-            // Run v11 to v12 migration only (add demo_pan_clips table)
+            // Run v11 to v12, then v12 to v13
             run_v11_to_v12_migration(pool).await?;
+            run_v12_to_v13_migration(pool).await?;
+        } else if current_version == 12 {
+            // Run v12 to v13 migration only (add demo_videos table)
+            run_v12_to_v13_migration(pool).await?;
         } else {
             // Fresh install or from v1 - apply full schema
             for statement in SCHEMA.split(';') {
@@ -827,6 +831,40 @@ async fn run_v11_to_v12_migration(pool: &DbPool) -> Result<(), TakaError> {
 
     // Create index
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_pan_clips_track ON demo_pan_clips(track_id)")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Migration from v12 to v13: Add demo_videos table
+/// This allows storing exported video outputs for a demo
+async fn run_v12_to_v13_migration(pool: &DbPool) -> Result<(), TakaError> {
+    // Demo videos table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS demo_videos (
+            id TEXT PRIMARY KEY,
+            demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            thumbnail_path TEXT,
+            duration_ms INTEGER NOT NULL,
+            width INTEGER NOT NULL,
+            height INTEGER NOT NULL,
+            file_size INTEGER,
+            format TEXT NOT NULL DEFAULT 'mp4',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Create indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_videos_demo ON demo_videos(demo_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_demo_videos_created ON demo_videos(created_at DESC)")
         .execute(pool)
         .await?;
 

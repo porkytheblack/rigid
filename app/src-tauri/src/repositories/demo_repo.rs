@@ -14,6 +14,7 @@ use crate::models::{
     DemoAsset, NewDemoAsset, UpdateDemoAsset,
     DemoRecording, NewDemoRecording,
     DemoScreenshot, NewDemoScreenshot,
+    DemoVideo, NewDemoVideo, UpdateDemoVideo,
     Recording, Screenshot,
 };
 
@@ -994,6 +995,92 @@ impl DemoRepository {
         sqlx::query("DELETE FROM demo_screenshots WHERE demo_id = ? AND screenshot_id = ?")
             .bind(demo_id)
             .bind(screenshot_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Demo Videos (exported video outputs) ============
+
+    pub async fn list_demo_videos(&self, demo_id: &str) -> Result<Vec<DemoVideo>, TakaError> {
+        Ok(sqlx::query_as::<_, DemoVideo>(
+            "SELECT * FROM demo_videos WHERE demo_id = ? ORDER BY created_at DESC"
+        )
+        .bind(demo_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn get_demo_video(&self, id: &str) -> Result<DemoVideo, TakaError> {
+        sqlx::query_as::<_, DemoVideo>("SELECT * FROM demo_videos WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn create_demo_video(&self, new: NewDemoVideo) -> Result<DemoVideo, TakaError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let format = new.format.unwrap_or_else(|| "mp4".to_string());
+
+        sqlx::query(
+            "INSERT INTO demo_videos (id, demo_id, name, file_path, thumbnail_path, duration_ms, width, height, file_size, format, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.demo_id)
+        .bind(&new.name)
+        .bind(&new.file_path)
+        .bind(&new.thumbnail_path)
+        .bind(new.duration_ms)
+        .bind(new.width)
+        .bind(new.height)
+        .bind(new.file_size)
+        .bind(&format)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, DemoVideo>("SELECT * FROM demo_videos WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_demo_video(&self, id: &str, updates: UpdateDemoVideo) -> Result<DemoVideo, TakaError> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "UPDATE demo_videos SET
+                name = COALESCE(?, name),
+                file_path = COALESCE(?, file_path),
+                thumbnail_path = COALESCE(?, thumbnail_path),
+                duration_ms = COALESCE(?, duration_ms),
+                updated_at = ?
+             WHERE id = ?"
+        )
+        .bind(&updates.name)
+        .bind(&updates.file_path)
+        .bind(&updates.thumbnail_path)
+        .bind(&updates.duration_ms)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, DemoVideo>("SELECT * FROM demo_videos WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn delete_demo_video(&self, id: &str) -> Result<(), TakaError> {
+        sqlx::query("DELETE FROM demo_videos WHERE id = ?")
+            .bind(id)
             .execute(&self.pool)
             .await?;
         Ok(())

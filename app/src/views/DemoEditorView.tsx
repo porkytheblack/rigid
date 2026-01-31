@@ -44,8 +44,8 @@ import {
   Move,
 } from "lucide-react";
 import { useRouterStore, useDemosStore, useExportsStore } from "@/lib/stores";
-import { demoRecordings, demoScreenshots } from "@/lib/tauri/commands";
-import type { DemoTrackType, DemoClip, DemoTrack, DemoAsset, DemoBackground, DemoZoomClip, DemoBlurClip, DemoPanClip, Recording, Screenshot, DemoFormat } from "@/lib/tauri/types";
+import { demoRecordings, demoScreenshots, demoVideos } from "@/lib/tauri/commands";
+import type { DemoTrackType, DemoClip, DemoTrack, DemoAsset, DemoBackground, DemoZoomClip, DemoBlurClip, DemoPanClip, Recording, Screenshot, DemoFormat, DemoVideo } from "@/lib/tauri/types";
 import { DEMO_FORMAT_DIMENSIONS } from "@/lib/tauri/types";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -54,6 +54,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 interface DemoEditorViewProps {
   appId: string;
   demoId: string;
+  videoId?: string;
 }
 
 // Format time in mm:ss format
@@ -104,7 +105,7 @@ const backgroundPresets = {
   ],
 };
 
-export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
+export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) {
   const { navigate } = useRouterStore();
   const {
     currentDemo,
@@ -162,6 +163,9 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
   // Get recordings and screenshots linked to this demo
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
+
+  // Current video being edited (when opened from a video)
+  const [currentVideo, setCurrentVideo] = useState<DemoVideo | null>(null);
 
   // Local UI state
   const [showAssets, setShowAssets] = useState(true);
@@ -249,6 +253,15 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
       demoScreenshots.listWithData(demoId).then(setScreenshots).catch(console.error);
     }
   }, [demoId]);
+
+  // Load video data if editing a specific video
+  useEffect(() => {
+    if (videoId) {
+      demoVideos.get(videoId).then(setCurrentVideo).catch(console.error);
+    } else {
+      setCurrentVideo(null);
+    }
+  }, [videoId]);
 
   // Use refs for real-time playback position to avoid triggering effects every frame
   const playbackStateRef = useRef({ currentTimeMs: 0, durationMs: 60000 });
@@ -2237,9 +2250,11 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <span className="font-semibold text-[var(--text-primary)]">{demo.name}</span>
+          <span className="font-semibold text-[var(--text-primary)]">
+            {currentVideo ? currentVideo.name : demo.name}
+          </span>
           <span className="text-[var(--text-caption)] text-[var(--text-tertiary)]">
-            {demo.width} × {demo.height} • {demo.frame_rate}fps
+            {currentVideo ? `${currentVideo.width} × ${currentVideo.height}` : `${demo.width} × ${demo.height}`} • {demo.frame_rate}fps
           </span>
         </div>
 
@@ -4143,6 +4158,8 @@ export function DemoEditorView({ appId, demoId }: DemoEditorViewProps) {
           blurClips={blurClips}
           panClips={panClips}
           onClose={() => setShowExportModal(false)}
+          videoId={videoId}
+          videoName={currentVideo?.name}
         />
       )}
 
@@ -5745,6 +5762,8 @@ function ExportModal({
   blurClips,
   panClips,
   onClose,
+  videoId,
+  videoName,
 }: {
   demo: { id: string; name: string; width: number; height: number; frame_rate: number; duration_ms: number };
   background: DemoBackground | null;
@@ -5754,6 +5773,8 @@ function ExportModal({
   blurClips: DemoBlurClip[];
   panClips: DemoPanClip[];
   onClose: () => void;
+  videoId?: string;
+  videoName?: string;
 }) {
   const [format, setFormat] = useState<"mp4" | "webm">("mp4");
   const [quality, setQuality] = useState<"draft" | "good" | "high" | "max">("good");
@@ -5771,6 +5792,56 @@ function ExportModal({
   const hasError = currentExport?.status === 'error' || exportError !== null;
   const errorMessage = currentExport?.error || exportError;
 
+  // Track if we've already saved the video for the current export
+  const [savedVideoId, setSavedVideoId] = useState<string | null>(null);
+
+  // Save or update video record when export completes
+  useEffect(() => {
+    const saveVideoRecord = async () => {
+      if (exportComplete && currentExport?.outputPath && currentExportId && !savedVideoId) {
+        try {
+          if (videoId) {
+            // Update existing video record
+            const video = await demoVideos.update(videoId, {
+              file_path: currentExport.outputPath,
+              duration_ms: demo.duration_ms,
+            });
+            setSavedVideoId(video.id);
+            console.log('Video record updated:', video.id);
+          } else {
+            // Create new video record (when using demo-editor route without videoId)
+            const pathParts = currentExport.outputPath.split('/');
+            const filename = pathParts[pathParts.length - 1] || 'Exported Video';
+            const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+
+            const video = await demoVideos.create({
+              demo_id: demo.id,
+              name: nameWithoutExt,
+              file_path: currentExport.outputPath,
+              duration_ms: demo.duration_ms,
+              width: demo.width,
+              height: demo.height,
+              format: format,
+            });
+            setSavedVideoId(video.id);
+            console.log('Video record created:', video.id);
+          }
+        } catch (err) {
+          console.error('Failed to save video record:', err);
+        }
+      }
+    };
+
+    saveVideoRecord();
+  }, [exportComplete, currentExport?.outputPath, currentExportId, savedVideoId, videoId, demo.id, demo.duration_ms, demo.width, demo.height, format]);
+
+  // Reset saved video ID when starting a new export
+  useEffect(() => {
+    if (currentExportId && !exportComplete) {
+      setSavedVideoId(null);
+    }
+  }, [currentExportId, exportComplete]);
+
   const handleExport = async () => {
     setExportError(null);
 
@@ -5781,7 +5852,8 @@ function ExportModal({
 
       const home = await homeDir();
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const defaultName = `${demo.name || "demo"}_${timestamp}.${format}`;
+      const baseName = videoName || demo.name || "demo";
+      const defaultName = `${baseName}_${timestamp}.${format}`;
 
       const selectedPath = await save({
         defaultPath: `${home}/Downloads/${defaultName}`,

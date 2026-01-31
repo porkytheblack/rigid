@@ -547,3 +547,22 @@ CREATE INDEX IF NOT EXISTS idx_demo_recordings_demo ON demo_recordings(demo_id);
 CREATE INDEX IF NOT EXISTS idx_demo_recordings_recording ON demo_recordings(recording_id);
 CREATE INDEX IF NOT EXISTS idx_demo_screenshots_demo ON demo_screenshots(demo_id);
 CREATE INDEX IF NOT EXISTS idx_demo_screenshots_screenshot ON demo_screenshots(screenshot_id);
+
+-- Demo videos (exported video outputs for a demo)
+CREATE TABLE IF NOT EXISTS demo_videos (
+    id TEXT PRIMARY KEY,
+    demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    thumbnail_path TEXT,
+    duration_ms INTEGER NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    file_size INTEGER,
+    format TEXT NOT NULL DEFAULT 'mp4', -- mp4, webm, etc.
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_demo_videos_demo ON demo_videos(demo_id);
+CREATE INDEX IF NOT EXISTS idx_demo_videos_created ON demo_videos(created_at DESC);

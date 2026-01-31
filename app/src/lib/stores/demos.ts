@@ -587,25 +587,35 @@ export const useDemosStore = create<DemosStore>()(
 
         // Save background if exists
         if (currentDemo.background) {
+          const backgroundData = {
+            background_type: currentDemo.background.background_type,
+            color: currentDemo.background.color,
+            gradient_stops: currentDemo.background.gradient_stops,
+            gradient_direction: currentDemo.background.gradient_direction,
+            gradient_angle: currentDemo.background.gradient_angle,
+            pattern_type: currentDemo.background.pattern_type,
+            pattern_color: currentDemo.background.pattern_color,
+            pattern_scale: currentDemo.background.pattern_scale,
+            media_path: currentDemo.background.media_path,
+            media_scale: currentDemo.background.media_scale,
+            media_position_x: currentDemo.background.media_position_x,
+            media_position_y: currentDemo.background.media_position_y,
+            image_url: currentDemo.background.image_url,
+            image_attribution: currentDemo.background.image_attribution,
+          };
           try {
-            await demoBackgroundsApi.update(currentDemo.background.id, {
-              background_type: currentDemo.background.background_type,
-              color: currentDemo.background.color,
-              gradient_stops: currentDemo.background.gradient_stops,
-              gradient_angle: currentDemo.background.gradient_angle,
-              pattern_type: currentDemo.background.pattern_type,
-              pattern_scale: currentDemo.background.pattern_scale,
-            });
+            await demoBackgroundsApi.update(currentDemo.background.id, backgroundData);
           } catch {
             // Background might not exist yet, try to create it
-            await demoBackgroundsApi.create({
+            const createdBackground = await demoBackgroundsApi.create({
               demo_id: currentDemo.demo.id,
-              background_type: currentDemo.background.background_type,
-              color: currentDemo.background.color,
-              gradient_stops: currentDemo.background.gradient_stops,
-              gradient_angle: currentDemo.background.gradient_angle,
-              pattern_type: currentDemo.background.pattern_type,
-              pattern_scale: currentDemo.background.pattern_scale,
+              ...backgroundData,
+            });
+            // Update local state with the server-generated ID
+            set((state) => {
+              if (state.currentDemo) {
+                state.currentDemo.background = createdBackground;
+              }
             });
           }
         }
@@ -919,8 +929,10 @@ export const useDemosStore = create<DemosStore>()(
       if (!get().currentDemo) return;
       get().pushHistory('Set background');
 
+      const existingBackground = get().currentDemo?.background;
       const newBackground: DemoBackground = {
-        id: generateId(),
+        // Preserve existing ID if updating, otherwise generate new one
+        id: existingBackground?.id ?? generateId(),
         demo_id: background.demo_id,
         background_type: background.background_type,
         color: background.color ?? null,
@@ -936,7 +948,8 @@ export const useDemosStore = create<DemosStore>()(
         media_position_y: background.media_position_y ?? null,
         image_url: background.image_url ?? null,
         image_attribution: background.image_attribution ?? null,
-        created_at: new Date().toISOString(),
+        // Preserve existing created_at if updating
+        created_at: existingBackground?.created_at ?? new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
 

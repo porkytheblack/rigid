@@ -104,6 +104,9 @@ import type {
   NewDemoRecording,
   DemoScreenshot,
   NewDemoScreenshot,
+  DemoVideo,
+  NewDemoVideo,
+  UpdateDemoVideo,
 } from './types';
 
 // =============================================================================
@@ -1347,6 +1350,14 @@ export const demoScreenshots = {
   remove: async (demoId: string, screenshotId: string) => await invoke<void>('demo_screenshots_remove', { demoId, screenshotId }),
 };
 
+export const demoVideos = {
+  list: async (demoId: string) => await invoke<DemoVideo[]>('demo_videos_list', { demoId }),
+  get: async (id: string) => await invoke<DemoVideo>('demo_videos_get', { id }),
+  create: async (data: NewDemoVideo) => await invoke<DemoVideo>('demo_videos_create', { data }),
+  update: async (id: string, data: UpdateDemoVideo) => await invoke<DemoVideo>('demo_videos_update', { id, data }),
+  delete: async (id: string) => await invoke<void>('demo_videos_delete', { id }),
+};
+
 export const demoExport = {
   start: async (demoId: string, config: DemoExportConfig) => await invoke<string>('demo_export_start', { demoId, config }),
   progress: async (exportId: string) => await invoke<{ progress: number; status: string }>('demo_export_progress', { exportId }),
@@ -1381,4 +1392,7 @@ export type {
   NewDemoRecording,
   DemoScreenshot,
   NewDemoScreenshot,
+  DemoVideo,
+  NewDemoVideo,
+  UpdateDemoVideo,
 } from './types';

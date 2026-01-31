@@ -908,6 +908,8 @@ export interface UpdateDemoBackground {
   media_scale?: number | null;
   media_position_x?: number | null;
   media_position_y?: number | null;
+  image_url?: string | null;
+  image_attribution?: string | null;
 }
 
 /** Track type in timeline */
@@ -1287,6 +1289,41 @@ export interface NewDemoScreenshot {
   demo_id: string;
   screenshot_id: string;
   sort_order?: number | null;
+}
+
+// Demo Video (exported video output for a demo)
+export interface DemoVideo {
+  id: string;
+  demo_id: string;
+  name: string;
+  file_path: string;
+  thumbnail_path: string | null;
+  duration_ms: number;
+  width: number;
+  height: number;
+  file_size: number | null;
+  format: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDemoVideo {
+  demo_id: string;
+  name: string;
+  file_path: string;
+  thumbnail_path?: string | null;
+  duration_ms: number;
+  width: number;
+  height: number;
+  file_size?: number | null;
+  format?: string | null;
+}
+
+export interface UpdateDemoVideo {
+  name?: string | null;
+  file_path?: string | null;
+  thumbnail_path?: string | null;
+  duration_ms?: number | null;
 }
 
 /** Export quality preset */

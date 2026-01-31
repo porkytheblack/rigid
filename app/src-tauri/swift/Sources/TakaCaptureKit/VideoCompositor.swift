@@ -350,6 +350,16 @@ class CustomVideoCompositor: NSObject, AVVideoCompositing {
                     clipImage = applyCornerRadius(to: clipImage, radius: CGFloat(cornerRadius))
                 }
 
+                // Apply pan effects (per-clip)
+                if let panClips = instruction.panClips {
+                    clipImage = applyPan(
+                        to: clipImage,
+                        clip: clip,
+                        panClips: panClips,
+                        time: compositionTime
+                    )
+                }
+
                 // Apply zoom effects
                 if let zoomClips = instruction.zoomClips {
                     clipImage = applyZoom(
@@ -394,16 +404,6 @@ class CustomVideoCompositor: NSObject, AVVideoCompositing {
                 outputImage = applyBlurEffects(
                     to: outputImage,
                     blurClips: blurClips,
-                    time: compositionTime,
-                    outputSize: outputSize
-                )
-            }
-
-            // Apply pan effects
-            if let panClips = instruction.panClips {
-                outputImage = applyPanEffects(
-                    to: outputImage,
-                    panClips: panClips,
                     time: compositionTime,
                     outputSize: outputSize
                 )
@@ -619,28 +619,92 @@ class CustomVideoCompositor: NSObject, AVVideoCompositing {
                 zoomFactor = zoom.zoomScale - (zoom.zoomScale - 1.0) * easedProgress
             }
 
-            // Apply zoom transform
+            // Apply zoom using FFmpeg approach: scale then crop
             let extent = resultImage.extent
-            let centerX = extent.width * CGFloat(zoom.zoomCenterX / 100.0)
-            let centerY = extent.height * CGFloat(zoom.zoomCenterY / 100.0)
+            let imageWidth = extent.width
+            let imageHeight = extent.height
 
-            // Scale around center point
-            var transform = CGAffineTransform.identity
-            transform = transform.translatedBy(x: centerX, y: centerY)
-            transform = transform.scaledBy(x: CGFloat(zoomFactor), y: CGFloat(zoomFactor))
-            transform = transform.translatedBy(x: -centerX, y: -centerY)
+            // Center ratios (0-1)
+            let centerXRatio = CGFloat(zoom.zoomCenterX / 100.0)
+            // Flip Y for Core Image's bottom-left origin: UI y=0 is top, CI y=0 is bottom
+            let centerYRatio = CGFloat((100.0 - zoom.zoomCenterY) / 100.0)
 
-            resultImage = resultImage.transformed(by: transform)
+            // 1. Scale the image (scaling happens from origin)
+            resultImage = resultImage.transformed(by: CGAffineTransform(
+                scaleX: CGFloat(zoomFactor), y: CGFloat(zoomFactor)
+            ))
 
-            // Crop back to original size
-            let cropRect = CGRect(
-                x: centerX * (CGFloat(zoomFactor) - 1),
-                y: centerY * (CGFloat(zoomFactor) - 1),
-                width: extent.width,
-                height: extent.height
-            )
+            // 2. Calculate crop position accounting for scaled extent origin
+            let scaledExtent = resultImage.extent
+            let cropX = scaledExtent.origin.x + imageWidth * (CGFloat(zoomFactor) - 1) * centerXRatio
+            let cropY = scaledExtent.origin.y + imageHeight * (CGFloat(zoomFactor) - 1) * centerYRatio
+
+            // 3. Crop back to original size and translate to origin
+            let cropRect = CGRect(x: cropX, y: cropY, width: imageWidth, height: imageHeight)
             resultImage = resultImage.cropped(to: cropRect)
                 .transformed(by: CGAffineTransform(translationX: -cropRect.origin.x, y: -cropRect.origin.y))
+        }
+
+        return resultImage
+    }
+
+    private func applyPan(to image: CIImage, clip: CompositorClip, panClips: [CompositorPanClip], time: CMTime) -> CIImage {
+        guard let trackId = clip.trackId else { return image }
+
+        let currentSec = CMTimeGetSeconds(time)
+        var resultImage = image
+        let imageSize = image.extent.size
+
+        for pan in panClips where pan.targetTrackId == trackId {
+            let panStartSec = Double(pan.startTimeMs) / 1000.0
+            let panEndSec = panStartSec + Double(pan.durationMs) / 1000.0
+
+            guard currentSec >= panStartSec && currentSec < panEndSec else { continue }
+
+            // Calculate progress with easing
+            let progress = (currentSec - panStartSec) / (panEndSec - panStartSec)
+            let easeInSec = Double(pan.easeInDurationMs) / 1000.0
+            let easeOutSec = Double(pan.easeOutDurationMs) / 1000.0
+
+            var easedProgress = progress
+
+            // Apply ease in
+            if currentSec < panStartSec + easeInSec && easeInSec > 0 {
+                let easeProgress = (currentSec - panStartSec) / easeInSec
+                easedProgress = easeInOutQuad(easeProgress) * (easeInSec / (panEndSec - panStartSec))
+            }
+            // Apply ease out
+            else if currentSec > panEndSec - easeOutSec && easeOutSec > 0 {
+                let easeProgress = (currentSec - (panEndSec - easeOutSec)) / easeOutSec
+                let totalDuration = panEndSec - panStartSec
+                let easeOutRatio = easeOutSec / totalDuration
+                easedProgress = 1.0 - (1.0 - easeInOutQuad(easeProgress)) * easeOutRatio
+            }
+
+            // Interpolate position
+            let currentX = pan.startX + (pan.endX - pan.startX) * easedProgress
+            let currentY = pan.startY + (pan.endY - pan.startY) * easedProgress
+
+            // Scale up and crop to create pan effect (scale factor = 1.5)
+            let scaleFactor: CGFloat = 1.5
+            resultImage = resultImage.transformed(by: CGAffineTransform(
+                scaleX: scaleFactor, y: scaleFactor
+            ))
+
+            // Calculate max pan offset based on the clip's image size
+            let maxOffsetX = imageSize.width * scaleFactor - imageSize.width
+            let maxOffsetY = imageSize.height * scaleFactor - imageSize.height
+
+            // Apple native coordinate formula:
+            // X: position directly maps (0=left, 100=right)
+            // Y: inverted because Core Image has bottom-left origin but user expects top-left
+            //    (0=top -> maxOffset, 100=bottom -> 0)
+            let offsetX = CGFloat(currentX / 100.0) * maxOffsetX
+            let offsetY = CGFloat((100.0 - currentY) / 100.0) * maxOffsetY
+
+            let cropRect = CGRect(x: offsetX, y: offsetY, width: imageSize.width, height: imageSize.height)
+            resultImage = resultImage.cropped(to: cropRect)
+                .transformed(by: CGAffineTransform(translationX: -offsetX, y: -offsetY))
         }
 
         return resultImage
@@ -680,54 +744,6 @@ class CustomVideoCompositor: NSObject, AVVideoCompositing {
             guard let blurredRegion = blurFilter.outputImage?.cropped(to: blurRect) else { continue }
 
             resultImage = blurredRegion.composited(over: resultImage)
-        }
-
-        return resultImage
-    }
-
-    private func applyPanEffects(to image: CIImage, panClips: [CompositorPanClip], time: CMTime, outputSize: CGSize) -> CIImage {
-        let currentSec = CMTimeGetSeconds(time)
-        var resultImage = image
-
-        for pan in panClips.sorted(by: { $0.zIndex < $1.zIndex }) {
-            let panStartSec = Double(pan.startTimeMs) / 1000.0
-            let panEndSec = panStartSec + Double(pan.durationMs) / 1000.0
-
-            guard currentSec >= panStartSec && currentSec < panEndSec else { continue }
-
-            // Calculate progress with easing
-            let progress = (currentSec - panStartSec) / (panEndSec - panStartSec)
-            let easeInSec = Double(pan.easeInDurationMs) / 1000.0
-            let easeOutSec = Double(pan.easeOutDurationMs) / 1000.0
-
-            var easedProgress = progress
-            if currentSec < panStartSec + easeInSec {
-                let easeProgress = (currentSec - panStartSec) / easeInSec
-                easedProgress = easeInOutQuad(easeProgress) * (easeInSec / (panEndSec - panStartSec))
-            } else if currentSec > panEndSec - easeOutSec {
-                let easeProgress = (currentSec - (panEndSec - easeOutSec)) / easeOutSec
-                easedProgress = 1.0 - (1.0 - easeInOutQuad(easeProgress)) * (easeOutSec / (panEndSec - panStartSec))
-            }
-
-            // Interpolate position
-            let currentX = pan.startX + (pan.endX - pan.startX) * easedProgress
-            let currentY = pan.startY + (pan.endY - pan.startY) * easedProgress
-
-            // Scale up and crop to create pan effect
-            let scaleFactor: CGFloat = 1.5
-            resultImage = resultImage.transformed(by: CGAffineTransform(
-                scaleX: scaleFactor, y: scaleFactor
-            ))
-
-            let maxOffsetX = (outputSize.width * scaleFactor - outputSize.width)
-            let maxOffsetY = (outputSize.height * scaleFactor - outputSize.height)
-
-            let offsetX = maxOffsetX * CGFloat((100.0 - currentX) / 100.0)
-            let offsetY = maxOffsetY * CGFloat((100.0 - currentY) / 100.0)
-
-            let cropRect = CGRect(x: offsetX, y: offsetY, width: outputSize.width, height: outputSize.height)
-            resultImage = resultImage.cropped(to: cropRect)
-                .transformed(by: CGAffineTransform(translationX: -offsetX, y: -offsetY))
         }
 
         return resultImage
@@ -1382,10 +1398,12 @@ class VideoCompositorEngine {
             let maxOffsetX = imageSize.width * scaleFactor - imageSize.width
             let maxOffsetY = imageSize.height * scaleFactor - imageSize.height
 
-            // FFmpeg formula: offset = ((100.0 - position) / 100.0) * max_offset
-            let offsetX = CGFloat((100.0 - currentX) / 100.0) * maxOffsetX
-            // For Y: flip for Core Image coordinate system
-            let offsetY = CGFloat(currentY / 100.0) * maxOffsetY
+            // Apple native coordinate formula:
+            // X: position directly maps (0=left, 100=right)
+            // Y: inverted because Core Image has bottom-left origin but user expects top-left
+            //    (0=top -> maxOffset, 100=bottom -> 0)
+            let offsetX = CGFloat(currentX / 100.0) * maxOffsetX
+            let offsetY = CGFloat((100.0 - currentY) / 100.0) * maxOffsetY
 
             let cropRect = CGRect(x: offsetX, y: offsetY, width: imageSize.width, height: imageSize.height)
             resultImage = resultImage.cropped(to: cropRect)
@@ -1424,25 +1442,29 @@ class VideoCompositorEngine {
             }
 
             let extent = resultImage.extent
-            let centerX = extent.width * CGFloat(zoom.zoomCenterX / 100.0)
-            // Flip Y for Core Image's bottom-left origin
-            let centerY = extent.height * CGFloat((100.0 - zoom.zoomCenterY) / 100.0)
+            let imageWidth = extent.width
+            let imageHeight = extent.height
 
-            // Scale around center point
-            var transform = CGAffineTransform.identity
-            transform = transform.translatedBy(x: centerX, y: centerY)
-            transform = transform.scaledBy(x: CGFloat(zoomFactor), y: CGFloat(zoomFactor))
-            transform = transform.translatedBy(x: -centerX, y: -centerY)
+            // Center ratios (0-1) - same as FFmpeg
+            let centerXRatio = CGFloat(zoom.zoomCenterX / 100.0)
+            // Flip Y for Core Image's bottom-left origin: UI y=0 is top, CI y=0 is bottom
+            let centerYRatio = CGFloat((100.0 - zoom.zoomCenterY) / 100.0)
 
-            resultImage = resultImage.transformed(by: transform)
+            // FFmpeg approach: scale up, then crop
+            // 1. Scale the image (scaling happens from origin, so extent origin also scales)
+            resultImage = resultImage.transformed(by: CGAffineTransform(
+                scaleX: CGFloat(zoomFactor), y: CGFloat(zoomFactor)
+            ))
 
-            // Crop back to original size
-            let cropRect = CGRect(
-                x: centerX * (CGFloat(zoomFactor) - 1),
-                y: centerY * (CGFloat(zoomFactor) - 1),
-                width: extent.width,
-                height: extent.height
-            )
+            // 2. Calculate crop position
+            // After scaling, the new extent origin is at (extent.origin.x * zoom, extent.origin.y * zoom)
+            // The crop position is relative to the scaled image
+            let scaledExtent = resultImage.extent
+            let cropX = scaledExtent.origin.x + imageWidth * (CGFloat(zoomFactor) - 1) * centerXRatio
+            let cropY = scaledExtent.origin.y + imageHeight * (CGFloat(zoomFactor) - 1) * centerYRatio
+
+            // 3. Crop back to original size and translate to origin
+            let cropRect = CGRect(x: cropX, y: cropY, width: imageWidth, height: imageHeight)
             resultImage = resultImage.cropped(to: cropRect)
                 .transformed(by: CGAffineTransform(translationX: -cropRect.origin.x, y: -cropRect.origin.y))
         }

@@ -11,6 +11,7 @@ export type Route =
   | { name: 'architecture-diagram-editor'; appId: string; docId: string; diagramId: string }
   | { name: 'demo-view'; appId: string; demoId: string }
   | { name: 'demo-editor'; appId: string; demoId: string }
+  | { name: 'demo-video-editor'; appId: string; demoId: string; videoId: string }
   | { name: 'settings' };
 
 interface RouterState {

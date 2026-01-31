@@ -12,6 +12,7 @@ use crate::models::{
     DemoAsset, NewDemoAsset, UpdateDemoAsset,
     DemoRecording, NewDemoRecording,
     DemoScreenshot, NewDemoScreenshot,
+    DemoVideo, NewDemoVideo, UpdateDemoVideo,
     Recording, Screenshot,
 };
 use crate::repositories::DemoRepository;
@@ -389,4 +390,47 @@ pub async fn demo_screenshots_remove(
     repo: State<'_, DemoRepository>,
 ) -> Result<(), TakaError> {
     repo.remove_demo_screenshot(&demo_id, &screenshot_id).await
+}
+
+// ============ Demo Video Commands ============
+
+#[tauri::command]
+pub async fn demo_videos_list(
+    demo_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<DemoVideo>, TakaError> {
+    repo.list_demo_videos(&demo_id).await
+}
+
+#[tauri::command]
+pub async fn demo_videos_get(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<DemoVideo, TakaError> {
+    repo.get_demo_video(&id).await
+}
+
+#[tauri::command]
+pub async fn demo_videos_create(
+    data: NewDemoVideo,
+    repo: State<'_, DemoRepository>,
+) -> Result<DemoVideo, TakaError> {
+    repo.create_demo_video(data).await
+}
+
+#[tauri::command]
+pub async fn demo_videos_update(
+    id: String,
+    data: UpdateDemoVideo,
+    repo: State<'_, DemoRepository>,
+) -> Result<DemoVideo, TakaError> {
+    repo.update_demo_video(&id, data).await
+}
+
+#[tauri::command]
+pub async fn demo_videos_delete(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), TakaError> {
+    repo.delete_demo_video(&id).await
 }

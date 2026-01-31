@@ -463,6 +463,45 @@ pub struct NewDemoScreenshot {
     pub sort_order: Option<i32>,
 }
 
+// ============ Demo Video (exported video output) ============
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DemoVideo {
+    pub id: String,
+    pub demo_id: String,
+    pub name: String,
+    pub file_path: String,
+    pub thumbnail_path: Option<String>,
+    pub duration_ms: i64,
+    pub width: i32,
+    pub height: i32,
+    pub file_size: Option<i64>,
+    pub format: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NewDemoVideo {
+    pub demo_id: String,
+    pub name: String,
+    pub file_path: String,
+    pub thumbnail_path: Option<String>,
+    pub duration_ms: i64,
+    pub width: i32,
+    pub height: i32,
+    pub file_size: Option<i64>,
+    pub format: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateDemoVideo {
+    pub name: Option<String>,
+    pub file_path: Option<String>,
+    pub thumbnail_path: Option<String>,
+    pub duration_ms: Option<i64>,
+}
+
 // ============ Full Demo With Data ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,8 +3,9 @@
 import { useEffect, useState, useRef } from "react";
 import { ArrowLeft, Plus, Search, Settings, MoreHorizontal, Trash2, Pencil, FileText, CheckCircle, Clock, AlertCircle, X, Command, Compass, BookOpen, Video, Play } from "lucide-react";
 import { useAppsStore, useExplorationsStore, useRouterStore, useArchitectureDocsStore, useDemosStore } from "@/lib/stores";
-import type { NewExploration, NewArchitectureDoc, NewDemo, DemoFormat } from "@/lib/tauri/types";
+import type { NewExploration, NewArchitectureDoc, NewDemo } from "@/lib/tauri/types";
 import { NewDemoDialog } from "@/components/demos/NewDemoDialog";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type ExplorationStatus = "draft" | "in_progress" | "passed" | "failed";
 
@@ -21,6 +22,7 @@ interface AppViewProps {
 
 export function AppView({ appId }: AppViewProps) {
   const { navigate } = useRouterStore();
+  const confirm = useConfirm();
   const { items: apps, load: loadApps, getById: getAppById } = useAppsStore();
   const { items: explorations, loading, loadByApp, create, delete: deleteExploration } = useExplorationsStore();
   const { items: archDocs, loading: archDocsLoading, loadByApp: loadArchDocs, create: createArchDoc, delete: deleteArchDoc } = useArchitectureDocsStore();
@@ -134,9 +136,9 @@ export function AppView({ appId }: AppViewProps) {
     }
   };
 
-  const handleCreateDemo = async (name: string, format: DemoFormat) => {
+  const handleCreateDemo = async (name: string) => {
     try {
-      const demo = await createDemo({ app_id: appId, name, format });
+      const demo = await createDemo({ app_id: appId, name });
       setShowCreateDemoModal(false);
       navigate({ name: "demo-view", appId, demoId: demo.id });
     } catch (err) {
@@ -145,13 +147,21 @@ export function AppView({ appId }: AppViewProps) {
   };
 
   const handleDeleteDemo = async (id: string) => {
-    if (confirm("Delete this demo?")) {
-      try {
-        await deleteDemo(id);
-        setContextMenuDemo(null);
-      } catch (err) {
-        console.error("Failed to delete demo:", err);
-      }
+    const confirmed = await confirm({
+      title: "Delete Demo",
+      description: "Are you sure you want to delete this demo? This action cannot be undone.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      await deleteDemo(id);
+      setContextMenuDemo(null);
+    } catch (err) {
+      console.error("Failed to delete demo:", err);
     }
   };
 
