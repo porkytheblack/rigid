@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{
     Demo, NewDemo, UpdateDemo, DemoFilter, DemoWithData,
     DemoBackground, NewDemoBackground, UpdateDemoBackground,
@@ -23,7 +23,7 @@ use crate::repositories::DemoRepository;
 pub async fn demos_list(
     filter: DemoFilter,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<Demo>, TakaError> {
+) -> Result<Vec<Demo>, RigidError> {
     repo.list(filter).await
 }
 
@@ -31,7 +31,7 @@ pub async fn demos_list(
 pub async fn demos_get(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Demo, TakaError> {
+) -> Result<Demo, RigidError> {
     repo.get(&id).await
 }
 
@@ -39,7 +39,7 @@ pub async fn demos_get(
 pub async fn demos_get_with_data(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoWithData, TakaError> {
+) -> Result<DemoWithData, RigidError> {
     repo.get_with_data(&id).await
 }
 
@@ -47,7 +47,7 @@ pub async fn demos_get_with_data(
 pub async fn demos_create(
     data: NewDemo,
     repo: State<'_, DemoRepository>,
-) -> Result<Demo, TakaError> {
+) -> Result<Demo, RigidError> {
     repo.create(data).await
 }
 
@@ -56,7 +56,7 @@ pub async fn demos_update(
     id: String,
     updates: UpdateDemo,
     repo: State<'_, DemoRepository>,
-) -> Result<Demo, TakaError> {
+) -> Result<Demo, RigidError> {
     repo.update(&id, updates).await
 }
 
@@ -64,7 +64,7 @@ pub async fn demos_update(
 pub async fn demos_delete(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete(&id).await
 }
 
@@ -74,7 +74,7 @@ pub async fn demos_delete(
 pub async fn demo_backgrounds_get(
     demo_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Option<DemoBackground>, TakaError> {
+) -> Result<Option<DemoBackground>, RigidError> {
     repo.get_background(&demo_id).await
 }
 
@@ -82,7 +82,7 @@ pub async fn demo_backgrounds_get(
 pub async fn demo_backgrounds_create(
     data: NewDemoBackground,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoBackground, TakaError> {
+) -> Result<DemoBackground, RigidError> {
     repo.create_background(data).await
 }
 
@@ -91,7 +91,7 @@ pub async fn demo_backgrounds_update(
     id: String,
     updates: UpdateDemoBackground,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoBackground, TakaError> {
+) -> Result<DemoBackground, RigidError> {
     repo.update_background(&id, updates).await
 }
 
@@ -99,7 +99,7 @@ pub async fn demo_backgrounds_update(
 pub async fn demo_backgrounds_delete(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_background(&id).await
 }
 
@@ -109,7 +109,7 @@ pub async fn demo_backgrounds_delete(
 pub async fn demo_tracks_list(
     demo_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<DemoTrack>, TakaError> {
+) -> Result<Vec<DemoTrack>, RigidError> {
     repo.list_tracks(&demo_id).await
 }
 
@@ -117,7 +117,7 @@ pub async fn demo_tracks_list(
 pub async fn demo_tracks_create(
     data: NewDemoTrack,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoTrack, TakaError> {
+) -> Result<DemoTrack, RigidError> {
     repo.create_track(data).await
 }
 
@@ -126,7 +126,7 @@ pub async fn demo_tracks_update(
     id: String,
     updates: UpdateDemoTrack,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoTrack, TakaError> {
+) -> Result<DemoTrack, RigidError> {
     repo.update_track(&id, updates).await
 }
 
@@ -134,7 +134,7 @@ pub async fn demo_tracks_update(
 pub async fn demo_tracks_delete(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_track(&id).await
 }
 
@@ -143,7 +143,7 @@ pub async fn demo_tracks_reorder(
     demo_id: String,
     track_ids: Vec<String>,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.reorder_tracks(&demo_id, track_ids).await
 }
 
@@ -153,7 +153,7 @@ pub async fn demo_tracks_reorder(
 pub async fn demo_clips_list(
     track_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<DemoClip>, TakaError> {
+) -> Result<Vec<DemoClip>, RigidError> {
     repo.list_clips(&track_id).await
 }
 
@@ -161,7 +161,7 @@ pub async fn demo_clips_list(
 pub async fn demo_clips_create(
     data: NewDemoClip,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoClip, TakaError> {
+) -> Result<DemoClip, RigidError> {
     repo.create_clip(data).await
 }
 
@@ -170,7 +170,7 @@ pub async fn demo_clips_update(
     id: String,
     updates: UpdateDemoClip,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoClip, TakaError> {
+) -> Result<DemoClip, RigidError> {
     repo.update_clip(&id, updates).await
 }
 
@@ -178,7 +178,7 @@ pub async fn demo_clips_update(
 pub async fn demo_clips_delete(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_clip(&id).await
 }
 
@@ -188,7 +188,7 @@ pub async fn demo_clips_delete(
 pub async fn demo_zoom_clips_list(
     track_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<DemoZoomClip>, TakaError> {
+) -> Result<Vec<DemoZoomClip>, RigidError> {
     repo.list_zoom_clips(&track_id).await
 }
 
@@ -196,7 +196,7 @@ pub async fn demo_zoom_clips_list(
 pub async fn demo_zoom_clips_create(
     data: NewDemoZoomClip,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoZoomClip, TakaError> {
+) -> Result<DemoZoomClip, RigidError> {
     repo.create_zoom_clip(data).await
 }
 
@@ -205,7 +205,7 @@ pub async fn demo_zoom_clips_update(
     id: String,
     updates: UpdateDemoZoomClip,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoZoomClip, TakaError> {
+) -> Result<DemoZoomClip, RigidError> {
     repo.update_zoom_clip(&id, updates).await
 }
 
@@ -213,7 +213,7 @@ pub async fn demo_zoom_clips_update(
 pub async fn demo_zoom_clips_delete(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_zoom_clip(&id).await
 }
 
@@ -223,7 +223,7 @@ pub async fn demo_zoom_clips_delete(
 pub async fn demo_blur_clips_list(
     track_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<DemoBlurClip>, TakaError> {
+) -> Result<Vec<DemoBlurClip>, RigidError> {
     repo.list_blur_clips(&track_id).await
 }
 
@@ -231,7 +231,7 @@ pub async fn demo_blur_clips_list(
 pub async fn demo_blur_clips_create(
     data: NewDemoBlurClip,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoBlurClip, TakaError> {
+) -> Result<DemoBlurClip, RigidError> {
     repo.create_blur_clip(data).await
 }
 
@@ -240,7 +240,7 @@ pub async fn demo_blur_clips_update(
     id: String,
     updates: UpdateDemoBlurClip,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoBlurClip, TakaError> {
+) -> Result<DemoBlurClip, RigidError> {
     repo.update_blur_clip(&id, updates).await
 }
 
@@ -248,7 +248,7 @@ pub async fn demo_blur_clips_update(
 pub async fn demo_blur_clips_delete(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_blur_clip(&id).await
 }
 
@@ -258,7 +258,7 @@ pub async fn demo_blur_clips_delete(
 pub async fn demo_pan_clips_list(
     track_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<DemoPanClip>, TakaError> {
+) -> Result<Vec<DemoPanClip>, RigidError> {
     repo.list_pan_clips(&track_id).await
 }
 
@@ -266,7 +266,7 @@ pub async fn demo_pan_clips_list(
 pub async fn demo_pan_clips_create(
     data: NewDemoPanClip,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoPanClip, TakaError> {
+) -> Result<DemoPanClip, RigidError> {
     repo.create_pan_clip(data).await
 }
 
@@ -275,7 +275,7 @@ pub async fn demo_pan_clips_update(
     id: String,
     updates: UpdateDemoPanClip,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoPanClip, TakaError> {
+) -> Result<DemoPanClip, RigidError> {
     repo.update_pan_clip(&id, updates).await
 }
 
@@ -283,7 +283,7 @@ pub async fn demo_pan_clips_update(
 pub async fn demo_pan_clips_delete(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_pan_clip(&id).await
 }
 
@@ -293,7 +293,7 @@ pub async fn demo_pan_clips_delete(
 pub async fn demo_assets_list(
     demo_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<DemoAsset>, TakaError> {
+) -> Result<Vec<DemoAsset>, RigidError> {
     repo.list_assets(&demo_id).await
 }
 
@@ -301,7 +301,7 @@ pub async fn demo_assets_list(
 pub async fn demo_assets_create(
     data: NewDemoAsset,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoAsset, TakaError> {
+) -> Result<DemoAsset, RigidError> {
     repo.create_asset(data).await
 }
 
@@ -310,7 +310,7 @@ pub async fn demo_assets_update(
     id: String,
     updates: UpdateDemoAsset,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoAsset, TakaError> {
+) -> Result<DemoAsset, RigidError> {
     repo.update_asset(&id, updates).await
 }
 
@@ -318,7 +318,7 @@ pub async fn demo_assets_update(
 pub async fn demo_assets_delete(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_asset(&id).await
 }
 
@@ -328,7 +328,7 @@ pub async fn demo_assets_delete(
 pub async fn demo_recordings_list(
     demo_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<DemoRecording>, TakaError> {
+) -> Result<Vec<DemoRecording>, RigidError> {
     repo.list_demo_recordings(&demo_id).await
 }
 
@@ -336,7 +336,7 @@ pub async fn demo_recordings_list(
 pub async fn demo_recordings_list_with_data(
     demo_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<Recording>, TakaError> {
+) -> Result<Vec<Recording>, RigidError> {
     repo.list_demo_recordings_with_data(&demo_id).await
 }
 
@@ -344,7 +344,7 @@ pub async fn demo_recordings_list_with_data(
 pub async fn demo_recordings_add(
     data: NewDemoRecording,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoRecording, TakaError> {
+) -> Result<DemoRecording, RigidError> {
     repo.add_demo_recording(data).await
 }
 
@@ -353,7 +353,7 @@ pub async fn demo_recordings_remove(
     demo_id: String,
     recording_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.remove_demo_recording(&demo_id, &recording_id).await
 }
 
@@ -363,7 +363,7 @@ pub async fn demo_recordings_remove(
 pub async fn demo_screenshots_list(
     demo_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<DemoScreenshot>, TakaError> {
+) -> Result<Vec<DemoScreenshot>, RigidError> {
     repo.list_demo_screenshots(&demo_id).await
 }
 
@@ -371,7 +371,7 @@ pub async fn demo_screenshots_list(
 pub async fn demo_screenshots_list_with_data(
     demo_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<Screenshot>, TakaError> {
+) -> Result<Vec<Screenshot>, RigidError> {
     repo.list_demo_screenshots_with_data(&demo_id).await
 }
 
@@ -379,7 +379,7 @@ pub async fn demo_screenshots_list_with_data(
 pub async fn demo_screenshots_add(
     data: NewDemoScreenshot,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoScreenshot, TakaError> {
+) -> Result<DemoScreenshot, RigidError> {
     repo.add_demo_screenshot(data).await
 }
 
@@ -388,7 +388,7 @@ pub async fn demo_screenshots_remove(
     demo_id: String,
     screenshot_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.remove_demo_screenshot(&demo_id, &screenshot_id).await
 }
 
@@ -398,7 +398,7 @@ pub async fn demo_screenshots_remove(
 pub async fn demo_videos_list(
     demo_id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<Vec<DemoVideo>, TakaError> {
+) -> Result<Vec<DemoVideo>, RigidError> {
     repo.list_demo_videos(&demo_id).await
 }
 
@@ -406,7 +406,7 @@ pub async fn demo_videos_list(
 pub async fn demo_videos_get(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoVideo, TakaError> {
+) -> Result<DemoVideo, RigidError> {
     repo.get_demo_video(&id).await
 }
 
@@ -414,7 +414,7 @@ pub async fn demo_videos_get(
 pub async fn demo_videos_create(
     data: NewDemoVideo,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoVideo, TakaError> {
+) -> Result<DemoVideo, RigidError> {
     repo.create_demo_video(data).await
 }
 
@@ -423,7 +423,7 @@ pub async fn demo_videos_update(
     id: String,
     data: UpdateDemoVideo,
     repo: State<'_, DemoRepository>,
-) -> Result<DemoVideo, TakaError> {
+) -> Result<DemoVideo, RigidError> {
     repo.update_demo_video(&id, data).await
 }
 
@@ -431,6 +431,6 @@ pub async fn demo_videos_update(
 pub async fn demo_videos_delete(
     id: String,
     repo: State<'_, DemoRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_demo_video(&id).await
 }

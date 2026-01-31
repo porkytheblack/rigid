@@ -62,9 +62,9 @@ fn build_swift_library() {
     // Also try the simpler path structure
     let alt_swift_build_dir = swift_dir.join(".build").join(configuration);
 
-    let lib_path = if swift_build_dir.join("libTakaCaptureKit.a").exists() {
+    let lib_path = if swift_build_dir.join("libRigidCaptureKit.a").exists() {
         swift_build_dir
-    } else if alt_swift_build_dir.join("libTakaCaptureKit.a").exists() {
+    } else if alt_swift_build_dir.join("libRigidCaptureKit.a").exists() {
         alt_swift_build_dir
     } else {
         // Try to find the library
@@ -72,7 +72,7 @@ fn build_swift_library() {
             .args([
                 swift_dir.join(".build").to_str().unwrap(),
                 "-name",
-                "libTakaCaptureKit.a",
+                "libRigidCaptureKit.a",
                 "-type",
                 "f",
             ])
@@ -84,7 +84,7 @@ fn build_swift_library() {
             PathBuf::from(path).parent().unwrap().to_path_buf()
         } else {
             panic!(
-                "Could not find libTakaCaptureKit.a in {:?}",
+                "Could not find libRigidCaptureKit.a in {:?}",
                 swift_dir.join(".build")
             );
         }
@@ -94,7 +94,7 @@ fn build_swift_library() {
 
     // Link the Swift library
     println!("cargo:rustc-link-search=native={}", lib_path.display());
-    println!("cargo:rustc-link-lib=static=TakaCaptureKit");
+    println!("cargo:rustc-link-lib=static=RigidCaptureKit");
 
     // Link required macOS frameworks
     println!("cargo:rustc-link-lib=framework=ScreenCaptureKit");

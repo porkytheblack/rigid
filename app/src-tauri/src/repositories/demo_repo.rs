@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{
     Demo, NewDemo, UpdateDemo, DemoFilter, DemoWithData,
     DemoBackground, NewDemoBackground, UpdateDemoBackground,
@@ -30,7 +30,7 @@ impl DemoRepository {
 
     // ============ Demo CRUD ============
 
-    pub async fn create(&self, new: NewDemo) -> Result<Demo, TakaError> {
+    pub async fn create(&self, new: NewDemo) -> Result<Demo, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -63,18 +63,18 @@ impl DemoRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<Demo, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<Demo, RigidError> {
         sqlx::query_as::<_, Demo>("SELECT * FROM demos WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "Demo".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn get_with_data(&self, id: &str) -> Result<DemoWithData, TakaError> {
+    pub async fn get_with_data(&self, id: &str) -> Result<DemoWithData, RigidError> {
         let demo = self.get(id).await?;
         let background = self.get_background(id).await?;
         let tracks = self.list_tracks(id).await?;
@@ -116,7 +116,7 @@ impl DemoRepository {
         })
     }
 
-    pub async fn list(&self, filter: DemoFilter) -> Result<Vec<Demo>, TakaError> {
+    pub async fn list(&self, filter: DemoFilter) -> Result<Vec<Demo>, RigidError> {
         let mut query = "SELECT * FROM demos".to_string();
         let mut conditions = Vec::new();
 
@@ -144,7 +144,7 @@ impl DemoRepository {
         Ok(q.fetch_all(&self.pool).await?)
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateDemo) -> Result<Demo, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateDemo) -> Result<Demo, RigidError> {
         self.get(id).await?;
         let now = Utc::now().to_rfc3339();
 
@@ -177,14 +177,14 @@ impl DemoRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM demos WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "Demo".into(),
                 id: id.into(),
             });
@@ -195,14 +195,14 @@ impl DemoRepository {
 
     // ============ Background CRUD ============
 
-    pub async fn get_background(&self, demo_id: &str) -> Result<Option<DemoBackground>, TakaError> {
+    pub async fn get_background(&self, demo_id: &str) -> Result<Option<DemoBackground>, RigidError> {
         Ok(sqlx::query_as::<_, DemoBackground>("SELECT * FROM demo_backgrounds WHERE demo_id = ?")
             .bind(demo_id)
             .fetch_optional(&self.pool)
             .await?)
     }
 
-    pub async fn create_background(&self, new: NewDemoBackground) -> Result<DemoBackground, TakaError> {
+    pub async fn create_background(&self, new: NewDemoBackground) -> Result<DemoBackground, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -238,7 +238,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn update_background(&self, id: &str, updates: UpdateDemoBackground) -> Result<DemoBackground, TakaError> {
+    pub async fn update_background(&self, id: &str, updates: UpdateDemoBackground) -> Result<DemoBackground, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -286,7 +286,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn delete_background(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_background(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_backgrounds WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -296,7 +296,7 @@ impl DemoRepository {
 
     // ============ Track CRUD ============
 
-    pub async fn list_tracks(&self, demo_id: &str) -> Result<Vec<DemoTrack>, TakaError> {
+    pub async fn list_tracks(&self, demo_id: &str) -> Result<Vec<DemoTrack>, RigidError> {
         Ok(sqlx::query_as::<_, DemoTrack>(
             "SELECT * FROM demo_tracks WHERE demo_id = ? ORDER BY sort_order ASC"
         )
@@ -305,7 +305,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn create_track(&self, new: NewDemoTrack) -> Result<DemoTrack, TakaError> {
+    pub async fn create_track(&self, new: NewDemoTrack) -> Result<DemoTrack, RigidError> {
         // Use provided ID or generate new one
         let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
@@ -344,7 +344,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn update_track(&self, id: &str, updates: UpdateDemoTrack) -> Result<DemoTrack, TakaError> {
+    pub async fn update_track(&self, id: &str, updates: UpdateDemoTrack) -> Result<DemoTrack, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -378,7 +378,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn delete_track(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_track(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_tracks WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -386,7 +386,7 @@ impl DemoRepository {
         Ok(())
     }
 
-    pub async fn reorder_tracks(&self, _demo_id: &str, track_ids: Vec<String>) -> Result<(), TakaError> {
+    pub async fn reorder_tracks(&self, _demo_id: &str, track_ids: Vec<String>) -> Result<(), RigidError> {
         for (i, id) in track_ids.iter().enumerate() {
             sqlx::query("UPDATE demo_tracks SET sort_order = ? WHERE id = ?")
                 .bind(i as i32)
@@ -399,7 +399,7 @@ impl DemoRepository {
 
     // ============ Clip CRUD ============
 
-    pub async fn list_clips(&self, track_id: &str) -> Result<Vec<DemoClip>, TakaError> {
+    pub async fn list_clips(&self, track_id: &str) -> Result<Vec<DemoClip>, RigidError> {
         Ok(sqlx::query_as::<_, DemoClip>(
             "SELECT * FROM demo_clips WHERE track_id = ? ORDER BY start_time_ms ASC"
         )
@@ -408,7 +408,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn create_clip(&self, new: NewDemoClip) -> Result<DemoClip, TakaError> {
+    pub async fn create_clip(&self, new: NewDemoClip) -> Result<DemoClip, RigidError> {
         // Use provided ID or generate new one
         let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
@@ -457,7 +457,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn update_clip(&self, id: &str, updates: UpdateDemoClip) -> Result<DemoClip, TakaError> {
+    pub async fn update_clip(&self, id: &str, updates: UpdateDemoClip) -> Result<DemoClip, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -523,7 +523,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn delete_clip(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_clip(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_clips WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -533,7 +533,7 @@ impl DemoRepository {
 
     // ============ Zoom Clip CRUD ============
 
-    pub async fn list_zoom_clips(&self, track_id: &str) -> Result<Vec<DemoZoomClip>, TakaError> {
+    pub async fn list_zoom_clips(&self, track_id: &str) -> Result<Vec<DemoZoomClip>, RigidError> {
         Ok(sqlx::query_as::<_, DemoZoomClip>(
             "SELECT * FROM demo_zoom_clips WHERE track_id = ? ORDER BY start_time_ms ASC"
         )
@@ -542,7 +542,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn create_zoom_clip(&self, new: NewDemoZoomClip) -> Result<DemoZoomClip, TakaError> {
+    pub async fn create_zoom_clip(&self, new: NewDemoZoomClip) -> Result<DemoZoomClip, RigidError> {
         // Use provided ID or generate new one
         let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
@@ -573,7 +573,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn update_zoom_clip(&self, id: &str, updates: UpdateDemoZoomClip) -> Result<DemoZoomClip, TakaError> {
+    pub async fn update_zoom_clip(&self, id: &str, updates: UpdateDemoZoomClip) -> Result<DemoZoomClip, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -609,7 +609,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn delete_zoom_clip(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_zoom_clip(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_zoom_clips WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -619,7 +619,7 @@ impl DemoRepository {
 
     // ============ Blur Clip CRUD ============
 
-    pub async fn list_blur_clips(&self, track_id: &str) -> Result<Vec<DemoBlurClip>, TakaError> {
+    pub async fn list_blur_clips(&self, track_id: &str) -> Result<Vec<DemoBlurClip>, RigidError> {
         Ok(sqlx::query_as::<_, DemoBlurClip>(
             "SELECT * FROM demo_blur_clips WHERE track_id = ? ORDER BY start_time_ms ASC"
         )
@@ -628,7 +628,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn create_blur_clip(&self, new: NewDemoBlurClip) -> Result<DemoBlurClip, TakaError> {
+    pub async fn create_blur_clip(&self, new: NewDemoBlurClip) -> Result<DemoBlurClip, RigidError> {
         // Use provided ID or generate new one
         let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
@@ -663,7 +663,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn update_blur_clip(&self, id: &str, updates: UpdateDemoBlurClip) -> Result<DemoBlurClip, TakaError> {
+    pub async fn update_blur_clip(&self, id: &str, updates: UpdateDemoBlurClip) -> Result<DemoBlurClip, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -707,7 +707,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn delete_blur_clip(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_blur_clip(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_blur_clips WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -717,7 +717,7 @@ impl DemoRepository {
 
     // ============ Pan Clip CRUD ============
 
-    pub async fn list_pan_clips(&self, track_id: &str) -> Result<Vec<DemoPanClip>, TakaError> {
+    pub async fn list_pan_clips(&self, track_id: &str) -> Result<Vec<DemoPanClip>, RigidError> {
         Ok(sqlx::query_as::<_, DemoPanClip>(
             "SELECT * FROM demo_pan_clips WHERE track_id = ? ORDER BY start_time_ms ASC"
         )
@@ -726,7 +726,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn create_pan_clip(&self, new: NewDemoPanClip) -> Result<DemoPanClip, TakaError> {
+    pub async fn create_pan_clip(&self, new: NewDemoPanClip) -> Result<DemoPanClip, RigidError> {
         // Use provided ID or generate new one
         let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
@@ -758,7 +758,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn update_pan_clip(&self, id: &str, updates: UpdateDemoPanClip) -> Result<DemoPanClip, TakaError> {
+    pub async fn update_pan_clip(&self, id: &str, updates: UpdateDemoPanClip) -> Result<DemoPanClip, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -796,7 +796,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn delete_pan_clip(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_pan_clip(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_pan_clips WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -806,7 +806,7 @@ impl DemoRepository {
 
     // ============ Asset CRUD ============
 
-    pub async fn list_assets(&self, demo_id: &str) -> Result<Vec<DemoAsset>, TakaError> {
+    pub async fn list_assets(&self, demo_id: &str) -> Result<Vec<DemoAsset>, RigidError> {
         Ok(sqlx::query_as::<_, DemoAsset>(
             "SELECT * FROM demo_assets WHERE demo_id = ? ORDER BY created_at DESC"
         )
@@ -815,7 +815,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn create_asset(&self, new: NewDemoAsset) -> Result<DemoAsset, TakaError> {
+    pub async fn create_asset(&self, new: NewDemoAsset) -> Result<DemoAsset, RigidError> {
         // Use provided ID or generate new one
         let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
@@ -846,7 +846,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn update_asset(&self, id: &str, updates: UpdateDemoAsset) -> Result<DemoAsset, TakaError> {
+    pub async fn update_asset(&self, id: &str, updates: UpdateDemoAsset) -> Result<DemoAsset, RigidError> {
         sqlx::query(
             "UPDATE demo_assets SET
                 name = COALESCE(?, name),
@@ -866,7 +866,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn delete_asset(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_asset(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_assets WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -876,7 +876,7 @@ impl DemoRepository {
 
     // ============ Demo Recording Links ============
 
-    pub async fn list_demo_recordings(&self, demo_id: &str) -> Result<Vec<DemoRecording>, TakaError> {
+    pub async fn list_demo_recordings(&self, demo_id: &str) -> Result<Vec<DemoRecording>, RigidError> {
         Ok(sqlx::query_as::<_, DemoRecording>(
             "SELECT * FROM demo_recordings WHERE demo_id = ? ORDER BY sort_order ASC"
         )
@@ -885,7 +885,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn list_demo_recordings_with_data(&self, demo_id: &str) -> Result<Vec<Recording>, TakaError> {
+    pub async fn list_demo_recordings_with_data(&self, demo_id: &str) -> Result<Vec<Recording>, RigidError> {
         Ok(sqlx::query_as::<_, Recording>(
             "SELECT r.* FROM recordings r
              INNER JOIN demo_recordings dr ON r.id = dr.recording_id
@@ -897,7 +897,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn add_demo_recording(&self, new: NewDemoRecording) -> Result<DemoRecording, TakaError> {
+    pub async fn add_demo_recording(&self, new: NewDemoRecording) -> Result<DemoRecording, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -928,7 +928,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn remove_demo_recording(&self, demo_id: &str, recording_id: &str) -> Result<(), TakaError> {
+    pub async fn remove_demo_recording(&self, demo_id: &str, recording_id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_recordings WHERE demo_id = ? AND recording_id = ?")
             .bind(demo_id)
             .bind(recording_id)
@@ -939,7 +939,7 @@ impl DemoRepository {
 
     // ============ Demo Screenshot Links ============
 
-    pub async fn list_demo_screenshots(&self, demo_id: &str) -> Result<Vec<DemoScreenshot>, TakaError> {
+    pub async fn list_demo_screenshots(&self, demo_id: &str) -> Result<Vec<DemoScreenshot>, RigidError> {
         Ok(sqlx::query_as::<_, DemoScreenshot>(
             "SELECT * FROM demo_screenshots WHERE demo_id = ? ORDER BY sort_order ASC"
         )
@@ -948,7 +948,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn list_demo_screenshots_with_data(&self, demo_id: &str) -> Result<Vec<Screenshot>, TakaError> {
+    pub async fn list_demo_screenshots_with_data(&self, demo_id: &str) -> Result<Vec<Screenshot>, RigidError> {
         Ok(sqlx::query_as::<_, Screenshot>(
             "SELECT s.* FROM screenshots s
              INNER JOIN demo_screenshots ds ON s.id = ds.screenshot_id
@@ -960,7 +960,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn add_demo_screenshot(&self, new: NewDemoScreenshot) -> Result<DemoScreenshot, TakaError> {
+    pub async fn add_demo_screenshot(&self, new: NewDemoScreenshot) -> Result<DemoScreenshot, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -991,7 +991,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn remove_demo_screenshot(&self, demo_id: &str, screenshot_id: &str) -> Result<(), TakaError> {
+    pub async fn remove_demo_screenshot(&self, demo_id: &str, screenshot_id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_screenshots WHERE demo_id = ? AND screenshot_id = ?")
             .bind(demo_id)
             .bind(screenshot_id)
@@ -1002,7 +1002,7 @@ impl DemoRepository {
 
     // ============ Demo Videos (exported video outputs) ============
 
-    pub async fn list_demo_videos(&self, demo_id: &str) -> Result<Vec<DemoVideo>, TakaError> {
+    pub async fn list_demo_videos(&self, demo_id: &str) -> Result<Vec<DemoVideo>, RigidError> {
         Ok(sqlx::query_as::<_, DemoVideo>(
             "SELECT * FROM demo_videos WHERE demo_id = ? ORDER BY created_at DESC"
         )
@@ -1011,7 +1011,7 @@ impl DemoRepository {
         .await?)
     }
 
-    pub async fn get_demo_video(&self, id: &str) -> Result<DemoVideo, TakaError> {
+    pub async fn get_demo_video(&self, id: &str) -> Result<DemoVideo, RigidError> {
         sqlx::query_as::<_, DemoVideo>("SELECT * FROM demo_videos WHERE id = ?")
             .bind(id)
             .fetch_one(&self.pool)
@@ -1019,7 +1019,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn create_demo_video(&self, new: NewDemoVideo) -> Result<DemoVideo, TakaError> {
+    pub async fn create_demo_video(&self, new: NewDemoVideo) -> Result<DemoVideo, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let format = new.format.unwrap_or_else(|| "mp4".to_string());
@@ -1050,7 +1050,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn update_demo_video(&self, id: &str, updates: UpdateDemoVideo) -> Result<DemoVideo, TakaError> {
+    pub async fn update_demo_video(&self, id: &str, updates: UpdateDemoVideo) -> Result<DemoVideo, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -1078,7 +1078,7 @@ impl DemoRepository {
             .map_err(|e| e.into())
     }
 
-    pub async fn delete_demo_video(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_demo_video(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_videos WHERE id = ?")
             .bind(id)
             .execute(&self.pool)

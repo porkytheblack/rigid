@@ -1,7 +1,7 @@
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use std::path::PathBuf;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 
 pub type DbPool = SqlitePool;
 
@@ -9,8 +9,8 @@ const SCHEMA: &str = include_str!("schema.sql");
 const CURRENT_VERSION: i32 = 13;
 
 /// Initialize the database connection and run migrations
-pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, TakaError> {
-    let db_path = app_data_dir.join("taka.db");
+pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, RigidError> {
+    let db_path = app_data_dir.join("rigid.db");
     let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
     // Create connection pool (single connection for SQLite)
@@ -36,7 +36,7 @@ pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, TakaError> {
 }
 
 /// Run database migrations
-async fn run_migrations(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_migrations(pool: &DbPool) -> Result<(), RigidError> {
     // First, ensure _migrations table exists (must happen before querying it)
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS _migrations (
@@ -164,7 +164,7 @@ async fn run_migrations(pool: &DbPool) -> Result<(), TakaError> {
 }
 
 /// Migration from v2 to v3: Add new tables for granular storage
-async fn run_v2_to_v3_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v2_to_v3_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Create new tables (these are additive, won't conflict with existing data)
 
     // Screenshot drawings table
@@ -261,7 +261,7 @@ async fn run_v2_to_v3_migration(pool: &DbPool) -> Result<(), TakaError> {
 }
 
 /// Migration from v3 to v4: Add image_caption column to document_blocks
-async fn run_v3_to_v4_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v3_to_v4_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Add image_caption column to document_blocks table
     // SQLite allows adding columns with ALTER TABLE
     sqlx::query("ALTER TABLE document_blocks ADD COLUMN image_caption TEXT")
@@ -273,7 +273,7 @@ async fn run_v3_to_v4_migration(pool: &DbPool) -> Result<(), TakaError> {
 }
 
 /// Migration from v4 to v5: Add diagrams, nodes, edges, attachments, and architecture docs tables
-async fn run_v4_to_v5_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v4_to_v5_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Diagrams table
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS diagrams (
@@ -419,7 +419,7 @@ async fn run_v4_to_v5_migration(pool: &DbPool) -> Result<(), TakaError> {
 }
 
 /// Migration from v5 to v6: Add architecture_doc_id to diagrams
-async fn run_v5_to_v6_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v5_to_v6_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Add architecture_doc_id column to diagrams table
     sqlx::query("ALTER TABLE diagrams ADD COLUMN architecture_doc_id TEXT REFERENCES architecture_docs(id) ON DELETE CASCADE")
         .execute(pool)
@@ -436,7 +436,7 @@ async fn run_v5_to_v6_migration(pool: &DbPool) -> Result<(), TakaError> {
 
 /// Migration from v6 to v7: Make test_id nullable in diagrams table
 /// SQLite doesn't support ALTER COLUMN, so we need to recreate the table
-async fn run_v6_to_v7_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v6_to_v7_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Check if test_id is still NOT NULL (needs migration)
     let test_id_info: Option<(i32,)> = sqlx::query_as(
         "SELECT \"notnull\" FROM pragma_table_info('diagrams') WHERE name = 'test_id'"
@@ -499,7 +499,7 @@ async fn run_v6_to_v7_migration(pool: &DbPool) -> Result<(), TakaError> {
 }
 
 /// Migration from v7 to v8: Add demo video editor tables
-async fn run_v7_to_v8_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v7_to_v8_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Demos table
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS demos (
@@ -705,7 +705,7 @@ async fn run_v7_to_v8_migration(pool: &DbPool) -> Result<(), TakaError> {
 
 /// Migration from v8 to v9: Add app_id to screenshots and recordings tables
 /// This allows screenshots/recordings to exist independently of explorations (tests)
-async fn run_v8_to_v9_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v8_to_v9_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Add app_id column to screenshots table
     sqlx::query("ALTER TABLE screenshots ADD COLUMN app_id TEXT REFERENCES apps(id) ON DELETE CASCADE")
         .execute(pool)
@@ -748,7 +748,7 @@ async fn run_v8_to_v9_migration(pool: &DbPool) -> Result<(), TakaError> {
 
 /// Migration from v9 to v10: Add webcam_path to recordings table
 /// This allows storing webcam recordings alongside screen recordings
-async fn run_v9_to_v10_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v9_to_v10_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Add webcam_path column to recordings table
     sqlx::query("ALTER TABLE recordings ADD COLUMN webcam_path TEXT")
         .execute(pool)
@@ -760,7 +760,7 @@ async fn run_v9_to_v10_migration(pool: &DbPool) -> Result<(), TakaError> {
 
 /// Migration from v10 to v11: Add demo_recordings and demo_screenshots link tables
 /// This allows associating recordings and screenshots with specific demos
-async fn run_v10_to_v11_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v10_to_v11_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Demo recordings link table
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS demo_recordings (
@@ -807,7 +807,7 @@ async fn run_v10_to_v11_migration(pool: &DbPool) -> Result<(), TakaError> {
 }
 
 /// Migration from v11 to v12: Add demo_pan_clips table
-async fn run_v11_to_v12_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v11_to_v12_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Demo pan clips table
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS demo_pan_clips (
@@ -839,7 +839,7 @@ async fn run_v11_to_v12_migration(pool: &DbPool) -> Result<(), TakaError> {
 
 /// Migration from v12 to v13: Add demo_videos table
 /// This allows storing exported video outputs for a demo
-async fn run_v12_to_v13_migration(pool: &DbPool) -> Result<(), TakaError> {
+async fn run_v12_to_v13_migration(pool: &DbPool) -> Result<(), RigidError> {
     // Demo videos table
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS demo_videos (

@@ -4,7 +4,7 @@ use tauri::State;
 use crate::adapters::ai::{
     AICapabilities, AIConfig, AIProvider, AIResponse, CompletionOptions, Message, ProviderStatus,
 };
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::repositories::SettingsRepository;
 use crate::services::{ai as ai_service, AIService};
 
@@ -23,7 +23,7 @@ pub struct AIStatus {
 pub async fn check_ai_availability(
     ai_service: State<'_, AIService>,
     settings_repo: State<'_, SettingsRepository>,
-) -> Result<Vec<ProviderStatus>, TakaError> {
+) -> Result<Vec<ProviderStatus>, RigidError> {
     let mut api_keys = Vec::new();
 
     for provider in ["openrouter", "anthropic", "openai"] {
@@ -40,7 +40,7 @@ pub async fn check_ai_availability(
 }
 
 #[tauri::command]
-pub async fn get_ai_status(ai_service: State<'_, AIService>) -> Result<AIStatus, TakaError> {
+pub async fn get_ai_status(ai_service: State<'_, AIService>) -> Result<AIStatus, RigidError> {
     let configured = ai_service.is_configured().await;
     let provider = ai_service
         .get_current_provider()
@@ -61,10 +61,10 @@ pub async fn configure_ai_provider(
     settings_repo: State<'_, SettingsRepository>,
     provider: String,
     model: Option<String>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     let provider_enum: AIProvider = provider
         .parse()
-        .map_err(|e: String| TakaError::Validation(e))?;
+        .map_err(|e: String| RigidError::Validation(e))?;
 
     let api_key = if provider_enum != AIProvider::Ollama {
         let key = format!("{}{}", API_KEY_PREFIX, provider);
@@ -98,10 +98,10 @@ pub async fn set_ai_api_key(
     settings_repo: State<'_, SettingsRepository>,
     provider: String,
     api_key: String,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     let _provider_enum: AIProvider = provider
         .parse()
-        .map_err(|e: String| TakaError::Validation(e))?;
+        .map_err(|e: String| RigidError::Validation(e))?;
 
     let encrypted = ai_service::encrypt_api_key(&api_key)?;
     let key = format!("{}{}", API_KEY_PREFIX, provider);
@@ -114,7 +114,7 @@ pub async fn set_ai_api_key(
 pub async fn remove_ai_api_key(
     settings_repo: State<'_, SettingsRepository>,
     provider: String,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     let key = format!("{}{}", API_KEY_PREFIX, provider);
     settings_repo.delete(&key).await?;
     Ok(())
@@ -125,7 +125,7 @@ pub async fn ai_complete(
     ai_service: State<'_, AIService>,
     messages: Vec<Message>,
     options: Option<CompletionOptions>,
-) -> Result<AIResponse, TakaError> {
+) -> Result<AIResponse, RigidError> {
     ai_service
         .complete(messages, options.unwrap_or_default())
         .await
@@ -135,10 +135,10 @@ pub async fn ai_complete(
 pub async fn ai_describe_screenshot(
     ai_service: State<'_, AIService>,
     image_path: String,
-) -> Result<String, TakaError> {
+) -> Result<String, RigidError> {
     let image_data = tokio::fs::read(&image_path)
         .await
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     let prompt = "Describe this screenshot in detail. Focus on the UI elements, any text visible, \
                   and what the user appears to be testing or interacting with. \
@@ -148,7 +148,7 @@ pub async fn ai_describe_screenshot(
 }
 
 #[tauri::command]
-pub async fn ai_list_models(ai_service: State<'_, AIService>) -> Result<Vec<String>, TakaError> {
+pub async fn ai_list_models(ai_service: State<'_, AIService>) -> Result<Vec<String>, RigidError> {
     ai_service.list_models().await
 }
 
@@ -160,7 +160,7 @@ pub async fn ai_generate_issue_prompt(
     steps_to_reproduce: Option<String>,
     expected_behavior: Option<String>,
     actual_behavior: Option<String>,
-) -> Result<String, TakaError> {
+) -> Result<String, RigidError> {
     let mut prompt = String::new();
 
     prompt.push_str("# Issue Report\n\n");
@@ -197,7 +197,7 @@ pub async fn ai_generate_issue_prompt(
 pub async fn restore_ai_configuration(
     ai_service: State<'_, AIService>,
     settings_repo: State<'_, SettingsRepository>,
-) -> Result<bool, TakaError> {
+) -> Result<bool, RigidError> {
     let provider = match settings_repo.get(PROVIDER_SETTING).await? {
         Some(p) => p,
         None => return Ok(false),

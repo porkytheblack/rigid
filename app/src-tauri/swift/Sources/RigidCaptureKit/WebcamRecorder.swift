@@ -42,9 +42,9 @@ class WebcamRecorder: NSObject {
     private var recordingStartDate: Date?
     private var frameCount: Int = 0
 
-    private let videoQueue = DispatchQueue(label: "com.taka.webcam.video", qos: .userInteractive)
-    private let audioQueue = DispatchQueue(label: "com.taka.webcam.audio", qos: .userInteractive)
-    private let writerQueue = DispatchQueue(label: "com.taka.webcam.writer", qos: .userInteractive)
+    private let videoQueue = DispatchQueue(label: "com.rigid.webcam.video", qos: .userInteractive)
+    private let audioQueue = DispatchQueue(label: "com.rigid.webcam.audio", qos: .userInteractive)
+    private let writerQueue = DispatchQueue(label: "com.rigid.webcam.writer", qos: .userInteractive)
 
     var isRecording: Bool { _isRecording }
 

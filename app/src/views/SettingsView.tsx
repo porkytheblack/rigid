@@ -16,6 +16,7 @@ import {
 import { useRouterStore, useSettingsStore, useAIStore } from "@/lib/stores";
 import { useToast } from "@/components/ui/toast";
 import type { AIProvider } from "@/lib/tauri/types";
+import { RigidLogo } from "@/components/ui/rigid-logo";
 
 const AI_PROVIDERS: { id: AIProvider; name: string; description: string }[] = [
   {
@@ -569,14 +570,10 @@ export function SettingsView() {
           </h2>
           <div className="border border-[var(--border-default)] bg-[var(--surface-secondary)] p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center bg-[var(--text-primary)]">
-                <span className="text-xl font-bold text-[var(--text-inverse)]">
-                  T
-                </span>
-              </div>
+              <RigidLogo size={48} />
               <div>
                 <h3 className="font-semibold text-[var(--text-primary)]">
-                  Taka
+                  Rigid Systems
                 </h3>
                 <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)]">
                   Version 0.1.0
@@ -584,8 +581,10 @@ export function SettingsView() {
               </div>
             </div>
             <p className="mt-4 text-[var(--text-body-sm)] text-[var(--text-tertiary)]">
-              A minimal, focused QA companion for capturing and annotating
-              screenshots and screen recordings during testing.
+              Build rigid systems. Coding with AI agents is more like sculpting
+              and less precise. Rigid helps you explore, document and deliver
+              your app by giving you the tools for focused testing and analysis
+              of an app you did not write.
             </p>
           </div>
         </section>

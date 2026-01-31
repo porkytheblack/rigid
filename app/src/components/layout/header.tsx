@@ -36,7 +36,7 @@ export function Header({ title, description, actions }: HeaderProps) {
   });
 
   // Get page title
-  const pageTitle = title || pageTitles[pathname] || "Taka";
+  const pageTitle = title || pageTitles[pathname] || "Rigid";
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between gap-4 h-14 px-6 bg-[var(--bg-base)] border-b border-[var(--border-subtle)]">

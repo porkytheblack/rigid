@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{Recording, NewRecording, UpdateRecording, RecordingFilter, Annotation, NewAnnotation, UpdateAnnotation};
 use crate::repositories::RecordingRepository;
 
@@ -8,7 +8,7 @@ use crate::repositories::RecordingRepository;
 pub async fn create_recording(
     new_recording: NewRecording,
     repo: State<'_, RecordingRepository>,
-) -> Result<Recording, TakaError> {
+) -> Result<Recording, RigidError> {
     repo.create(new_recording).await
 }
 
@@ -16,7 +16,7 @@ pub async fn create_recording(
 pub async fn get_recording(
     id: String,
     repo: State<'_, RecordingRepository>,
-) -> Result<Recording, TakaError> {
+) -> Result<Recording, RigidError> {
     repo.get(&id).await
 }
 
@@ -24,7 +24,7 @@ pub async fn get_recording(
 pub async fn list_recordings(
     filter: RecordingFilter,
     repo: State<'_, RecordingRepository>,
-) -> Result<Vec<Recording>, TakaError> {
+) -> Result<Vec<Recording>, RigidError> {
     repo.list(filter).await
 }
 
@@ -32,7 +32,7 @@ pub async fn list_recordings(
 pub async fn list_recordings_by_test(
     test_id: String,
     repo: State<'_, RecordingRepository>,
-) -> Result<Vec<Recording>, TakaError> {
+) -> Result<Vec<Recording>, RigidError> {
     repo.list_by_test(&test_id).await
 }
 
@@ -41,7 +41,7 @@ pub async fn update_recording(
     id: String,
     updates: UpdateRecording,
     repo: State<'_, RecordingRepository>,
-) -> Result<Recording, TakaError> {
+) -> Result<Recording, RigidError> {
     repo.update(&id, updates).await
 }
 
@@ -49,7 +49,7 @@ pub async fn update_recording(
 pub async fn delete_recording(
     id: String,
     repo: State<'_, RecordingRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete(&id).await
 }
 
@@ -58,7 +58,7 @@ pub async fn delete_recording(
 pub async fn create_annotation(
     new_annotation: NewAnnotation,
     repo: State<'_, RecordingRepository>,
-) -> Result<Annotation, TakaError> {
+) -> Result<Annotation, RigidError> {
     repo.create_annotation(new_annotation).await
 }
 
@@ -66,7 +66,7 @@ pub async fn create_annotation(
 pub async fn get_annotation(
     id: String,
     repo: State<'_, RecordingRepository>,
-) -> Result<Annotation, TakaError> {
+) -> Result<Annotation, RigidError> {
     repo.get_annotation(&id).await
 }
 
@@ -74,7 +74,7 @@ pub async fn get_annotation(
 pub async fn list_annotations(
     recording_id: String,
     repo: State<'_, RecordingRepository>,
-) -> Result<Vec<Annotation>, TakaError> {
+) -> Result<Vec<Annotation>, RigidError> {
     repo.list_annotations(&recording_id).await
 }
 
@@ -83,7 +83,7 @@ pub async fn update_annotation(
     id: String,
     updates: UpdateAnnotation,
     repo: State<'_, RecordingRepository>,
-) -> Result<Annotation, TakaError> {
+) -> Result<Annotation, RigidError> {
     repo.update_annotation(&id, updates).await
 }
 
@@ -91,6 +91,6 @@ pub async fn update_annotation(
 pub async fn delete_annotation(
     id: String,
     repo: State<'_, RecordingRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_annotation(&id).await
 }

@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{
     Diagram, NewDiagram, UpdateDiagram, DiagramFilter, DiagramWithData,
     DiagramNode, NewDiagramNode, UpdateDiagramNode,
@@ -15,7 +15,7 @@ use crate::repositories::DiagramRepository;
 pub async fn create_diagram(
     new_diagram: NewDiagram,
     repo: State<'_, DiagramRepository>,
-) -> Result<Diagram, TakaError> {
+) -> Result<Diagram, RigidError> {
     repo.create(new_diagram).await
 }
 
@@ -23,7 +23,7 @@ pub async fn create_diagram(
 pub async fn get_diagram(
     id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<Diagram, TakaError> {
+) -> Result<Diagram, RigidError> {
     repo.get(&id).await
 }
 
@@ -31,7 +31,7 @@ pub async fn get_diagram(
 pub async fn get_diagram_with_data(
     id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<DiagramWithData, TakaError> {
+) -> Result<DiagramWithData, RigidError> {
     repo.get_with_data(&id).await
 }
 
@@ -39,7 +39,7 @@ pub async fn get_diagram_with_data(
 pub async fn list_diagrams(
     filter: DiagramFilter,
     repo: State<'_, DiagramRepository>,
-) -> Result<Vec<Diagram>, TakaError> {
+) -> Result<Vec<Diagram>, RigidError> {
     repo.list(filter).await
 }
 
@@ -47,7 +47,7 @@ pub async fn list_diagrams(
 pub async fn list_diagrams_by_test(
     test_id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<Vec<Diagram>, TakaError> {
+) -> Result<Vec<Diagram>, RigidError> {
     repo.list_by_test(&test_id).await
 }
 
@@ -55,7 +55,7 @@ pub async fn list_diagrams_by_test(
 pub async fn list_diagrams_by_architecture_doc(
     doc_id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<Vec<Diagram>, TakaError> {
+) -> Result<Vec<Diagram>, RigidError> {
     repo.list_by_architecture_doc(&doc_id).await
 }
 
@@ -64,7 +64,7 @@ pub async fn update_diagram(
     id: String,
     updates: UpdateDiagram,
     repo: State<'_, DiagramRepository>,
-) -> Result<Diagram, TakaError> {
+) -> Result<Diagram, RigidError> {
     repo.update(&id, updates).await
 }
 
@@ -72,7 +72,7 @@ pub async fn update_diagram(
 pub async fn delete_diagram(
     id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete(&id).await
 }
 
@@ -80,7 +80,7 @@ pub async fn delete_diagram(
 pub async fn count_diagrams_by_test(
     test_id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<i32, TakaError> {
+) -> Result<i32, RigidError> {
     repo.count_by_test(&test_id).await
 }
 
@@ -90,7 +90,7 @@ pub async fn count_diagrams_by_test(
 pub async fn create_diagram_node(
     new_node: NewDiagramNode,
     repo: State<'_, DiagramRepository>,
-) -> Result<DiagramNode, TakaError> {
+) -> Result<DiagramNode, RigidError> {
     repo.create_node(new_node).await
 }
 
@@ -98,7 +98,7 @@ pub async fn create_diagram_node(
 pub async fn get_diagram_node(
     id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<DiagramNode, TakaError> {
+) -> Result<DiagramNode, RigidError> {
     repo.get_node(&id).await
 }
 
@@ -106,7 +106,7 @@ pub async fn get_diagram_node(
 pub async fn list_diagram_nodes(
     diagram_id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<Vec<DiagramNode>, TakaError> {
+) -> Result<Vec<DiagramNode>, RigidError> {
     repo.list_nodes(&diagram_id).await
 }
 
@@ -115,7 +115,7 @@ pub async fn update_diagram_node(
     id: String,
     updates: UpdateDiagramNode,
     repo: State<'_, DiagramRepository>,
-) -> Result<DiagramNode, TakaError> {
+) -> Result<DiagramNode, RigidError> {
     repo.update_node(&id, updates).await
 }
 
@@ -123,7 +123,7 @@ pub async fn update_diagram_node(
 pub async fn delete_diagram_node(
     id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_node(&id).await
 }
 
@@ -131,7 +131,7 @@ pub async fn delete_diagram_node(
 pub async fn bulk_update_diagram_nodes(
     updates: Vec<(String, UpdateDiagramNode)>,
     repo: State<'_, DiagramRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.bulk_update_nodes(updates).await
 }
 
@@ -141,7 +141,7 @@ pub async fn bulk_update_diagram_nodes(
 pub async fn create_diagram_edge(
     new_edge: NewDiagramEdge,
     repo: State<'_, DiagramRepository>,
-) -> Result<DiagramEdge, TakaError> {
+) -> Result<DiagramEdge, RigidError> {
     repo.create_edge(new_edge).await
 }
 
@@ -149,7 +149,7 @@ pub async fn create_diagram_edge(
 pub async fn get_diagram_edge(
     id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<DiagramEdge, TakaError> {
+) -> Result<DiagramEdge, RigidError> {
     repo.get_edge(&id).await
 }
 
@@ -157,7 +157,7 @@ pub async fn get_diagram_edge(
 pub async fn list_diagram_edges(
     diagram_id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<Vec<DiagramEdge>, TakaError> {
+) -> Result<Vec<DiagramEdge>, RigidError> {
     repo.list_edges(&diagram_id).await
 }
 
@@ -166,7 +166,7 @@ pub async fn update_diagram_edge(
     id: String,
     updates: UpdateDiagramEdge,
     repo: State<'_, DiagramRepository>,
-) -> Result<DiagramEdge, TakaError> {
+) -> Result<DiagramEdge, RigidError> {
     repo.update_edge(&id, updates).await
 }
 
@@ -174,7 +174,7 @@ pub async fn update_diagram_edge(
 pub async fn delete_diagram_edge(
     id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_edge(&id).await
 }
 
@@ -184,7 +184,7 @@ pub async fn delete_diagram_edge(
 pub async fn create_node_attachment(
     new_attachment: NewNodeAttachment,
     repo: State<'_, DiagramRepository>,
-) -> Result<NodeAttachment, TakaError> {
+) -> Result<NodeAttachment, RigidError> {
     repo.create_attachment(new_attachment).await
 }
 
@@ -192,7 +192,7 @@ pub async fn create_node_attachment(
 pub async fn get_node_attachment(
     id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<NodeAttachment, TakaError> {
+) -> Result<NodeAttachment, RigidError> {
     repo.get_attachment(&id).await
 }
 
@@ -200,7 +200,7 @@ pub async fn get_node_attachment(
 pub async fn list_node_attachments(
     node_id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<Vec<NodeAttachment>, TakaError> {
+) -> Result<Vec<NodeAttachment>, RigidError> {
     repo.list_attachments(&node_id).await
 }
 
@@ -208,7 +208,7 @@ pub async fn list_node_attachments(
 pub async fn delete_node_attachment(
     id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_attachment(&id).await
 }
 
@@ -216,6 +216,6 @@ pub async fn delete_node_attachment(
 pub async fn delete_all_node_attachments(
     node_id: String,
     repo: State<'_, DiagramRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_all_attachments(&node_id).await
 }

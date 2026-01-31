@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{
     DocumentBlock, NewDocumentBlock, UpdateDocumentBlock,
     ExplorationTodo, NewExplorationTodo, UpdateExplorationTodo,
@@ -20,7 +20,7 @@ impl DocumentRepository {
 
     // ==================== Document Blocks ====================
 
-    pub async fn create_block(&self, new: NewDocumentBlock) -> Result<DocumentBlock, TakaError> {
+    pub async fn create_block(&self, new: NewDocumentBlock) -> Result<DocumentBlock, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -48,18 +48,18 @@ impl DocumentRepository {
         self.get_block(&id).await
     }
 
-    pub async fn get_block(&self, id: &str) -> Result<DocumentBlock, TakaError> {
+    pub async fn get_block(&self, id: &str) -> Result<DocumentBlock, RigidError> {
         sqlx::query_as::<_, DocumentBlock>("SELECT * FROM document_blocks WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "DocumentBlock".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list_blocks(&self, test_id: &str) -> Result<Vec<DocumentBlock>, TakaError> {
+    pub async fn list_blocks(&self, test_id: &str) -> Result<Vec<DocumentBlock>, RigidError> {
         Ok(sqlx::query_as::<_, DocumentBlock>(
             "SELECT * FROM document_blocks WHERE test_id = ? ORDER BY sort_order ASC"
         )
@@ -68,7 +68,7 @@ impl DocumentRepository {
         .await?)
     }
 
-    pub async fn update_block(&self, id: &str, updates: UpdateDocumentBlock) -> Result<DocumentBlock, TakaError> {
+    pub async fn update_block(&self, id: &str, updates: UpdateDocumentBlock) -> Result<DocumentBlock, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -104,7 +104,7 @@ impl DocumentRepository {
         self.get_block(id).await
     }
 
-    pub async fn delete_block(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_block(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM document_blocks WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -112,7 +112,7 @@ impl DocumentRepository {
         Ok(())
     }
 
-    pub async fn delete_all_blocks(&self, test_id: &str) -> Result<(), TakaError> {
+    pub async fn delete_all_blocks(&self, test_id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM document_blocks WHERE test_id = ?")
             .bind(test_id)
             .execute(&self.pool)
@@ -120,7 +120,7 @@ impl DocumentRepository {
         Ok(())
     }
 
-    pub async fn bulk_replace_blocks(&self, test_id: &str, blocks: Vec<NewDocumentBlock>) -> Result<Vec<DocumentBlock>, TakaError> {
+    pub async fn bulk_replace_blocks(&self, test_id: &str, blocks: Vec<NewDocumentBlock>) -> Result<Vec<DocumentBlock>, RigidError> {
         // Delete existing blocks and insert new ones
         self.delete_all_blocks(test_id).await?;
 
@@ -134,7 +134,7 @@ impl DocumentRepository {
 
     // ==================== Exploration Todos ====================
 
-    pub async fn create_todo(&self, new: NewExplorationTodo) -> Result<ExplorationTodo, TakaError> {
+    pub async fn create_todo(&self, new: NewExplorationTodo) -> Result<ExplorationTodo, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -155,18 +155,18 @@ impl DocumentRepository {
         self.get_todo(&id).await
     }
 
-    pub async fn get_todo(&self, id: &str) -> Result<ExplorationTodo, TakaError> {
+    pub async fn get_todo(&self, id: &str) -> Result<ExplorationTodo, RigidError> {
         sqlx::query_as::<_, ExplorationTodo>("SELECT * FROM exploration_todos WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "ExplorationTodo".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list_todos(&self, test_id: &str) -> Result<Vec<ExplorationTodo>, TakaError> {
+    pub async fn list_todos(&self, test_id: &str) -> Result<Vec<ExplorationTodo>, RigidError> {
         Ok(sqlx::query_as::<_, ExplorationTodo>(
             "SELECT * FROM exploration_todos WHERE test_id = ? ORDER BY sort_order ASC"
         )
@@ -175,7 +175,7 @@ impl DocumentRepository {
         .await?)
     }
 
-    pub async fn update_todo(&self, id: &str, updates: UpdateExplorationTodo) -> Result<ExplorationTodo, TakaError> {
+    pub async fn update_todo(&self, id: &str, updates: UpdateExplorationTodo) -> Result<ExplorationTodo, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -197,7 +197,7 @@ impl DocumentRepository {
         self.get_todo(id).await
     }
 
-    pub async fn delete_todo(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_todo(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM exploration_todos WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -205,7 +205,7 @@ impl DocumentRepository {
         Ok(())
     }
 
-    pub async fn delete_all_todos(&self, test_id: &str) -> Result<(), TakaError> {
+    pub async fn delete_all_todos(&self, test_id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM exploration_todos WHERE test_id = ?")
             .bind(test_id)
             .execute(&self.pool)
@@ -213,7 +213,7 @@ impl DocumentRepository {
         Ok(())
     }
 
-    pub async fn bulk_replace_todos(&self, test_id: &str, todos: Vec<NewExplorationTodo>) -> Result<Vec<ExplorationTodo>, TakaError> {
+    pub async fn bulk_replace_todos(&self, test_id: &str, todos: Vec<NewExplorationTodo>) -> Result<Vec<ExplorationTodo>, RigidError> {
         // Delete existing todos and insert new ones
         self.delete_all_todos(test_id).await?;
 

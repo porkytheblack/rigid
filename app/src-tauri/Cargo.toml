@@ -1,12 +1,12 @@
 [package]
-name = "taka"
+name = "rigid"
 version = "0.1.0"
-description = "A testing companion for vibe-coded apps"
-authors = ["Taka"]
+description = "Build rigid systems. Explore, document and deliver apps you did not write."
+authors = ["Rigid Systems"]
 edition = "2021"
 
 [lib]
-name = "taka_lib"
+name = "rigid_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

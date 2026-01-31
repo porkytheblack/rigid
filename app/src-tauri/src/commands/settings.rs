@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::Setting;
 use crate::repositories::SettingsRepository;
 
@@ -8,7 +8,7 @@ use crate::repositories::SettingsRepository;
 pub async fn get_setting(
     key: String,
     repo: State<'_, SettingsRepository>,
-) -> Result<Option<String>, TakaError> {
+) -> Result<Option<String>, RigidError> {
     repo.get(&key).await
 }
 
@@ -17,7 +17,7 @@ pub async fn set_setting(
     key: String,
     value: String,
     repo: State<'_, SettingsRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.set(&key, &value).await
 }
 
@@ -25,14 +25,14 @@ pub async fn set_setting(
 pub async fn delete_setting(
     key: String,
     repo: State<'_, SettingsRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete(&key).await
 }
 
 #[tauri::command]
 pub async fn get_all_settings(
     repo: State<'_, SettingsRepository>,
-) -> Result<Vec<Setting>, TakaError> {
+) -> Result<Vec<Setting>, RigidError> {
     repo.get_all().await
 }
 
@@ -40,7 +40,7 @@ pub async fn get_all_settings(
 pub async fn get_bool_setting(
     key: String,
     repo: State<'_, SettingsRepository>,
-) -> Result<Option<bool>, TakaError> {
+) -> Result<Option<bool>, RigidError> {
     repo.get_bool(&key).await
 }
 
@@ -49,7 +49,7 @@ pub async fn set_bool_setting(
     key: String,
     value: bool,
     repo: State<'_, SettingsRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.set_bool(&key, value).await
 }
 
@@ -57,7 +57,7 @@ pub async fn set_bool_setting(
 pub async fn get_int_setting(
     key: String,
     repo: State<'_, SettingsRepository>,
-) -> Result<Option<i32>, TakaError> {
+) -> Result<Option<i32>, RigidError> {
     repo.get_int(&key).await
 }
 
@@ -66,6 +66,6 @@ pub async fn set_int_setting(
     key: String,
     value: i32,
     repo: State<'_, SettingsRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.set_int(&key, value).await
 }

@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{App, NewApp, UpdateApp, AppFilter};
 use crate::repositories::AppRepository;
 
@@ -8,7 +8,7 @@ use crate::repositories::AppRepository;
 pub async fn create_app(
     new_app: NewApp,
     repo: State<'_, AppRepository>,
-) -> Result<App, TakaError> {
+) -> Result<App, RigidError> {
     repo.create(new_app).await
 }
 
@@ -16,7 +16,7 @@ pub async fn create_app(
 pub async fn get_app(
     id: String,
     repo: State<'_, AppRepository>,
-) -> Result<App, TakaError> {
+) -> Result<App, RigidError> {
     repo.get(&id).await
 }
 
@@ -24,7 +24,7 @@ pub async fn get_app(
 pub async fn list_apps(
     filter: AppFilter,
     repo: State<'_, AppRepository>,
-) -> Result<Vec<App>, TakaError> {
+) -> Result<Vec<App>, RigidError> {
     repo.list(filter).await
 }
 
@@ -33,7 +33,7 @@ pub async fn update_app(
     id: String,
     updates: UpdateApp,
     repo: State<'_, AppRepository>,
-) -> Result<App, TakaError> {
+) -> Result<App, RigidError> {
     repo.update(&id, updates).await
 }
 
@@ -41,13 +41,13 @@ pub async fn update_app(
 pub async fn delete_app(
     id: String,
     repo: State<'_, AppRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete(&id).await
 }
 
 #[tauri::command]
 pub async fn count_apps(
     repo: State<'_, AppRepository>,
-) -> Result<i32, TakaError> {
+) -> Result<i32, RigidError> {
     repo.count().await
 }

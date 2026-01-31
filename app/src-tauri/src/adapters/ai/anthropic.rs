@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::traits::AIAdapter;
 use super::types::{AICapabilities, AIResponse, CompletionOptions, Message, Role, TokenUsage};
-use crate::error::TakaError;
+use crate::error::RigidError;
 
 const BASE_URL: &str = "https://api.anthropic.com/v1";
 const API_VERSION: &str = "2023-06-01";
@@ -90,7 +90,7 @@ impl AIAdapter for AnthropicAdapter {
         !self.api_key.is_empty()
     }
 
-    async fn list_models(&self) -> Result<Vec<String>, TakaError> {
+    async fn list_models(&self) -> Result<Vec<String>, RigidError> {
         Ok(vec![
             "claude-3-5-sonnet-20241022".to_string(),
             "claude-3-5-haiku-20241022".to_string(),
@@ -104,7 +104,7 @@ impl AIAdapter for AnthropicAdapter {
         &self,
         messages: Vec<Message>,
         options: CompletionOptions,
-    ) -> Result<AIResponse, TakaError> {
+    ) -> Result<AIResponse, RigidError> {
         let url = format!("{}/messages", BASE_URL);
 
         let mut system_prompt: Option<String> = None;
@@ -152,7 +152,7 @@ impl AIAdapter for AnthropicAdapter {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "Anthropic API error ({}): {}",
                 status, text
             )));
@@ -186,9 +186,9 @@ impl AIAdapter for AnthropicAdapter {
         })
     }
 
-    async fn describe_image(&self, image_data: &[u8], prompt: &str) -> Result<String, TakaError> {
+    async fn describe_image(&self, image_data: &[u8], prompt: &str) -> Result<String, RigidError> {
         if !self.is_vision_model(&self.model) {
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "Model {} does not support vision. Use a Claude 3 model.",
                 self.model
             )));
@@ -237,7 +237,7 @@ impl AIAdapter for AnthropicAdapter {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "Anthropic API error ({}): {}",
                 status, text
             )));

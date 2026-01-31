@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::traits::AIAdapter;
 use super::types::{AICapabilities, AIResponse, CompletionOptions, Message, Role, TokenUsage};
-use crate::error::TakaError;
+use crate::error::RigidError;
 
 const DEFAULT_BASE_URL: &str = "http://localhost:11434";
 const DEFAULT_MODEL: &str = "llama3.2";
@@ -108,7 +108,7 @@ impl AIAdapter for OllamaAdapter {
         }
     }
 
-    async fn list_models(&self) -> Result<Vec<String>, TakaError> {
+    async fn list_models(&self) -> Result<Vec<String>, RigidError> {
         let url = format!("{}/api/tags", self.base_url);
         let response = self
             .client
@@ -125,7 +125,7 @@ impl AIAdapter for OllamaAdapter {
         &self,
         messages: Vec<Message>,
         options: CompletionOptions,
-    ) -> Result<AIResponse, TakaError> {
+    ) -> Result<AIResponse, RigidError> {
         let url = format!("{}/api/chat", self.base_url);
 
         let ollama_messages: Vec<OllamaMessage> = messages
@@ -162,7 +162,7 @@ impl AIAdapter for OllamaAdapter {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "Ollama API error ({}): {}",
                 status, text
             )));
@@ -191,9 +191,9 @@ impl AIAdapter for OllamaAdapter {
         })
     }
 
-    async fn describe_image(&self, image_data: &[u8], prompt: &str) -> Result<String, TakaError> {
+    async fn describe_image(&self, image_data: &[u8], prompt: &str) -> Result<String, RigidError> {
         if !self.is_vision_model(&self.model) {
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "Model {} does not support vision. Use llava, bakllava, or another vision model.",
                 self.model
             )));
@@ -222,7 +222,7 @@ impl AIAdapter for OllamaAdapter {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "Ollama API error ({}): {}",
                 status, text
             )));

@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { Plus, Search, FolderOpen, Settings, MoreHorizontal, Trash2, Pencil, X, Command } from "lucide-react";
 import { useAppsStore, useRouterStore } from "@/lib/stores";
 import type { NewApp } from "@/lib/tauri/types";
+import { RigidLogo } from "@/components/ui/rigid-logo";
 
 export function HomeView() {
   const { items: apps, loading, load, create, delete: deleteApp } = useAppsStore();
@@ -93,10 +94,8 @@ export function HomeView() {
       {/* Header - Clean navigation bar */}
       <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center justify-between px-8 flex-shrink-0">
         <div className="flex items-center gap-4">
-          <div className="w-8 h-8 bg-[var(--text-primary)] flex items-center justify-center">
-            <span className="text-[var(--text-inverse)] font-bold text-lg">T</span>
-          </div>
-          <span className="font-bold text-[var(--text-primary)] text-lg tracking-tight">Taka</span>
+          <RigidLogo size={32} />
+          <span className="font-bold text-[var(--text-primary)] text-lg tracking-tight">Rigid</span>
         </div>
         <button
           onClick={() => navigate({ name: "settings" })}

@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{ChecklistItem, NewChecklistItem, UpdateChecklistItem, ChecklistFilter};
 
 #[derive(Clone)]
@@ -15,7 +15,7 @@ impl ChecklistRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, new: NewChecklistItem) -> Result<ChecklistItem, TakaError> {
+    pub async fn create(&self, new: NewChecklistItem) -> Result<ChecklistItem, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -50,18 +50,18 @@ impl ChecklistRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<ChecklistItem, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<ChecklistItem, RigidError> {
         sqlx::query_as::<_, ChecklistItem>("SELECT * FROM checklist_items WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "ChecklistItem".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list(&self, filter: ChecklistFilter) -> Result<Vec<ChecklistItem>, TakaError> {
+    pub async fn list(&self, filter: ChecklistFilter) -> Result<Vec<ChecklistItem>, RigidError> {
         let mut sql = String::from("SELECT * FROM checklist_items WHERE 1=1");
         let mut bindings: Vec<String> = Vec::new();
 
@@ -90,7 +90,7 @@ impl ChecklistRepository {
         Ok(query.fetch_all(&self.pool).await?)
     }
 
-    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<ChecklistItem>, TakaError> {
+    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<ChecklistItem>, RigidError> {
         self.list(ChecklistFilter {
             test_id: Some(test_id.to_string()),
             status: None,
@@ -98,7 +98,7 @@ impl ChecklistRepository {
         }).await
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateChecklistItem) -> Result<ChecklistItem, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateChecklistItem) -> Result<ChecklistItem, RigidError> {
         self.get(id).await?;
 
         let now = Utc::now().to_rfc3339();
@@ -126,14 +126,14 @@ impl ChecklistRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM checklist_items WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "ChecklistItem".into(),
                 id: id.into(),
             });
@@ -142,7 +142,7 @@ impl ChecklistRepository {
         Ok(())
     }
 
-    pub async fn reorder(&self, ids: Vec<String>) -> Result<(), TakaError> {
+    pub async fn reorder(&self, ids: Vec<String>) -> Result<(), RigidError> {
         for (index, id) in ids.iter().enumerate() {
             sqlx::query("UPDATE checklist_items SET sort_order = ? WHERE id = ?")
                 .bind(index as i32)
@@ -153,7 +153,7 @@ impl ChecklistRepository {
         Ok(())
     }
 
-    pub async fn count_by_status(&self) -> Result<(i32, i32, i32), TakaError> {
+    pub async fn count_by_status(&self) -> Result<(i32, i32, i32), RigidError> {
         let passing: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM checklist_items WHERE status = 'passing'")
             .fetch_one(&self.pool)
             .await?;
@@ -166,7 +166,7 @@ impl ChecklistRepository {
         Ok((passing.0, failing.0, untested.0))
     }
 
-    pub async fn count_by_test(&self, test_id: &str) -> Result<i32, TakaError> {
+    pub async fn count_by_test(&self, test_id: &str) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM checklist_items WHERE test_id = ?")
             .bind(test_id)
             .fetch_one(&self.pool)

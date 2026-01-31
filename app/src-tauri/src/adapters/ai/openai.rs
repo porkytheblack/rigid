@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::traits::AIAdapter;
 use super::types::{AICapabilities, AIResponse, CompletionOptions, Message, Role, TokenUsage};
-use crate::error::TakaError;
+use crate::error::RigidError;
 
 const BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_MODEL: &str = "gpt-4o";
@@ -104,7 +104,7 @@ impl AIAdapter for OpenAIAdapter {
         !self.api_key.is_empty()
     }
 
-    async fn list_models(&self) -> Result<Vec<String>, TakaError> {
+    async fn list_models(&self) -> Result<Vec<String>, RigidError> {
         let url = format!("{}/models", BASE_URL);
         let response = self
             .client
@@ -137,7 +137,7 @@ impl AIAdapter for OpenAIAdapter {
         &self,
         messages: Vec<Message>,
         options: CompletionOptions,
-    ) -> Result<AIResponse, TakaError> {
+    ) -> Result<AIResponse, RigidError> {
         let url = format!("{}/chat/completions", BASE_URL);
 
         let openai_messages: Vec<OpenAIMessage> = messages
@@ -171,7 +171,7 @@ impl AIAdapter for OpenAIAdapter {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "OpenAI API error ({}): {}",
                 status, text
             )));
@@ -182,7 +182,7 @@ impl AIAdapter for OpenAIAdapter {
         let choice = openai_response
             .choices
             .first()
-            .ok_or_else(|| TakaError::AI("No response from OpenAI".to_string()))?;
+            .ok_or_else(|| RigidError::AI("No response from OpenAI".to_string()))?;
 
         let usage = openai_response.usage.map(|u| TokenUsage {
             prompt_tokens: u.prompt_tokens,
@@ -198,9 +198,9 @@ impl AIAdapter for OpenAIAdapter {
         })
     }
 
-    async fn describe_image(&self, image_data: &[u8], prompt: &str) -> Result<String, TakaError> {
+    async fn describe_image(&self, image_data: &[u8], prompt: &str) -> Result<String, RigidError> {
         if !self.is_vision_model(&self.model) {
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "Model {} does not support vision. Use gpt-4o, gpt-4-turbo, or another vision model.",
                 self.model
             )));
@@ -244,7 +244,7 @@ impl AIAdapter for OpenAIAdapter {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "OpenAI API error ({}): {}",
                 status, text
             )));
@@ -254,7 +254,7 @@ impl AIAdapter for OpenAIAdapter {
         let choice = openai_response
             .choices
             .first()
-            .ok_or_else(|| TakaError::AI("No response from OpenAI".to_string()))?;
+            .ok_or_else(|| RigidError::AI("No response from OpenAI".to_string()))?;
 
         Ok(choice.message.content.clone().unwrap_or_default())
     }

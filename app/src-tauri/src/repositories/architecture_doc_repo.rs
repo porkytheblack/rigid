@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{
     ArchitectureDoc, NewArchitectureDoc, UpdateArchitectureDoc, ArchitectureDocWithBlocks,
     ArchitectureDocBlock, NewArchitectureDocBlock, UpdateArchitectureDocBlock,
@@ -20,7 +20,7 @@ impl ArchitectureDocRepository {
 
     // ============ Architecture Doc CRUD ============
 
-    pub async fn create(&self, new: NewArchitectureDoc) -> Result<ArchitectureDoc, TakaError> {
+    pub async fn create(&self, new: NewArchitectureDoc) -> Result<ArchitectureDoc, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -50,25 +50,25 @@ impl ArchitectureDocRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<ArchitectureDoc, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<ArchitectureDoc, RigidError> {
         sqlx::query_as::<_, ArchitectureDoc>("SELECT * FROM architecture_docs WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "ArchitectureDoc".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn get_with_blocks(&self, id: &str) -> Result<ArchitectureDocWithBlocks, TakaError> {
+    pub async fn get_with_blocks(&self, id: &str) -> Result<ArchitectureDocWithBlocks, RigidError> {
         let doc = self.get(id).await?;
         let blocks = self.list_blocks(id).await?;
 
         Ok(ArchitectureDocWithBlocks { doc, blocks })
     }
 
-    pub async fn list_by_app(&self, app_id: &str) -> Result<Vec<ArchitectureDoc>, TakaError> {
+    pub async fn list_by_app(&self, app_id: &str) -> Result<Vec<ArchitectureDoc>, RigidError> {
         Ok(sqlx::query_as::<_, ArchitectureDoc>(
             "SELECT * FROM architecture_docs WHERE app_id = ? ORDER BY sort_order ASC"
         )
@@ -77,7 +77,7 @@ impl ArchitectureDocRepository {
         .await?)
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateArchitectureDoc) -> Result<ArchitectureDoc, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateArchitectureDoc) -> Result<ArchitectureDoc, RigidError> {
         self.get(id).await?;
 
         let now = Utc::now().to_rfc3339();
@@ -101,14 +101,14 @@ impl ArchitectureDocRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM architecture_docs WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "ArchitectureDoc".into(),
                 id: id.into(),
             });
@@ -117,7 +117,7 @@ impl ArchitectureDocRepository {
         Ok(())
     }
 
-    pub async fn count_by_app(&self, app_id: &str) -> Result<i32, TakaError> {
+    pub async fn count_by_app(&self, app_id: &str) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM architecture_docs WHERE app_id = ?")
             .bind(app_id)
             .fetch_one(&self.pool)
@@ -125,7 +125,7 @@ impl ArchitectureDocRepository {
         Ok(count.0)
     }
 
-    pub async fn reorder(&self, doc_ids: Vec<String>) -> Result<(), TakaError> {
+    pub async fn reorder(&self, doc_ids: Vec<String>) -> Result<(), RigidError> {
         for (i, id) in doc_ids.iter().enumerate() {
             sqlx::query("UPDATE architecture_docs SET sort_order = ? WHERE id = ?")
                 .bind(i as i32)
@@ -138,7 +138,7 @@ impl ArchitectureDocRepository {
 
     // ============ Block CRUD ============
 
-    pub async fn create_block(&self, new: NewArchitectureDocBlock) -> Result<ArchitectureDocBlock, TakaError> {
+    pub async fn create_block(&self, new: NewArchitectureDocBlock) -> Result<ArchitectureDocBlock, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -167,18 +167,18 @@ impl ArchitectureDocRepository {
         self.get_block(&id).await
     }
 
-    pub async fn get_block(&self, id: &str) -> Result<ArchitectureDocBlock, TakaError> {
+    pub async fn get_block(&self, id: &str) -> Result<ArchitectureDocBlock, RigidError> {
         sqlx::query_as::<_, ArchitectureDocBlock>("SELECT * FROM architecture_doc_blocks WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "ArchitectureDocBlock".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list_blocks(&self, doc_id: &str) -> Result<Vec<ArchitectureDocBlock>, TakaError> {
+    pub async fn list_blocks(&self, doc_id: &str) -> Result<Vec<ArchitectureDocBlock>, RigidError> {
         Ok(sqlx::query_as::<_, ArchitectureDocBlock>(
             "SELECT * FROM architecture_doc_blocks WHERE doc_id = ? ORDER BY sort_order ASC"
         )
@@ -187,7 +187,7 @@ impl ArchitectureDocRepository {
         .await?)
     }
 
-    pub async fn update_block(&self, id: &str, updates: UpdateArchitectureDocBlock) -> Result<ArchitectureDocBlock, TakaError> {
+    pub async fn update_block(&self, id: &str, updates: UpdateArchitectureDocBlock) -> Result<ArchitectureDocBlock, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -225,7 +225,7 @@ impl ArchitectureDocRepository {
         self.get_block(id).await
     }
 
-    pub async fn delete_block(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_block(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM architecture_doc_blocks WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -233,7 +233,7 @@ impl ArchitectureDocRepository {
         Ok(())
     }
 
-    pub async fn delete_all_blocks(&self, doc_id: &str) -> Result<(), TakaError> {
+    pub async fn delete_all_blocks(&self, doc_id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM architecture_doc_blocks WHERE doc_id = ?")
             .bind(doc_id)
             .execute(&self.pool)
@@ -241,7 +241,7 @@ impl ArchitectureDocRepository {
         Ok(())
     }
 
-    pub async fn bulk_replace_blocks(&self, doc_id: &str, blocks: Vec<NewArchitectureDocBlock>) -> Result<Vec<ArchitectureDocBlock>, TakaError> {
+    pub async fn bulk_replace_blocks(&self, doc_id: &str, blocks: Vec<NewArchitectureDocBlock>) -> Result<Vec<ArchitectureDocBlock>, RigidError> {
         // Delete all existing blocks
         self.delete_all_blocks(doc_id).await?;
 

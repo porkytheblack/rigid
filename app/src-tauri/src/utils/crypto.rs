@@ -6,14 +6,14 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use rand::Rng;
 use sha2::{Digest, Sha256};
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 
-const SALT: &[u8] = b"taka_api_key_encryption_salt_v1";
+const SALT: &[u8] = b"rigid_api_key_encryption_salt_v1";
 const NONCE_SIZE: usize = 12;
 
-fn derive_key() -> Result<[u8; 32], TakaError> {
+fn derive_key() -> Result<[u8; 32], RigidError> {
     let machine_id = machine_uid::get()
-        .map_err(|e| TakaError::Crypto(format!("Failed to get machine ID: {}", e)))?;
+        .map_err(|e| RigidError::Crypto(format!("Failed to get machine ID: {}", e)))?;
 
     let mut hasher = Sha256::new();
     hasher.update(machine_id.as_bytes());
@@ -26,10 +26,10 @@ fn derive_key() -> Result<[u8; 32], TakaError> {
     Ok(key)
 }
 
-pub fn encrypt(plaintext: &str) -> Result<String, TakaError> {
+pub fn encrypt(plaintext: &str) -> Result<String, RigidError> {
     let key = derive_key()?;
     let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| TakaError::Crypto(format!("Failed to create cipher: {}", e)))?;
+        .map_err(|e| RigidError::Crypto(format!("Failed to create cipher: {}", e)))?;
 
     let mut rng = rand::thread_rng();
     let mut nonce_bytes = [0u8; NONCE_SIZE];
@@ -38,7 +38,7 @@ pub fn encrypt(plaintext: &str) -> Result<String, TakaError> {
 
     let ciphertext = cipher
         .encrypt(nonce, plaintext.as_bytes())
-        .map_err(|e| TakaError::Crypto(format!("Encryption failed: {}", e)))?;
+        .map_err(|e| RigidError::Crypto(format!("Encryption failed: {}", e)))?;
 
     let mut combined = Vec::with_capacity(NONCE_SIZE + ciphertext.len());
     combined.extend_from_slice(&nonce_bytes);
@@ -47,17 +47,17 @@ pub fn encrypt(plaintext: &str) -> Result<String, TakaError> {
     Ok(BASE64.encode(&combined))
 }
 
-pub fn decrypt(encrypted: &str) -> Result<String, TakaError> {
+pub fn decrypt(encrypted: &str) -> Result<String, RigidError> {
     let key = derive_key()?;
     let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| TakaError::Crypto(format!("Failed to create cipher: {}", e)))?;
+        .map_err(|e| RigidError::Crypto(format!("Failed to create cipher: {}", e)))?;
 
     let combined = BASE64
         .decode(encrypted)
-        .map_err(|e| TakaError::Crypto(format!("Invalid base64: {}", e)))?;
+        .map_err(|e| RigidError::Crypto(format!("Invalid base64: {}", e)))?;
 
     if combined.len() < NONCE_SIZE {
-        return Err(TakaError::Crypto("Invalid encrypted data".to_string()));
+        return Err(RigidError::Crypto("Invalid encrypted data".to_string()));
     }
 
     let (nonce_bytes, ciphertext) = combined.split_at(NONCE_SIZE);
@@ -65,10 +65,10 @@ pub fn decrypt(encrypted: &str) -> Result<String, TakaError> {
 
     let plaintext = cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|e| TakaError::Crypto(format!("Decryption failed: {}", e)))?;
+        .map_err(|e| RigidError::Crypto(format!("Decryption failed: {}", e)))?;
 
     String::from_utf8(plaintext)
-        .map_err(|e| TakaError::Crypto(format!("Invalid UTF-8: {}", e)))
+        .map_err(|e| RigidError::Crypto(format!("Invalid UTF-8: {}", e)))
 }
 
 #[cfg(test)]

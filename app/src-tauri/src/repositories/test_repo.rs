@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{Test, NewTest, UpdateTest, TestFilter};
 
 #[derive(Clone)]
@@ -15,7 +15,7 @@ impl TestRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, new: NewTest) -> Result<Test, TakaError> {
+    pub async fn create(&self, new: NewTest) -> Result<Test, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -34,18 +34,18 @@ impl TestRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<Test, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<Test, RigidError> {
         sqlx::query_as::<_, Test>("SELECT * FROM tests WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "Test".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list(&self, filter: TestFilter) -> Result<Vec<Test>, TakaError> {
+    pub async fn list(&self, filter: TestFilter) -> Result<Vec<Test>, RigidError> {
         let mut sql = String::from("SELECT * FROM tests WHERE 1=1");
         let mut bindings: Vec<String> = Vec::new();
 
@@ -73,7 +73,7 @@ impl TestRepository {
         Ok(query.fetch_all(&self.pool).await?)
     }
 
-    pub async fn list_by_app(&self, app_id: &str) -> Result<Vec<Test>, TakaError> {
+    pub async fn list_by_app(&self, app_id: &str) -> Result<Vec<Test>, RigidError> {
         self.list(TestFilter {
             app_id: Some(app_id.to_string()),
             status: None,
@@ -81,7 +81,7 @@ impl TestRepository {
         }).await
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateTest) -> Result<Test, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateTest) -> Result<Test, RigidError> {
         self.get(id).await?;
 
         let now = Utc::now().to_rfc3339();
@@ -103,14 +103,14 @@ impl TestRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM tests WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "Test".into(),
                 id: id.into(),
             });
@@ -119,7 +119,7 @@ impl TestRepository {
         Ok(())
     }
 
-    pub async fn count_by_app(&self, app_id: &str) -> Result<i32, TakaError> {
+    pub async fn count_by_app(&self, app_id: &str) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM tests WHERE app_id = ?")
             .bind(app_id)
             .fetch_one(&self.pool)
@@ -127,7 +127,7 @@ impl TestRepository {
         Ok(count.0)
     }
 
-    pub async fn count_by_status(&self, status: &str) -> Result<i32, TakaError> {
+    pub async fn count_by_status(&self, status: &str) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM tests WHERE status = ?")
             .bind(status)
             .fetch_one(&self.pool)

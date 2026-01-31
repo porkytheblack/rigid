@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::ffmpeg;
 use crate::repositories::RecordingRepository;
 
@@ -67,18 +67,18 @@ pub async fn trim_video(
     start_ms: i64,
     end_ms: i64,
     repo: State<'_, RecordingRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     // Get the recording
     let recording = repo.get(&recording_id).await?;
 
     let recording_path = recording.recording_path.ok_or_else(|| {
-        TakaError::Validation("Recording has no video file".to_string())
+        RigidError::Validation("Recording has no video file".to_string())
     })?;
 
     // Verify source file exists
     let source_path = PathBuf::from(&recording_path);
     if !source_path.exists() {
-        return Err(TakaError::Validation(format!(
+        return Err(RigidError::Validation(format!(
             "Source video file not found: {}",
             recording_path
         )));
@@ -86,7 +86,7 @@ pub async fn trim_video(
 
     // Create a temporary output path
     let app_data_dir = app.path().app_data_dir()
-        .map_err(|e| TakaError::Tauri(e.to_string()))?;
+        .map_err(|e| RigidError::Tauri(e.to_string()))?;
     let recordings_dir = app_data_dir.join("recordings");
 
     // Output as mp4 since we're re-encoding with H.264/AAC
@@ -104,7 +104,7 @@ pub async fn trim_video(
     // Using -ss after -i for accurate seeking (not keyframe-based)
     // Re-encoding is required for frame-accurate cuts
     let output = ffmpeg::ffmpeg_command(&app)
-        .map_err(|e| TakaError::Internal(e))?
+        .map_err(|e| RigidError::Internal(e))?
         .args([
             "-y",                           // Overwrite output file
             "-i", &recording_path,          // Input file
@@ -119,11 +119,11 @@ pub async fn trim_video(
             temp_output.to_str().unwrap(),
         ])
         .output()
-        .map_err(|e| TakaError::Internal(format!("Failed to run FFmpeg: {}", e)))?;
+        .map_err(|e| RigidError::Internal(format!("Failed to run FFmpeg: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(TakaError::Internal(format!(
+        return Err(RigidError::Internal(format!(
             "FFmpeg trim failed: {}",
             stderr
         )));
@@ -134,7 +134,7 @@ pub async fn trim_video(
 
     // Move the temp file to the final location
     std::fs::rename(&temp_output, &final_output)
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     // Remove the old file if it's different from the new one
     if source_path != final_output && source_path.exists() {
@@ -163,18 +163,18 @@ pub async fn cut_video(
     end_ms: i64,
     new_name: String,
     repo: State<'_, RecordingRepository>,
-) -> Result<crate::models::Recording, TakaError> {
+) -> Result<crate::models::Recording, RigidError> {
     // Get the source recording
     let source_recording = repo.get(&recording_id).await?;
 
     let recording_path = source_recording.recording_path.ok_or_else(|| {
-        TakaError::Validation("Recording has no video file".to_string())
+        RigidError::Validation("Recording has no video file".to_string())
     })?;
 
     // Verify source file exists
     let source_path = PathBuf::from(&recording_path);
     if !source_path.exists() {
-        return Err(TakaError::Validation(format!(
+        return Err(RigidError::Validation(format!(
             "Source video file not found: {}",
             recording_path
         )));
@@ -189,7 +189,7 @@ pub async fn cut_video(
 
     // Set up output path
     let app_data_dir = app.path().app_data_dir()
-        .map_err(|e| TakaError::Tauri(e.to_string()))?;
+        .map_err(|e| RigidError::Tauri(e.to_string()))?;
     let recordings_dir = app_data_dir.join("recordings");
 
     // Output as mp4 since we're re-encoding with H.264/AAC
@@ -207,7 +207,7 @@ pub async fn cut_video(
     // Using -ss after -i for accurate seeking (not keyframe-based)
     // Re-encoding is required for frame-accurate cuts
     let output = ffmpeg::ffmpeg_command(&app)
-        .map_err(|e| TakaError::Internal(e))?
+        .map_err(|e| RigidError::Internal(e))?
         .args([
             "-y",                           // Overwrite output file
             "-i", &recording_path,          // Input file
@@ -222,13 +222,13 @@ pub async fn cut_video(
             output_path.to_str().unwrap(),
         ])
         .output()
-        .map_err(|e| TakaError::Internal(format!("Failed to run FFmpeg: {}", e)))?;
+        .map_err(|e| RigidError::Internal(format!("Failed to run FFmpeg: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         // Clean up the failed recording entry
         let _ = repo.delete(&new_recording.id).await;
-        return Err(TakaError::Internal(format!(
+        return Err(RigidError::Internal(format!(
             "FFmpeg cut failed: {}",
             stderr
         )));
@@ -320,17 +320,17 @@ pub struct MediaProbeResult {
 
 /// Probe a media file to get info about its streams
 #[tauri::command]
-pub async fn probe_media(app: AppHandle, path: String) -> Result<MediaProbeResult, TakaError> {
+pub async fn probe_media(app: AppHandle, path: String) -> Result<MediaProbeResult, RigidError> {
     // Check if file exists first
     let file_path = std::path::Path::new(&path);
     if !file_path.exists() {
-        return Err(TakaError::Internal(format!("File not found: {}", path)));
+        return Err(RigidError::Internal(format!("File not found: {}", path)));
     }
 
     // Use ffprobe to get stream info in JSON format
     // ffprobe reads container metadata which is fast even for large files
     let output = ffmpeg::ffprobe_command(&app)
-        .map_err(|e| TakaError::Internal(e))?
+        .map_err(|e| RigidError::Internal(e))?
         .args([
             "-v", "error",  // Show errors but not warnings
             "-print_format", "json",
@@ -339,11 +339,11 @@ pub async fn probe_media(app: AppHandle, path: String) -> Result<MediaProbeResul
             &path,
         ])
         .output()
-        .map_err(|e| TakaError::Internal(format!("Failed to run ffprobe: {}", e)))?;
+        .map_err(|e| RigidError::Internal(format!("Failed to run ffprobe: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(TakaError::Internal(format!(
+        return Err(RigidError::Internal(format!(
             "ffprobe failed for {}: {}",
             path, stderr
         )));
@@ -353,7 +353,7 @@ pub async fn probe_media(app: AppHandle, path: String) -> Result<MediaProbeResul
 
     // Parse the JSON output
     let json: serde_json::Value = serde_json::from_str(&stdout)
-        .map_err(|e| TakaError::Internal(format!("Failed to parse ffprobe output: {}", e)))?;
+        .map_err(|e| RigidError::Internal(format!("Failed to parse ffprobe output: {}", e)))?;
 
     let mut has_audio = false;
     let mut has_video = false;
@@ -530,7 +530,7 @@ pub struct ExportStarted {
 pub async fn render_demo(
     app: AppHandle,
     config: RenderDemoConfig,
-) -> Result<String, TakaError> {
+) -> Result<String, RigidError> {
     use std::process::Stdio;
 
     // Validate output path
@@ -538,7 +538,7 @@ pub async fn render_demo(
     if let Some(parent) = output_path.parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| TakaError::Io(e))?;
+                .map_err(|e| RigidError::Io(e))?;
         }
     }
 
@@ -1280,15 +1280,15 @@ pub async fn render_demo(
 
     // Run FFmpeg
     let output = ffmpeg::ffmpeg_command(&app)
-        .map_err(|e| TakaError::Internal(e))?
+        .map_err(|e| RigidError::Internal(e))?
         .args(&ffmpeg_args)
         .stderr(Stdio::piped())
         .output()
-        .map_err(|e| TakaError::Internal(format!("Failed to run FFmpeg: {}", e)))?;
+        .map_err(|e| RigidError::Internal(format!("Failed to run FFmpeg: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(TakaError::Internal(format!(
+        return Err(RigidError::Internal(format!(
             "FFmpeg render failed: {}",
             stderr
         )));
@@ -1364,7 +1364,7 @@ pub async fn render_demo_background(
     app: AppHandle,
     export_id: String,
     config: RenderDemoConfig,
-) -> Result<String, TakaError> {
+) -> Result<String, RigidError> {
     use std::process::Stdio;
     use std::time::Instant;
 
@@ -1387,7 +1387,7 @@ pub async fn render_demo_background(
     if let Some(parent) = output_path_buf.parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| TakaError::Io(e))?;
+                .map_err(|e| RigidError::Io(e))?;
         }
     }
 
@@ -1598,7 +1598,7 @@ async fn build_ffmpeg_args(
     video_bitrate: &str,
     use_bitrate_cap: bool,
     duration_sec: f64,
-) -> Result<Vec<String>, TakaError> {
+) -> Result<Vec<String>, RigidError> {
     let mut ffmpeg_args: Vec<String> = vec![
         "-y".to_string(),
     ];
@@ -2231,7 +2231,7 @@ pub async fn render_demo_native(
     app: AppHandle,
     export_id: String,
     config: RenderDemoConfig,
-) -> Result<String, TakaError> {
+) -> Result<String, RigidError> {
     use crate::native;
     use std::ffi::CStr;
     use std::os::raw::c_char;
@@ -2325,7 +2325,7 @@ pub async fn render_demo_native(
     });
 
     let config_json = serde_json::to_string(&compositor_config)
-        .map_err(|e| TakaError::Internal(format!("Failed to serialize config: {}", e)))?;
+        .map_err(|e| RigidError::Internal(format!("Failed to serialize config: {}", e)))?;
 
     // Store app handle and start time for callbacks
     static APP_HANDLE: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
@@ -2437,7 +2437,7 @@ pub async fn render_demo_native(
         &config_json,
         Some(progress_callback),
         Some(completion_callback),
-    ).map_err(|e| TakaError::Internal(e))?;
+    ).map_err(|e| RigidError::Internal(e))?;
 
     Ok(export_id)
 }
@@ -2449,7 +2449,7 @@ pub async fn render_demo_native(
     app: AppHandle,
     export_id: String,
     config: RenderDemoConfig,
-) -> Result<String, TakaError> {
+) -> Result<String, RigidError> {
     // On non-macOS, fall back to FFmpeg
     render_demo_background(app, export_id, config).await
 }

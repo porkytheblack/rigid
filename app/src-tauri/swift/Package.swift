@@ -2,20 +2,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "TakaCaptureKit",
+    name: "RigidCaptureKit",
     platforms: [.macOS(.v12)],  // ScreenCaptureKit requires macOS 12.3+
     products: [
         .library(
-            name: "TakaCaptureKit",
+            name: "RigidCaptureKit",
             type: .static,
-            targets: ["TakaCaptureKit"]
+            targets: ["RigidCaptureKit"]
         )
     ],
     targets: [
         .target(
-            name: "TakaCaptureKit",
+            name: "RigidCaptureKit",
             dependencies: [],
-            path: "Sources/TakaCaptureKit",
+            path: "Sources/RigidCaptureKit",
             publicHeadersPath: "include",
             linkerSettings: [
                 .linkedFramework("ScreenCaptureKit"),

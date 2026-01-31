@@ -2031,14 +2031,14 @@ public typealias CCompletionCallback = @convention(c) (UnsafePointer<CChar>?, In
 
 /// Start a video composition render
 /// Returns 0 on success, error code on failure
-@_cdecl("taka_compositor_render")
-public func takaCompositorRender(
+@_cdecl("rigid_compositor_render")
+public func rigidCompositorRender(
     _ exportId: UnsafePointer<CChar>?,
     _ configJson: UnsafePointer<CChar>?,
     _ progressCallback: CProgressCallback?
 ) -> Int32 {
     guard #available(macOS 12.0, *) else {
-        return 2 // TAKA_ERROR_INVALID_CONFIG
+        return 2 // RIGID_ERROR_INVALID_CONFIG
     }
 
     guard let configJson = configJson else {
@@ -2070,7 +2070,7 @@ public func takaCompositorRender(
             result = 0
         } catch {
             print("VideoCompositor: Render failed: \(error)")
-            result = 3 // TAKA_ERROR_RECORDING_FAILED
+            result = 3 // RIGID_ERROR_RECORDING_FAILED
         }
 
         compositorLock.lock()
@@ -2086,8 +2086,8 @@ public func takaCompositorRender(
 
 /// Start a video composition render asynchronously
 /// Returns immediately, use progress callback to track status
-@_cdecl("taka_compositor_render_async")
-public func takaCompositorRenderAsync(
+@_cdecl("rigid_compositor_render_async")
+public func rigidCompositorRenderAsync(
     _ exportId: UnsafePointer<CChar>?,
     _ configJson: UnsafePointer<CChar>?,
     _ progressCallback: CProgressCallback?,
@@ -2136,8 +2136,8 @@ public func takaCompositorRenderAsync(
 }
 
 /// Cancel an in-progress render
-@_cdecl("taka_compositor_cancel")
-public func takaCompositorCancel() {
+@_cdecl("rigid_compositor_cancel")
+public func rigidCompositorCancel() {
     compositorLock.lock()
     globalCompositorEngine?.cancel()
     globalCompositorEngine = nil

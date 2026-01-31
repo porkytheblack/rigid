@@ -65,8 +65,8 @@ class ScreenRecorder: NSObject {
     private var _isRecording: Bool = false
     private var recordingStartDate: Date?
 
-    private let videoQueue = DispatchQueue(label: "com.taka.capture.video", qos: .userInteractive)
-    private let audioQueue = DispatchQueue(label: "com.taka.capture.audio", qos: .userInteractive)
+    private let videoQueue = DispatchQueue(label: "com.rigid.capture.video", qos: .userInteractive)
+    private let audioQueue = DispatchQueue(label: "com.rigid.capture.audio", qos: .userInteractive)
 
     var isRecording: Bool { _isRecording }
 

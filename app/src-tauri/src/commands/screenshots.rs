@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{
     Screenshot, NewScreenshot, UpdateScreenshot, ScreenshotFilter,
     ScreenshotDrawing, NewScreenshotDrawing,
@@ -12,7 +12,7 @@ use crate::repositories::ScreenshotRepository;
 pub async fn create_screenshot(
     new_screenshot: NewScreenshot,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Screenshot, TakaError> {
+) -> Result<Screenshot, RigidError> {
     repo.create(new_screenshot).await
 }
 
@@ -20,7 +20,7 @@ pub async fn create_screenshot(
 pub async fn get_screenshot(
     id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Screenshot, TakaError> {
+) -> Result<Screenshot, RigidError> {
     repo.get(&id).await
 }
 
@@ -28,7 +28,7 @@ pub async fn get_screenshot(
 pub async fn list_screenshots(
     filter: ScreenshotFilter,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Vec<Screenshot>, TakaError> {
+) -> Result<Vec<Screenshot>, RigidError> {
     repo.list(filter).await
 }
 
@@ -37,7 +37,7 @@ pub async fn update_screenshot(
     id: String,
     updates: UpdateScreenshot,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Screenshot, TakaError> {
+) -> Result<Screenshot, RigidError> {
     repo.update(&id, updates).await
 }
 
@@ -45,7 +45,7 @@ pub async fn update_screenshot(
 pub async fn delete_screenshot(
     id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete(&id).await
 }
 
@@ -55,7 +55,7 @@ pub async fn delete_screenshot(
 pub async fn create_screenshot_drawing(
     new_drawing: NewScreenshotDrawing,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<ScreenshotDrawing, TakaError> {
+) -> Result<ScreenshotDrawing, RigidError> {
     repo.create_drawing(new_drawing).await
 }
 
@@ -63,7 +63,7 @@ pub async fn create_screenshot_drawing(
 pub async fn list_screenshot_drawings(
     screenshot_id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Vec<ScreenshotDrawing>, TakaError> {
+) -> Result<Vec<ScreenshotDrawing>, RigidError> {
     repo.list_drawings(&screenshot_id).await
 }
 
@@ -71,7 +71,7 @@ pub async fn list_screenshot_drawings(
 pub async fn delete_screenshot_drawing(
     id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_drawing(&id).await
 }
 
@@ -79,7 +79,7 @@ pub async fn delete_screenshot_drawing(
 pub async fn delete_all_screenshot_drawings(
     screenshot_id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_all_drawings(&screenshot_id).await
 }
 
@@ -87,7 +87,7 @@ pub async fn delete_all_screenshot_drawings(
 pub async fn bulk_create_screenshot_drawings(
     drawings: Vec<NewScreenshotDrawing>,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Vec<ScreenshotDrawing>, TakaError> {
+) -> Result<Vec<ScreenshotDrawing>, RigidError> {
     repo.bulk_create_drawings(drawings).await
 }
 
@@ -96,7 +96,7 @@ pub async fn bulk_replace_screenshot_drawings(
     screenshot_id: String,
     drawings: Vec<NewScreenshotDrawing>,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Vec<ScreenshotDrawing>, TakaError> {
+) -> Result<Vec<ScreenshotDrawing>, RigidError> {
     repo.delete_all_drawings(&screenshot_id).await?;
     repo.bulk_create_drawings(drawings).await
 }
@@ -107,7 +107,7 @@ pub async fn bulk_replace_screenshot_drawings(
 pub async fn create_screenshot_marker(
     new_marker: NewScreenshotMarker,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<ScreenshotMarker, TakaError> {
+) -> Result<ScreenshotMarker, RigidError> {
     repo.create_marker(new_marker).await
 }
 
@@ -115,7 +115,7 @@ pub async fn create_screenshot_marker(
 pub async fn get_screenshot_marker(
     id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<ScreenshotMarker, TakaError> {
+) -> Result<ScreenshotMarker, RigidError> {
     repo.get_marker(&id).await
 }
 
@@ -123,7 +123,7 @@ pub async fn get_screenshot_marker(
 pub async fn list_screenshot_markers(
     screenshot_id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Vec<ScreenshotMarker>, TakaError> {
+) -> Result<Vec<ScreenshotMarker>, RigidError> {
     repo.list_markers(&screenshot_id).await
 }
 
@@ -131,7 +131,7 @@ pub async fn list_screenshot_markers(
 pub async fn list_screenshot_markers_by_test(
     test_id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Vec<ScreenshotMarker>, TakaError> {
+) -> Result<Vec<ScreenshotMarker>, RigidError> {
     repo.list_markers_by_test(&test_id).await
 }
 
@@ -140,7 +140,7 @@ pub async fn update_screenshot_marker(
     id: String,
     updates: UpdateScreenshotMarker,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<ScreenshotMarker, TakaError> {
+) -> Result<ScreenshotMarker, RigidError> {
     repo.update_marker(&id, updates).await
 }
 
@@ -148,7 +148,7 @@ pub async fn update_screenshot_marker(
 pub async fn delete_screenshot_marker(
     id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_marker(&id).await
 }
 
@@ -156,7 +156,7 @@ pub async fn delete_screenshot_marker(
 pub async fn delete_all_screenshot_markers(
     screenshot_id: String,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_all_markers(&screenshot_id).await
 }
 
@@ -164,7 +164,7 @@ pub async fn delete_all_screenshot_markers(
 pub async fn bulk_create_screenshot_markers(
     markers: Vec<NewScreenshotMarker>,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Vec<ScreenshotMarker>, TakaError> {
+) -> Result<Vec<ScreenshotMarker>, RigidError> {
     repo.bulk_create_markers(markers).await
 }
 
@@ -173,7 +173,7 @@ pub async fn bulk_replace_screenshot_markers(
     screenshot_id: String,
     markers: Vec<NewScreenshotMarker>,
     repo: State<'_, ScreenshotRepository>,
-) -> Result<Vec<ScreenshotMarker>, TakaError> {
+) -> Result<Vec<ScreenshotMarker>, RigidError> {
     repo.delete_all_markers(&screenshot_id).await?;
     repo.bulk_create_markers(markers).await
 }

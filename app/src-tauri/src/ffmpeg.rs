@@ -11,7 +11,7 @@ fn find_sidecar(name: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| "Failed to get executable directory".to_string())?;
 
     // Tauri puts sidecars in Contents/MacOS/ with just the base name (no target triple)
-    // e.g., Taka.app/Contents/MacOS/ffmpeg
+    // e.g., Rigid.app/Contents/MacOS/ffmpeg
     let sidecar_path = exe_dir.join(name);
 
     if sidecar_path.exists() {

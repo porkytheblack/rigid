@@ -5,7 +5,7 @@ use crate::adapters::ai::{
     AIAdapter, AICapabilities, AIConfig, AIProvider, AIResponse, AnthropicAdapter,
     CompletionOptions, Message, OllamaAdapter, OpenAIAdapter, OpenRouterAdapter, ProviderStatus,
 };
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::utils::crypto;
 
 pub struct AIService {
@@ -75,7 +75,7 @@ impl AIService {
         statuses
     }
 
-    pub async fn configure(&self, config: AIConfig) -> Result<(), TakaError> {
+    pub async fn configure(&self, config: AIConfig) -> Result<(), RigidError> {
         let adapter = self.create_adapter(
             config.provider,
             config.api_key.as_deref(),
@@ -83,7 +83,7 @@ impl AIService {
         );
 
         if !adapter.is_available().await {
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "Provider {} is not available",
                 config.provider
             )));
@@ -118,11 +118,11 @@ impl AIService {
         &self,
         messages: Vec<Message>,
         options: CompletionOptions,
-    ) -> Result<AIResponse, TakaError> {
+    ) -> Result<AIResponse, RigidError> {
         let adapter = self.current_adapter.read().await;
         let adapter = adapter
             .as_ref()
-            .ok_or_else(|| TakaError::AI("No AI provider configured".to_string()))?;
+            .ok_or_else(|| RigidError::AI("No AI provider configured".to_string()))?;
 
         adapter.complete(messages, options).await
     }
@@ -131,14 +131,14 @@ impl AIService {
         &self,
         image_data: &[u8],
         prompt: &str,
-    ) -> Result<String, TakaError> {
+    ) -> Result<String, RigidError> {
         let adapter = self.current_adapter.read().await;
         let adapter = adapter
             .as_ref()
-            .ok_or_else(|| TakaError::AI("No AI provider configured".to_string()))?;
+            .ok_or_else(|| RigidError::AI("No AI provider configured".to_string()))?;
 
         if !adapter.capabilities().vision {
-            return Err(TakaError::AI(
+            return Err(RigidError::AI(
                 "Current provider does not support vision".to_string(),
             ));
         }
@@ -146,11 +146,11 @@ impl AIService {
         adapter.describe_image(image_data, prompt).await
     }
 
-    pub async fn list_models(&self) -> Result<Vec<String>, TakaError> {
+    pub async fn list_models(&self) -> Result<Vec<String>, RigidError> {
         let adapter = self.current_adapter.read().await;
         let adapter = adapter
             .as_ref()
-            .ok_or_else(|| TakaError::AI("No AI provider configured".to_string()))?;
+            .ok_or_else(|| RigidError::AI("No AI provider configured".to_string()))?;
 
         adapter.list_models().await
     }
@@ -187,10 +187,10 @@ impl Default for AIService {
     }
 }
 
-pub fn encrypt_api_key(key: &str) -> Result<String, TakaError> {
+pub fn encrypt_api_key(key: &str) -> Result<String, RigidError> {
     crypto::encrypt(key)
 }
 
-pub fn decrypt_api_key(encrypted: &str) -> Result<String, TakaError> {
+pub fn decrypt_api_key(encrypted: &str) -> Result<String, RigidError> {
     crypto::decrypt(encrypted)
 }

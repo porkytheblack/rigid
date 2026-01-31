@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{Recording, NewRecording, UpdateRecording, RecordingFilter, Annotation, NewAnnotation, UpdateAnnotation};
 
 #[derive(Clone)]
@@ -15,7 +15,7 @@ impl RecordingRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, new: NewRecording) -> Result<Recording, TakaError> {
+    pub async fn create(&self, new: NewRecording) -> Result<Recording, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -35,18 +35,18 @@ impl RecordingRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<Recording, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<Recording, RigidError> {
         sqlx::query_as::<_, Recording>("SELECT * FROM recordings WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "Recording".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list(&self, filter: RecordingFilter) -> Result<Vec<Recording>, TakaError> {
+    pub async fn list(&self, filter: RecordingFilter) -> Result<Vec<Recording>, RigidError> {
         let mut sql = String::from("SELECT * FROM recordings WHERE 1=1");
         let mut bindings: Vec<String> = Vec::new();
 
@@ -79,7 +79,7 @@ impl RecordingRepository {
         Ok(query.fetch_all(&self.pool).await?)
     }
 
-    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<Recording>, TakaError> {
+    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<Recording>, RigidError> {
         self.list(RecordingFilter {
             test_id: Some(test_id.to_string()),
             app_id: None,
@@ -88,7 +88,7 @@ impl RecordingRepository {
         }).await
     }
 
-    pub async fn list_by_app(&self, app_id: &str) -> Result<Vec<Recording>, TakaError> {
+    pub async fn list_by_app(&self, app_id: &str) -> Result<Vec<Recording>, RigidError> {
         self.list(RecordingFilter {
             test_id: None,
             app_id: Some(app_id.to_string()),
@@ -97,7 +97,7 @@ impl RecordingRepository {
         }).await
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateRecording) -> Result<Recording, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateRecording) -> Result<Recording, RigidError> {
         self.get(id).await?;
 
         let now = Utc::now().to_rfc3339();
@@ -127,14 +127,14 @@ impl RecordingRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM recordings WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "Recording".into(),
                 id: id.into(),
             });
@@ -144,7 +144,7 @@ impl RecordingRepository {
     }
 
     // Annotation methods
-    pub async fn create_annotation(&self, new: NewAnnotation) -> Result<Annotation, TakaError> {
+    pub async fn create_annotation(&self, new: NewAnnotation) -> Result<Annotation, RigidError> {
         // Verify recording exists
         self.get(&new.recording_id).await?;
 
@@ -170,18 +170,18 @@ impl RecordingRepository {
         self.get_annotation(&id).await
     }
 
-    pub async fn get_annotation(&self, id: &str) -> Result<Annotation, TakaError> {
+    pub async fn get_annotation(&self, id: &str) -> Result<Annotation, RigidError> {
         sqlx::query_as::<_, Annotation>("SELECT * FROM annotations WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "Annotation".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list_annotations(&self, recording_id: &str) -> Result<Vec<Annotation>, TakaError> {
+    pub async fn list_annotations(&self, recording_id: &str) -> Result<Vec<Annotation>, RigidError> {
         Ok(sqlx::query_as::<_, Annotation>(
             "SELECT * FROM annotations WHERE recording_id = ? ORDER BY timestamp_ms ASC"
         )
@@ -190,7 +190,7 @@ impl RecordingRepository {
         .await?)
     }
 
-    pub async fn update_annotation(&self, id: &str, updates: UpdateAnnotation) -> Result<Annotation, TakaError> {
+    pub async fn update_annotation(&self, id: &str, updates: UpdateAnnotation) -> Result<Annotation, RigidError> {
         self.get_annotation(id).await?;
 
         let now = Utc::now().to_rfc3339();
@@ -216,14 +216,14 @@ impl RecordingRepository {
         self.get_annotation(id).await
     }
 
-    pub async fn delete_annotation(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_annotation(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM annotations WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "Annotation".into(),
                 id: id.into(),
             });

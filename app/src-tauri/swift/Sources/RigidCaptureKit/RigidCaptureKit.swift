@@ -76,8 +76,8 @@ enum CaptureEngineError: Error {
 
 // MARK: Lifecycle
 
-@_cdecl("taka_capture_create")
-public func takaCaptureCreate() -> UnsafeMutableRawPointer? {
+@_cdecl("rigid_capture_create")
+public func rigidCaptureCreate() -> UnsafeMutableRawPointer? {
     guard #available(macOS 12.3, *) else {
         return nil
     }
@@ -85,8 +85,8 @@ public func takaCaptureCreate() -> UnsafeMutableRawPointer? {
     return Unmanaged.passRetained(engine).toOpaque()
 }
 
-@_cdecl("taka_capture_destroy")
-public func takaCaptureDestroy(_ handle: UnsafeMutableRawPointer?) {
+@_cdecl("rigid_capture_destroy")
+public func rigidCaptureDestroy(_ handle: UnsafeMutableRawPointer?) {
     guard let handle = handle else { return }
     guard #available(macOS 12.3, *) else { return }
     Unmanaged<CaptureEngine>.fromOpaque(handle).release()
@@ -94,33 +94,33 @@ public func takaCaptureDestroy(_ handle: UnsafeMutableRawPointer?) {
 
 // MARK: Authorization
 
-@_cdecl("taka_capture_check_permission")
-public func takaCaptureCheckPermission() -> Bool {
+@_cdecl("rigid_capture_check_permission")
+public func rigidCaptureCheckPermission() -> Bool {
     return CGPreflightScreenCaptureAccess()
 }
 
-@_cdecl("taka_capture_request_permission")
-public func takaCaptureRequestPermission() {
+@_cdecl("rigid_capture_request_permission")
+public func rigidCaptureRequestPermission() {
     CGRequestScreenCaptureAccess()
 }
 
 // MARK: Window/Display Enumeration
 
-// Returns JSON string containing window list, caller must free with taka_free_string
-@_cdecl("taka_capture_list_windows_json")
-public func takaCaptureListWindowsJson() -> UnsafeMutablePointer<CChar>? {
+// Returns JSON string containing window list, caller must free with rigid_free_string
+@_cdecl("rigid_capture_list_windows_json")
+public func rigidCaptureListWindowsJson() -> UnsafeMutablePointer<CChar>? {
     guard #available(macOS 12.3, *) else {
-        print("TakaCaptureKit: macOS 12.3+ required for window listing")
+        print("RigidCaptureKit: macOS 12.3+ required for window listing")
         return strdup("[]")
     }
 
     // Check if we have screen capture permission
     let hasPermission = CGPreflightScreenCaptureAccess()
-    print("TakaCaptureKit: Screen capture permission: \(hasPermission)")
+    print("RigidCaptureKit: Screen capture permission: \(hasPermission)")
 
     if !hasPermission {
         // Try to request permission (will open system dialog on first request)
-        print("TakaCaptureKit: Requesting screen capture permission...")
+        print("RigidCaptureKit: Requesting screen capture permission...")
         CGRequestScreenCaptureAccess()
     }
 
@@ -129,9 +129,9 @@ public func takaCaptureListWindowsJson() -> UnsafeMutablePointer<CChar>? {
 
     Task {
         do {
-            print("TakaCaptureKit: Fetching shareable content...")
+            print("RigidCaptureKit: Fetching shareable content...")
             let windows = try await WindowEnumerator.listWindows()
-            print("TakaCaptureKit: Found \(windows.count) windows")
+            print("RigidCaptureKit: Found \(windows.count) windows")
 
             var jsonArray: [[String: Any]] = []
             for window in windows {
@@ -152,7 +152,7 @@ public func takaCaptureListWindowsJson() -> UnsafeMutablePointer<CChar>? {
                 result = jsonString
             }
         } catch {
-            print("TakaCaptureKit: Error listing windows: \(error)")
+            print("RigidCaptureKit: Error listing windows: \(error)")
             result = "[]"
         }
         semaphore.signal()
@@ -161,16 +161,16 @@ public func takaCaptureListWindowsJson() -> UnsafeMutablePointer<CChar>? {
     // Wait with a timeout to avoid deadlocks
     let timeout = semaphore.wait(timeout: .now() + 5.0)
     if timeout == .timedOut {
-        print("TakaCaptureKit: Timeout waiting for window list")
+        print("RigidCaptureKit: Timeout waiting for window list")
         return strdup("[]")
     }
 
     return strdup(result)
 }
 
-// Returns JSON string containing display list, caller must free with taka_free_string
-@_cdecl("taka_capture_list_displays_json")
-public func takaCaptureListDisplaysJson() -> UnsafeMutablePointer<CChar>? {
+// Returns JSON string containing display list, caller must free with rigid_free_string
+@_cdecl("rigid_capture_list_displays_json")
+public func rigidCaptureListDisplaysJson() -> UnsafeMutablePointer<CChar>? {
     guard #available(macOS 12.3, *) else {
         return strdup("[]")
     }
@@ -208,16 +208,16 @@ public func takaCaptureListDisplaysJson() -> UnsafeMutablePointer<CChar>? {
     return strdup(result)
 }
 
-@_cdecl("taka_free_string")
-public func takaFreeString(_ str: UnsafeMutablePointer<CChar>?) {
+@_cdecl("rigid_free_string")
+public func rigidFreeString(_ str: UnsafeMutablePointer<CChar>?) {
     free(str)
 }
 
 // MARK: Recording - Window
 // Parameters passed individually to avoid struct FFI issues
 
-@_cdecl("taka_capture_start_window_recording")
-public func takaCaptureStartWindowRecording(
+@_cdecl("rigid_capture_start_window_recording")
+public func rigidCaptureStartWindowRecording(
     _ handle: UnsafeMutableRawPointer?,
     _ windowId: UInt32,
     _ outputPath: UnsafePointer<CChar>?,
@@ -232,7 +232,7 @@ public func takaCaptureStartWindowRecording(
     _ scaleFactor: Float
 ) -> Int32 {
     guard #available(macOS 12.3, *) else {
-        return 2 // TAKA_ERROR_INVALID_CONFIG
+        return 2 // RIGID_ERROR_INVALID_CONFIG
     }
 
     guard let handle = handle,
@@ -253,7 +253,7 @@ public func takaCaptureStartWindowRecording(
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
             guard let window = content.windows.first(where: { $0.windowID == windowId }) else {
-                result = 7 // TAKA_ERROR_WINDOW_NOT_FOUND
+                result = 7 // RIGID_ERROR_WINDOW_NOT_FOUND
                 semaphore.signal()
                 return
             }
@@ -281,7 +281,7 @@ public func takaCaptureStartWindowRecording(
             )
             result = 0
         } catch {
-            result = 3 // TAKA_ERROR_RECORDING_FAILED
+            result = 3 // RIGID_ERROR_RECORDING_FAILED
         }
         semaphore.signal()
     }
@@ -292,8 +292,8 @@ public func takaCaptureStartWindowRecording(
 
 // MARK: Recording - Display
 
-@_cdecl("taka_capture_start_display_recording")
-public func takaCaptureStartDisplayRecording(
+@_cdecl("rigid_capture_start_display_recording")
+public func rigidCaptureStartDisplayRecording(
     _ handle: UnsafeMutableRawPointer?,
     _ displayId: UInt32,
     _ outputPath: UnsafePointer<CChar>?,
@@ -328,7 +328,7 @@ public func takaCaptureStartDisplayRecording(
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
             guard let display = content.displays.first(where: { $0.displayID == displayId }) else {
-                result = 8 // TAKA_ERROR_DISPLAY_NOT_FOUND
+                result = 8 // RIGID_ERROR_DISPLAY_NOT_FOUND
                 semaphore.signal()
                 return
             }
@@ -365,8 +365,8 @@ public func takaCaptureStartDisplayRecording(
 
 // MARK: Recording - Region
 
-@_cdecl("taka_capture_start_region_recording")
-public func takaCaptureStartRegionRecording(
+@_cdecl("rigid_capture_start_region_recording")
+public func rigidCaptureStartRegionRecording(
     _ handle: UnsafeMutableRawPointer?,
     _ displayId: UInt32,
     _ x: Int32,
@@ -442,10 +442,10 @@ public func takaCaptureStartRegionRecording(
 
 // MARK: Recording Control
 
-@_cdecl("taka_capture_stop_recording")
-public func takaCaptureStopRecording(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+@_cdecl("rigid_capture_stop_recording")
+public func rigidCaptureStopRecording(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     guard #available(macOS 12.3, *) else {
-        return 5 // TAKA_ERROR_NO_RECORDING
+        return 5 // RIGID_ERROR_NO_RECORDING
     }
 
     guard let handle = handle else {
@@ -473,8 +473,8 @@ public func takaCaptureStopRecording(_ handle: UnsafeMutableRawPointer?) -> Int3
     return result
 }
 
-@_cdecl("taka_capture_cancel_recording")
-public func takaCaptureCancelRecording(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+@_cdecl("rigid_capture_cancel_recording")
+public func rigidCaptureCancelRecording(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     guard #available(macOS 12.3, *) else {
         return 5
     }
@@ -488,8 +488,8 @@ public func takaCaptureCancelRecording(_ handle: UnsafeMutableRawPointer?) -> In
     return 0
 }
 
-@_cdecl("taka_capture_is_recording")
-public func takaCaptureIsRecording(_ handle: UnsafeMutableRawPointer?) -> Bool {
+@_cdecl("rigid_capture_is_recording")
+public func rigidCaptureIsRecording(_ handle: UnsafeMutableRawPointer?) -> Bool {
     guard #available(macOS 12.3, *) else {
         return false
     }
@@ -502,8 +502,8 @@ public func takaCaptureIsRecording(_ handle: UnsafeMutableRawPointer?) -> Bool {
     return engine.isRecording
 }
 
-@_cdecl("taka_capture_get_recording_duration_ms")
-public func takaCaptureGetRecordingDurationMs(_ handle: UnsafeMutableRawPointer?) -> Int64 {
+@_cdecl("rigid_capture_get_recording_duration_ms")
+public func rigidCaptureGetRecordingDurationMs(_ handle: UnsafeMutableRawPointer?) -> Int64 {
     guard #available(macOS 12.3, *) else {
         return 0
     }
@@ -518,15 +518,15 @@ public func takaCaptureGetRecordingDurationMs(_ handle: UnsafeMutableRawPointer?
 
 // MARK: Screenshot - Window
 
-@_cdecl("taka_capture_screenshot_window")
-public func takaCaptureScreenshotWindow(
+@_cdecl("rigid_capture_screenshot_window")
+public func rigidCaptureScreenshotWindow(
     _ windowId: UInt32,
     _ outputPath: UnsafePointer<CChar>?,
     _ scaleFactor: Float,
     _ captureCursor: Bool
 ) -> Int32 {
     guard #available(macOS 12.3, *) else {
-        return 6 // TAKA_ERROR_SCREENSHOT_FAILED
+        return 6 // RIGID_ERROR_SCREENSHOT_FAILED
     }
 
     guard let outputPath = outputPath else {
@@ -566,8 +566,8 @@ public func takaCaptureScreenshotWindow(
 
 // MARK: Screenshot - Display
 
-@_cdecl("taka_capture_screenshot_display")
-public func takaCaptureScreenshotDisplay(
+@_cdecl("rigid_capture_screenshot_display")
+public func rigidCaptureScreenshotDisplay(
     _ displayId: UInt32,
     _ outputPath: UnsafePointer<CChar>?,
     _ scaleFactor: Float,
@@ -614,8 +614,8 @@ public func takaCaptureScreenshotDisplay(
 
 // MARK: Screenshot - Region
 
-@_cdecl("taka_capture_screenshot_region")
-public func takaCaptureScreenshotRegion(
+@_cdecl("rigid_capture_screenshot_region")
+public func rigidCaptureScreenshotRegion(
     _ displayId: UInt32,
     _ x: Int32,
     _ y: Int32,
@@ -675,8 +675,8 @@ private let webcamLock = NSLock()
 
 /// List available audio devices for webcam recording
 /// Returns JSON array: [{"index": "0", "name": "MacBook Pro Microphone"}, ...]
-@_cdecl("taka_webcam_list_audio_devices_json")
-public func takaWebcamListAudioDevicesJson() -> UnsafeMutablePointer<CChar>? {
+@_cdecl("rigid_webcam_list_audio_devices_json")
+public func rigidWebcamListAudioDevicesJson() -> UnsafeMutablePointer<CChar>? {
     let devices = listWebcamAudioDevices()
 
     var jsonArray: [[String: Any]] = []
@@ -704,8 +704,8 @@ public func takaWebcamListAudioDevicesJson() -> UnsafeMutablePointer<CChar>? {
 
 /// List available video devices (cameras) for webcam recording
 /// Returns JSON array: [{"index": "0", "name": "FaceTime HD Camera"}, ...]
-@_cdecl("taka_webcam_list_video_devices_json")
-public func takaWebcamListVideoDevicesJson() -> UnsafeMutablePointer<CChar>? {
+@_cdecl("rigid_webcam_list_video_devices_json")
+public func rigidWebcamListVideoDevicesJson() -> UnsafeMutablePointer<CChar>? {
     let devices = listWebcamVideoDevices()
 
     var jsonArray: [[String: Any]] = []
@@ -728,8 +728,8 @@ public func takaWebcamListVideoDevicesJson() -> UnsafeMutablePointer<CChar>? {
 /// Start webcam recording
 /// audioDeviceIndex: "none" for no audio, "0", "1", etc. for specific device
 /// videoDeviceIndex: nil for default camera, "0", "1", etc. for specific camera
-@_cdecl("taka_webcam_start_recording")
-public func takaWebcamStartRecording(
+@_cdecl("rigid_webcam_start_recording")
+public func rigidWebcamStartRecording(
     _ outputPath: UnsafePointer<CChar>?,
     _ width: UInt32,
     _ height: UInt32,
@@ -787,8 +787,8 @@ public func takaWebcamStartRecording(
 }
 
 /// Stop webcam recording
-@_cdecl("taka_webcam_stop_recording")
-public func takaWebcamStopRecording() -> Int32 {
+@_cdecl("rigid_webcam_stop_recording")
+public func rigidWebcamStopRecording() -> Int32 {
     webcamLock.lock()
     defer { webcamLock.unlock() }
 
@@ -808,8 +808,8 @@ public func takaWebcamStopRecording() -> Int32 {
 }
 
 /// Cancel webcam recording (deletes partial file)
-@_cdecl("taka_webcam_cancel_recording")
-public func takaWebcamCancelRecording() -> Int32 {
+@_cdecl("rigid_webcam_cancel_recording")
+public func rigidWebcamCancelRecording() -> Int32 {
     webcamLock.lock()
     defer { webcamLock.unlock() }
 
@@ -823,16 +823,16 @@ public func takaWebcamCancelRecording() -> Int32 {
 }
 
 /// Check if webcam is currently recording
-@_cdecl("taka_webcam_is_recording")
-public func takaWebcamIsRecording() -> Bool {
+@_cdecl("rigid_webcam_is_recording")
+public func rigidWebcamIsRecording() -> Bool {
     webcamLock.lock()
     defer { webcamLock.unlock() }
     return globalWebcamRecorder?.isRecording ?? false
 }
 
 /// Get webcam recording duration in milliseconds
-@_cdecl("taka_webcam_get_recording_duration_ms")
-public func takaWebcamGetRecordingDurationMs() -> Int64 {
+@_cdecl("rigid_webcam_get_recording_duration_ms")
+public func rigidWebcamGetRecordingDurationMs() -> Int64 {
     webcamLock.lock()
     defer { webcamLock.unlock() }
     return globalWebcamRecorder?.recordingDurationMs ?? 0
@@ -840,8 +840,8 @@ public func takaWebcamGetRecordingDurationMs() -> Int64 {
 
 /// Check camera permission status
 /// Returns: 0 = notDetermined, 1 = restricted, 2 = denied, 3 = authorized
-@_cdecl("taka_check_camera_permission")
-public func takaCheckCameraPermission() -> Int32 {
+@_cdecl("rigid_check_camera_permission")
+public func rigidCheckCameraPermission() -> Int32 {
     let status = AVCaptureDevice.authorizationStatus(for: .video)
     return Int32(status.rawValue)
 }
@@ -849,42 +849,42 @@ public func takaCheckCameraPermission() -> Int32 {
 /// Request camera permission
 /// Triggers the system permission dialog if not yet determined
 /// Returns immediately - check permission status after to see result
-@_cdecl("taka_request_camera_permission")
-public func takaRequestCameraPermission() {
+@_cdecl("rigid_request_camera_permission")
+public func rigidRequestCameraPermission() {
     let status = AVCaptureDevice.authorizationStatus(for: .video)
-    print("TakaCaptureKit: Camera permission status before request: \(status.rawValue)")
+    print("RigidCaptureKit: Camera permission status before request: \(status.rawValue)")
 
     if status == .notDetermined {
-        print("TakaCaptureKit: Requesting camera permission...")
+        print("RigidCaptureKit: Requesting camera permission...")
         AVCaptureDevice.requestAccess(for: .video) { granted in
-            print("TakaCaptureKit: Camera permission request result: \(granted)")
+            print("RigidCaptureKit: Camera permission request result: \(granted)")
         }
     } else {
-        print("TakaCaptureKit: Camera permission already determined: \(status.rawValue)")
+        print("RigidCaptureKit: Camera permission already determined: \(status.rawValue)")
     }
 }
 
 /// Check microphone permission status
 /// Returns: 0 = notDetermined, 1 = restricted, 2 = denied, 3 = authorized
-@_cdecl("taka_check_microphone_permission")
-public func takaCheckMicrophonePermission() -> Int32 {
+@_cdecl("rigid_check_microphone_permission")
+public func rigidCheckMicrophonePermission() -> Int32 {
     let status = AVCaptureDevice.authorizationStatus(for: .audio)
     return Int32(status.rawValue)
 }
 
 /// Request microphone permission
-@_cdecl("taka_request_microphone_permission")
-public func takaRequestMicrophonePermission() {
+@_cdecl("rigid_request_microphone_permission")
+public func rigidRequestMicrophonePermission() {
     let status = AVCaptureDevice.authorizationStatus(for: .audio)
-    print("TakaCaptureKit: Microphone permission status before request: \(status.rawValue)")
+    print("RigidCaptureKit: Microphone permission status before request: \(status.rawValue)")
 
     if status == .notDetermined {
-        print("TakaCaptureKit: Requesting microphone permission...")
+        print("RigidCaptureKit: Requesting microphone permission...")
         AVCaptureDevice.requestAccess(for: .audio) { granted in
-            print("TakaCaptureKit: Microphone permission request result: \(granted)")
+            print("RigidCaptureKit: Microphone permission request result: \(granted)")
         }
     } else {
-        print("TakaCaptureKit: Microphone permission already determined: \(status.rawValue)")
+        print("RigidCaptureKit: Microphone permission already determined: \(status.rawValue)")
     }
 }
 
@@ -892,13 +892,13 @@ public func takaRequestMicrophonePermission() {
 
 private func videoCodecFromC(_ codec: Int32) -> RecordingConfiguration.VideoCodec {
     switch codec {
-    case 0: // TAKA_CODEC_H264
+    case 0: // RIGID_CODEC_H264
         return .h264
-    case 1: // TAKA_CODEC_HEVC
+    case 1: // RIGID_CODEC_HEVC
         return .hevc
-    case 2: // TAKA_CODEC_PRORES_422
+    case 2: // RIGID_CODEC_PRORES_422
         return .proRes422
-    case 3: // TAKA_CODEC_PRORES_422_HQ
+    case 3: // RIGID_CODEC_PRORES_422_HQ
         return .proRes422HQ
     default:
         return .hevc

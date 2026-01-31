@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{NewScreenshot, NewRecording, UpdateRecording, Screenshot, Recording};
 use crate::repositories::{ScreenshotRepository, RecordingRepository};
 
@@ -88,7 +88,7 @@ impl Default for RecordingState {
 
 /// List all open windows that can be captured
 #[tauri::command]
-pub async fn list_windows() -> Result<Vec<WindowInfo>, TakaError> {
+pub async fn list_windows() -> Result<Vec<WindowInfo>, RigidError> {
     // Use CGWindowListCopyWindowInfo via a helper script to get window IDs and bounds
     let script = r#"
         use framework "Foundation"
@@ -138,7 +138,7 @@ pub async fn list_windows() -> Result<Vec<WindowInfo>, TakaError> {
     let output = Command::new("osascript")
         .args(["-l", "AppleScript", "-e", script])
         .output()
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     if !output.status.success() {
         // Fallback to simpler approach
@@ -187,7 +187,7 @@ pub async fn list_windows() -> Result<Vec<WindowInfo>, TakaError> {
 }
 
 /// Fallback window listing using simpler AppleScript
-async fn list_windows_fallback() -> Result<Vec<WindowInfo>, TakaError> {
+async fn list_windows_fallback() -> Result<Vec<WindowInfo>, RigidError> {
     let script = r#"
         set windowList to ""
         tell application "System Events"
@@ -215,7 +215,7 @@ async fn list_windows_fallback() -> Result<Vec<WindowInfo>, TakaError> {
     let output = Command::new("osascript")
         .args(["-e", script])
         .output()
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut windows = Vec::new();
@@ -258,7 +258,7 @@ async fn list_windows_fallback() -> Result<Vec<WindowInfo>, TakaError> {
 
 /// List all available audio input devices
 #[tauri::command]
-pub async fn list_audio_devices() -> Result<Vec<AudioDevice>, TakaError> {
+pub async fn list_audio_devices() -> Result<Vec<AudioDevice>, RigidError> {
     let mut devices = Vec::new();
 
     // Always add "No Audio" option first
@@ -379,7 +379,7 @@ pub struct WebcamAudioDevice {
 /// List all available audio input devices for webcam recording
 /// Uses native AVFoundation on macOS (no ffmpeg required)
 #[tauri::command]
-pub async fn list_webcam_audio_devices() -> Result<Vec<WebcamAudioDevice>, TakaError> {
+pub async fn list_webcam_audio_devices() -> Result<Vec<WebcamAudioDevice>, RigidError> {
     #[cfg(target_os = "macos")]
     {
         // Use native AVFoundation to list devices
@@ -420,7 +420,7 @@ pub struct WebcamVideoDevice {
 /// List all available video devices (cameras) for webcam recording
 /// Uses native AVFoundation on macOS (no ffmpeg required)
 #[tauri::command]
-pub async fn list_webcam_video_devices() -> Result<Vec<WebcamVideoDevice>, TakaError> {
+pub async fn list_webcam_video_devices() -> Result<Vec<WebcamVideoDevice>, RigidError> {
     #[cfg(target_os = "macos")]
     {
         // Use native AVFoundation to list devices
@@ -449,12 +449,12 @@ pub async fn list_webcam_video_devices() -> Result<Vec<WebcamVideoDevice>, TakaE
 
 /// List all available displays/screens
 #[tauri::command]
-pub async fn list_displays() -> Result<Vec<DisplayInfo>, TakaError> {
+pub async fn list_displays() -> Result<Vec<DisplayInfo>, RigidError> {
     // Use system_profiler to get display info on macOS
     let output = Command::new("system_profiler")
         .args(["SPDisplaysDataType", "-json"])
         .output()
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     if !output.status.success() {
         // Fallback: return a single "Main Display" entry
@@ -541,15 +541,15 @@ pub async fn capture_window_screenshot(
     window_id: Option<i64>,
     app: AppHandle,
     screenshot_repo: State<'_, ScreenshotRepository>,
-) -> Result<Screenshot, TakaError> {
+) -> Result<Screenshot, RigidError> {
     let data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| TakaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        .map_err(|e| RigidError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
     let screenshots_dir = data_dir.join("screenshots");
     std::fs::create_dir_all(&screenshots_dir)
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let filename = format!("screenshot_{}.png", timestamp);
@@ -560,7 +560,7 @@ pub async fn capture_window_screenshot(
         let output = Command::new("screencapture")
             .args(["-l", &wid.to_string(), "-x", "-o", screenshot_path.to_str().unwrap()])
             .output()
-            .map_err(|e| TakaError::Io(e))?;
+            .map_err(|e| RigidError::Io(e))?;
 
         if output.status.success() && screenshot_path.exists() {
             let final_title = title.unwrap_or_else(|| format!("{} - {}", window_owner, window_name));
@@ -579,14 +579,14 @@ pub async fn capture_window_screenshot(
     let output = Command::new("screencapture")
         .args(["-i", "-W", "-x", screenshot_path.to_str().unwrap()])
         .output()
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     if !output.status.success() && !screenshot_path.exists() {
-        return Err(TakaError::Internal("Screenshot capture failed".into()));
+        return Err(RigidError::Internal("Screenshot capture failed".into()));
     }
 
     if !screenshot_path.exists() {
-        return Err(TakaError::Internal("Screenshot capture was cancelled".into()));
+        return Err(RigidError::Internal("Screenshot capture was cancelled".into()));
     }
 
     let final_title = title.unwrap_or_else(|| format!("{} - {}", window_owner, window_name));
@@ -611,15 +611,15 @@ pub async fn capture_screenshot(
     title: Option<String>,
     app: AppHandle,
     screenshot_repo: State<'_, ScreenshotRepository>,
-) -> Result<Screenshot, TakaError> {
+) -> Result<Screenshot, RigidError> {
     let data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| TakaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        .map_err(|e| RigidError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
     let screenshots_dir = data_dir.join("screenshots");
     std::fs::create_dir_all(&screenshots_dir)
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let filename = format!("screenshot_{}.png", timestamp);
@@ -629,16 +629,16 @@ pub async fn capture_screenshot(
     let output = Command::new("screencapture")
         .args(["-i", "-W", "-x", screenshot_path.to_str().unwrap()])
         .output()
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     if !output.status.success() {
         if !screenshot_path.exists() {
-            return Err(TakaError::Internal("Screenshot capture was cancelled or failed".into()));
+            return Err(RigidError::Internal("Screenshot capture was cancelled or failed".into()));
         }
     }
 
     if !screenshot_path.exists() {
-        return Err(TakaError::Internal("Screenshot capture was cancelled".into()));
+        return Err(RigidError::Internal("Screenshot capture was cancelled".into()));
     }
 
     let new_screenshot = NewScreenshot {
@@ -660,15 +660,15 @@ pub async fn capture_fullscreen_screenshot(
     title: Option<String>,
     app: AppHandle,
     screenshot_repo: State<'_, ScreenshotRepository>,
-) -> Result<Screenshot, TakaError> {
+) -> Result<Screenshot, RigidError> {
     let data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| TakaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        .map_err(|e| RigidError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
     let screenshots_dir = data_dir.join("screenshots");
     std::fs::create_dir_all(&screenshots_dir)
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let filename = format!("screenshot_{}.png", timestamp);
@@ -677,10 +677,10 @@ pub async fn capture_fullscreen_screenshot(
     let output = Command::new("screencapture")
         .args(["-x", screenshot_path.to_str().unwrap()])
         .output()
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     if !output.status.success() {
-        return Err(TakaError::Internal("Failed to capture screenshot".into()));
+        return Err(RigidError::Internal("Failed to capture screenshot".into()));
     }
 
     let new_screenshot = NewScreenshot {
@@ -717,19 +717,19 @@ pub async fn start_recording(
     app: AppHandle,
     recording_repo: State<'_, RecordingRepository>,
     recording_state: State<'_, RecordingState>,
-) -> Result<Recording, TakaError> {
+) -> Result<Recording, RigidError> {
     if recording_state.is_recording.load(Ordering::SeqCst) {
-        return Err(TakaError::Internal("A recording is already in progress".into()));
+        return Err(RigidError::Internal("A recording is already in progress".into()));
     }
 
     let data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| TakaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        .map_err(|e| RigidError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
     let recordings_dir = data_dir.join("recordings");
     std::fs::create_dir_all(&recordings_dir)
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let filename = format!("recording_{}.mov", timestamp);
@@ -787,7 +787,7 @@ pub async fn start_recording(
     let child = Command::new("screencapture")
         .args(&args)
         .spawn()
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     // Start webcam recording if requested (uses native AVFoundation on macOS)
     let webcam_recording_path = if record_webcam.unwrap_or(false) {
@@ -860,13 +860,13 @@ pub async fn start_recording(
 pub async fn stop_recording(
     recording_repo: State<'_, RecordingRepository>,
     recording_state: State<'_, RecordingState>,
-) -> Result<Recording, TakaError> {
+) -> Result<Recording, RigidError> {
     if !recording_state.is_recording.load(Ordering::SeqCst) {
-        return Err(TakaError::Internal("No recording in progress".into()));
+        return Err(RigidError::Internal("No recording in progress".into()));
     }
 
     let recording_id = recording_state.current_recording_id.lock().await.clone()
-        .ok_or_else(|| TakaError::Internal("No recording ID found".into()))?;
+        .ok_or_else(|| RigidError::Internal("No recording ID found".into()))?;
 
     let start_time = recording_state.start_time.lock().await.clone();
     let recording_path = recording_state.recording_path.lock().await.clone();
@@ -934,7 +934,7 @@ pub async fn stop_recording(
 #[tauri::command]
 pub async fn is_recording(
     recording_state: State<'_, RecordingState>,
-) -> Result<bool, TakaError> {
+) -> Result<bool, RigidError> {
     Ok(recording_state.is_recording.load(Ordering::SeqCst))
 }
 
@@ -942,7 +942,7 @@ pub async fn is_recording(
 #[tauri::command]
 pub async fn get_current_recording_id(
     recording_state: State<'_, RecordingState>,
-) -> Result<Option<String>, TakaError> {
+) -> Result<Option<String>, RigidError> {
     Ok(recording_state.current_recording_id.lock().await.clone())
 }
 
@@ -951,9 +951,9 @@ pub async fn get_current_recording_id(
 pub async fn cancel_recording(
     recording_repo: State<'_, RecordingRepository>,
     recording_state: State<'_, RecordingState>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     if !recording_state.is_recording.load(Ordering::SeqCst) {
-        return Err(TakaError::Internal("No recording in progress".into()));
+        return Err(RigidError::Internal("No recording in progress".into()));
     }
 
     let recording_id = recording_state.current_recording_id.lock().await.clone();
@@ -1009,7 +1009,7 @@ pub async fn cancel_recording(
 
 /// Open system preferences for privacy permissions
 #[tauri::command]
-pub async fn open_privacy_settings(setting: String) -> Result<(), TakaError> {
+pub async fn open_privacy_settings(setting: String) -> Result<(), RigidError> {
     let url = match setting.as_str() {
         "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
         "screen_recording" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -1020,7 +1020,7 @@ pub async fn open_privacy_settings(setting: String) -> Result<(), TakaError> {
     Command::new("open")
         .arg(url)
         .spawn()
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     Ok(())
 }
@@ -1030,16 +1030,16 @@ pub async fn open_privacy_settings(setting: String) -> Result<(), TakaError> {
 pub async fn export_asset(
     source_path: String,
     filename: Option<String>,
-) -> Result<String, TakaError> {
+) -> Result<String, RigidError> {
     let source = std::path::Path::new(&source_path);
 
     if !source.exists() {
-        return Err(TakaError::Internal("Source file does not exist".into()));
+        return Err(RigidError::Internal("Source file does not exist".into()));
     }
 
     // Get the Downloads folder
     let downloads_dir = dirs::download_dir()
-        .ok_or_else(|| TakaError::Internal("Could not find Downloads folder".into()))?;
+        .ok_or_else(|| RigidError::Internal("Could not find Downloads folder".into()))?;
 
     // Generate destination filename
     let dest_filename = filename.unwrap_or_else(|| {
@@ -1074,7 +1074,7 @@ pub async fn export_asset(
 
     // Copy the file
     std::fs::copy(source, &dest_path)
-        .map_err(|e| TakaError::Io(e))?;
+        .map_err(|e| RigidError::Io(e))?;
 
     Ok(dest_path.to_string_lossy().to_string())
 }
@@ -1141,7 +1141,7 @@ impl Default for NativeCaptureState {
 
 /// Check if native screen capture permission is granted
 #[tauri::command]
-pub async fn check_native_capture_permission() -> Result<bool, TakaError> {
+pub async fn check_native_capture_permission() -> Result<bool, RigidError> {
     #[cfg(target_os = "macos")]
     {
         Ok(NativeCaptureEngine::check_permission())
@@ -1154,7 +1154,7 @@ pub async fn check_native_capture_permission() -> Result<bool, TakaError> {
 
 /// Request native screen capture permission
 #[tauri::command]
-pub async fn request_native_capture_permission() -> Result<(), TakaError> {
+pub async fn request_native_capture_permission() -> Result<(), RigidError> {
     #[cfg(target_os = "macos")]
     {
         NativeCaptureEngine::request_permission();
@@ -1165,7 +1165,7 @@ pub async fn request_native_capture_permission() -> Result<(), TakaError> {
 /// Check camera permission status
 /// Returns: "not_determined", "restricted", "denied", "authorized"
 #[tauri::command]
-pub async fn check_camera_permission() -> Result<String, TakaError> {
+pub async fn check_camera_permission() -> Result<String, RigidError> {
     #[cfg(target_os = "macos")]
     {
         use crate::native::{check_camera_permission as native_check, PermissionStatus};
@@ -1187,7 +1187,7 @@ pub async fn check_camera_permission() -> Result<String, TakaError> {
 
 /// Request camera permission (shows system dialog if not determined)
 #[tauri::command]
-pub async fn request_camera_permission() -> Result<(), TakaError> {
+pub async fn request_camera_permission() -> Result<(), RigidError> {
     #[cfg(target_os = "macos")]
     {
         use crate::native::request_camera_permission as native_request;
@@ -1199,7 +1199,7 @@ pub async fn request_camera_permission() -> Result<(), TakaError> {
 /// Check microphone permission status
 /// Returns: "not_determined", "restricted", "denied", "authorized"
 #[tauri::command]
-pub async fn check_microphone_permission() -> Result<String, TakaError> {
+pub async fn check_microphone_permission() -> Result<String, RigidError> {
     #[cfg(target_os = "macos")]
     {
         use crate::native::{check_microphone_permission as native_check, PermissionStatus};
@@ -1221,7 +1221,7 @@ pub async fn check_microphone_permission() -> Result<String, TakaError> {
 
 /// Request microphone permission (shows system dialog if not determined)
 #[tauri::command]
-pub async fn request_microphone_permission() -> Result<(), TakaError> {
+pub async fn request_microphone_permission() -> Result<(), RigidError> {
     #[cfg(target_os = "macos")]
     {
         use crate::native::request_microphone_permission as native_request;
@@ -1232,11 +1232,11 @@ pub async fn request_microphone_permission() -> Result<(), TakaError> {
 
 /// List all windows using native ScreenCaptureKit
 #[tauri::command]
-pub async fn list_windows_native() -> Result<Vec<NativeWindowInfo>, TakaError> {
+pub async fn list_windows_native() -> Result<Vec<NativeWindowInfo>, RigidError> {
     #[cfg(target_os = "macos")]
     {
         let windows = NativeCaptureEngine::list_windows()
-            .map_err(|e| TakaError::Internal(e.to_string()))?;
+            .map_err(|e| RigidError::Internal(e.to_string()))?;
 
         Ok(windows
             .into_iter()
@@ -1254,17 +1254,17 @@ pub async fn list_windows_native() -> Result<Vec<NativeWindowInfo>, TakaError> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(TakaError::Internal("Native capture not supported on this platform".into()))
+        Err(RigidError::Internal("Native capture not supported on this platform".into()))
     }
 }
 
 /// List all displays using native ScreenCaptureKit
 #[tauri::command]
-pub async fn list_displays_native() -> Result<Vec<NativeDisplayInfo>, TakaError> {
+pub async fn list_displays_native() -> Result<Vec<NativeDisplayInfo>, RigidError> {
     #[cfg(target_os = "macos")]
     {
         let displays = NativeCaptureEngine::list_displays()
-            .map_err(|e| TakaError::Internal(e.to_string()))?;
+            .map_err(|e| RigidError::Internal(e.to_string()))?;
 
         Ok(displays
             .into_iter()
@@ -1280,7 +1280,7 @@ pub async fn list_displays_native() -> Result<Vec<NativeDisplayInfo>, TakaError>
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(TakaError::Internal("Native capture not supported on this platform".into()))
+        Err(RigidError::Internal("Native capture not supported on this platform".into()))
     }
 }
 
@@ -1298,13 +1298,13 @@ pub async fn start_native_recording(
     app: AppHandle,
     recording_repo: State<'_, RecordingRepository>,
     native_state: State<'_, NativeCaptureState>,
-) -> Result<Recording, TakaError> {
+) -> Result<Recording, RigidError> {
     // Check if already recording
     {
         let engine_guard = native_state.engine.lock().unwrap();
         if let Some(ref engine) = *engine_guard {
             if engine.is_recording() {
-                return Err(TakaError::Internal("A recording is already in progress".into()));
+                return Err(RigidError::Internal("A recording is already in progress".into()));
             }
         }
     }
@@ -1312,10 +1312,10 @@ pub async fn start_native_recording(
     let data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| TakaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        .map_err(|e| RigidError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
     let recordings_dir = data_dir.join("recordings");
-    std::fs::create_dir_all(&recordings_dir).map_err(TakaError::Io)?;
+    std::fs::create_dir_all(&recordings_dir).map_err(RigidError::Io)?;
 
     // Build recording config
     let opts = options.unwrap_or(NativeRecordingOptions {
@@ -1341,7 +1341,7 @@ pub async fn start_native_recording(
     // Determine dimensions from window or display
     let (width, height) = if let Some(wid) = window_id {
         let windows = NativeCaptureEngine::list_windows()
-            .map_err(|e| TakaError::Internal(e.to_string()))?;
+            .map_err(|e| RigidError::Internal(e.to_string()))?;
         windows
             .iter()
             .find(|w| w.window_id == wid)
@@ -1349,7 +1349,7 @@ pub async fn start_native_recording(
             .unwrap_or((1920, 1080))
     } else if let Some(did) = display_id {
         let displays = NativeCaptureEngine::list_displays()
-            .map_err(|e| TakaError::Internal(e.to_string()))?;
+            .map_err(|e| RigidError::Internal(e.to_string()))?;
         displays
             .iter()
             .find(|d| d.display_id == did)
@@ -1389,33 +1389,33 @@ pub async fn start_native_recording(
             if let Some(wid) = window_id {
                 engine
                     .start_window_recording(wid, &recording_path, &config)
-                    .map_err(|e| TakaError::Internal(e.to_string()))?;
+                    .map_err(|e| RigidError::Internal(e.to_string()))?;
             } else if let Some(did) = display_id {
                 if let Some((x, y, w, h)) = region {
                     engine
                         .start_region_recording(did, x, y, w, h, &recording_path, &config)
-                        .map_err(|e| TakaError::Internal(e.to_string()))?;
+                        .map_err(|e| RigidError::Internal(e.to_string()))?;
                 } else {
                     engine
                         .start_display_recording(did, &recording_path, &config)
-                        .map_err(|e| TakaError::Internal(e.to_string()))?;
+                        .map_err(|e| RigidError::Internal(e.to_string()))?;
                 }
             } else {
                 // Default to main display
                 let displays = NativeCaptureEngine::list_displays()
-                    .map_err(|e| TakaError::Internal(e.to_string()))?;
+                    .map_err(|e| RigidError::Internal(e.to_string()))?;
                 let main_display = displays
                     .iter()
                     .find(|d| d.is_main)
                     .or_else(|| displays.first())
-                    .ok_or_else(|| TakaError::Internal("No displays found".into()))?;
+                    .ok_or_else(|| RigidError::Internal("No displays found".into()))?;
 
                 engine
                     .start_display_recording(main_display.display_id, &recording_path, &config)
-                    .map_err(|e| TakaError::Internal(e.to_string()))?;
+                    .map_err(|e| RigidError::Internal(e.to_string()))?;
             }
         } else {
-            return Err(TakaError::Internal("Native capture engine not available".into()));
+            return Err(RigidError::Internal("Native capture engine not available".into()));
         }
     }
 
@@ -1443,13 +1443,13 @@ pub async fn start_native_recording(
 pub async fn stop_native_recording(
     recording_repo: State<'_, RecordingRepository>,
     native_state: State<'_, NativeCaptureState>,
-) -> Result<Recording, TakaError> {
+) -> Result<Recording, RigidError> {
     let recording_id = native_state
         .current_recording_id
         .lock()
         .await
         .clone()
-        .ok_or_else(|| TakaError::Internal("No recording in progress".into()))?;
+        .ok_or_else(|| RigidError::Internal("No recording in progress".into()))?;
 
     let start_time = native_state.start_time.lock().await.clone();
 
@@ -1459,9 +1459,9 @@ pub async fn stop_native_recording(
         if let Some(ref engine) = *engine_guard {
             engine
                 .stop_recording()
-                .map_err(|e| TakaError::Internal(e.to_string()))?
+                .map_err(|e| RigidError::Internal(e.to_string()))?
         } else {
-            return Err(TakaError::Internal("Native capture engine not available".into()));
+            return Err(RigidError::Internal("Native capture engine not available".into()));
         }
     };
 
@@ -1494,7 +1494,7 @@ pub async fn stop_native_recording(
 pub async fn cancel_native_recording(
     recording_repo: State<'_, RecordingRepository>,
     native_state: State<'_, NativeCaptureState>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     let recording_id = native_state.current_recording_id.lock().await.clone();
 
     // Cancel native recording
@@ -1503,7 +1503,7 @@ pub async fn cancel_native_recording(
         if let Some(ref engine) = *engine_guard {
             engine
                 .cancel_recording()
-                .map_err(|e| TakaError::Internal(e.to_string()))?;
+                .map_err(|e| RigidError::Internal(e.to_string()))?;
         }
     }
 
@@ -1524,7 +1524,7 @@ pub async fn cancel_native_recording(
 #[tauri::command]
 pub async fn is_native_recording(
     native_state: State<'_, NativeCaptureState>,
-) -> Result<bool, TakaError> {
+) -> Result<bool, RigidError> {
     let engine_guard = native_state.engine.lock().unwrap();
     if let Some(ref engine) = *engine_guard {
         Ok(engine.is_recording())
@@ -1538,7 +1538,7 @@ pub async fn is_native_recording(
 #[tauri::command]
 pub async fn get_native_recording_id(
     native_state: State<'_, NativeCaptureState>,
-) -> Result<Option<String>, TakaError> {
+) -> Result<Option<String>, RigidError> {
     Ok(native_state.current_recording_id.lock().await.clone())
 }
 
@@ -1547,7 +1547,7 @@ pub async fn get_native_recording_id(
 #[tauri::command]
 pub async fn get_native_recording_duration(
     native_state: State<'_, NativeCaptureState>,
-) -> Result<i64, TakaError> {
+) -> Result<i64, RigidError> {
     let engine_guard = native_state.engine.lock().unwrap();
     if let Some(ref engine) = *engine_guard {
         Ok(engine.recording_duration_ms())
@@ -1569,14 +1569,14 @@ pub async fn capture_native_screenshot(
     options: Option<NativeScreenshotOptions>,
     app: AppHandle,
     screenshot_repo: State<'_, ScreenshotRepository>,
-) -> Result<Screenshot, TakaError> {
+) -> Result<Screenshot, RigidError> {
     let data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| TakaError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        .map_err(|e| RigidError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
     let screenshots_dir = data_dir.join("screenshots");
-    std::fs::create_dir_all(&screenshots_dir).map_err(TakaError::Io)?;
+    std::fs::create_dir_all(&screenshots_dir).map_err(RigidError::Io)?;
 
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let filename = format!("screenshot_{}.png", timestamp);
@@ -1596,30 +1596,30 @@ pub async fn capture_native_screenshot(
     if let Some(wid) = window_id {
         crate::native::screenshot_window(wid, &screenshot_path, &config)
             .await
-            .map_err(|e| TakaError::Internal(e.to_string()))?;
+            .map_err(|e| RigidError::Internal(e.to_string()))?;
     } else if let Some(did) = display_id {
         if let Some((x, y, w, h)) = region {
             crate::native::screenshot_region(did, x, y, w, h, &screenshot_path, &config)
                 .await
-                .map_err(|e| TakaError::Internal(e.to_string()))?;
+                .map_err(|e| RigidError::Internal(e.to_string()))?;
         } else {
             crate::native::screenshot_display(did, &screenshot_path, &config)
                 .await
-                .map_err(|e| TakaError::Internal(e.to_string()))?;
+                .map_err(|e| RigidError::Internal(e.to_string()))?;
         }
     } else {
         // Default to main display
         let displays = NativeCaptureEngine::list_displays()
-            .map_err(|e| TakaError::Internal(e.to_string()))?;
+            .map_err(|e| RigidError::Internal(e.to_string()))?;
         let main_display = displays
             .iter()
             .find(|d| d.is_main)
             .or_else(|| displays.first())
-            .ok_or_else(|| TakaError::Internal("No displays found".into()))?;
+            .ok_or_else(|| RigidError::Internal("No displays found".into()))?;
 
         crate::native::screenshot_display(main_display.display_id, &screenshot_path, &config)
             .await
-            .map_err(|e| TakaError::Internal(e.to_string()))?;
+            .map_err(|e| RigidError::Internal(e.to_string()))?;
     }
 
     // Create screenshot record

@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{
     Screenshot, NewScreenshot, UpdateScreenshot, ScreenshotFilter,
     ScreenshotDrawing, NewScreenshotDrawing,
@@ -21,7 +21,7 @@ impl ScreenshotRepository {
 
     // ==================== Screenshot CRUD ====================
 
-    pub async fn create(&self, new: NewScreenshot) -> Result<Screenshot, TakaError> {
+    pub async fn create(&self, new: NewScreenshot) -> Result<Screenshot, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -42,18 +42,18 @@ impl ScreenshotRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<Screenshot, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<Screenshot, RigidError> {
         sqlx::query_as::<_, Screenshot>("SELECT * FROM screenshots WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "Screenshot".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list(&self, filter: ScreenshotFilter) -> Result<Vec<Screenshot>, TakaError> {
+    pub async fn list(&self, filter: ScreenshotFilter) -> Result<Vec<Screenshot>, RigidError> {
         let mut sql = String::from("SELECT * FROM screenshots WHERE 1=1");
         let mut bindings: Vec<String> = Vec::new();
 
@@ -81,7 +81,7 @@ impl ScreenshotRepository {
         Ok(query.fetch_all(&self.pool).await?)
     }
 
-    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<Screenshot>, TakaError> {
+    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<Screenshot>, RigidError> {
         self.list(ScreenshotFilter {
             test_id: Some(test_id.to_string()),
             app_id: None,
@@ -89,7 +89,7 @@ impl ScreenshotRepository {
         }).await
     }
 
-    pub async fn list_by_app(&self, app_id: &str) -> Result<Vec<Screenshot>, TakaError> {
+    pub async fn list_by_app(&self, app_id: &str) -> Result<Vec<Screenshot>, RigidError> {
         self.list(ScreenshotFilter {
             test_id: None,
             app_id: Some(app_id.to_string()),
@@ -97,7 +97,7 @@ impl ScreenshotRepository {
         }).await
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateScreenshot) -> Result<Screenshot, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateScreenshot) -> Result<Screenshot, RigidError> {
         self.get(id).await?;
 
         sqlx::query(
@@ -115,14 +115,14 @@ impl ScreenshotRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM screenshots WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "Screenshot".into(),
                 id: id.into(),
             });
@@ -131,7 +131,7 @@ impl ScreenshotRepository {
         Ok(())
     }
 
-    pub async fn count_by_test(&self, test_id: &str) -> Result<i32, TakaError> {
+    pub async fn count_by_test(&self, test_id: &str) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM screenshots WHERE test_id = ?")
             .bind(test_id)
             .fetch_one(&self.pool)
@@ -141,7 +141,7 @@ impl ScreenshotRepository {
 
     // ==================== Drawing Annotations ====================
 
-    pub async fn create_drawing(&self, new: NewScreenshotDrawing) -> Result<ScreenshotDrawing, TakaError> {
+    pub async fn create_drawing(&self, new: NewScreenshotDrawing) -> Result<ScreenshotDrawing, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -169,18 +169,18 @@ impl ScreenshotRepository {
         self.get_drawing(&id).await
     }
 
-    pub async fn get_drawing(&self, id: &str) -> Result<ScreenshotDrawing, TakaError> {
+    pub async fn get_drawing(&self, id: &str) -> Result<ScreenshotDrawing, RigidError> {
         sqlx::query_as::<_, ScreenshotDrawing>("SELECT * FROM screenshot_drawings WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "ScreenshotDrawing".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list_drawings(&self, screenshot_id: &str) -> Result<Vec<ScreenshotDrawing>, TakaError> {
+    pub async fn list_drawings(&self, screenshot_id: &str) -> Result<Vec<ScreenshotDrawing>, RigidError> {
         Ok(sqlx::query_as::<_, ScreenshotDrawing>(
             "SELECT * FROM screenshot_drawings WHERE screenshot_id = ? ORDER BY sort_order ASC"
         )
@@ -189,7 +189,7 @@ impl ScreenshotRepository {
         .await?)
     }
 
-    pub async fn delete_drawing(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_drawing(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM screenshot_drawings WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -197,7 +197,7 @@ impl ScreenshotRepository {
         Ok(())
     }
 
-    pub async fn delete_all_drawings(&self, screenshot_id: &str) -> Result<(), TakaError> {
+    pub async fn delete_all_drawings(&self, screenshot_id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM screenshot_drawings WHERE screenshot_id = ?")
             .bind(screenshot_id)
             .execute(&self.pool)
@@ -205,7 +205,7 @@ impl ScreenshotRepository {
         Ok(())
     }
 
-    pub async fn bulk_create_drawings(&self, drawings: Vec<NewScreenshotDrawing>) -> Result<Vec<ScreenshotDrawing>, TakaError> {
+    pub async fn bulk_create_drawings(&self, drawings: Vec<NewScreenshotDrawing>) -> Result<Vec<ScreenshotDrawing>, RigidError> {
         let mut result = Vec::new();
         for drawing in drawings {
             result.push(self.create_drawing(drawing).await?);
@@ -215,7 +215,7 @@ impl ScreenshotRepository {
 
     // ==================== Marker Annotations ====================
 
-    pub async fn create_marker(&self, new: NewScreenshotMarker) -> Result<ScreenshotMarker, TakaError> {
+    pub async fn create_marker(&self, new: NewScreenshotMarker) -> Result<ScreenshotMarker, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -239,18 +239,18 @@ impl ScreenshotRepository {
         self.get_marker(&id).await
     }
 
-    pub async fn get_marker(&self, id: &str) -> Result<ScreenshotMarker, TakaError> {
+    pub async fn get_marker(&self, id: &str) -> Result<ScreenshotMarker, RigidError> {
         sqlx::query_as::<_, ScreenshotMarker>("SELECT * FROM screenshot_markers WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "ScreenshotMarker".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list_markers(&self, screenshot_id: &str) -> Result<Vec<ScreenshotMarker>, TakaError> {
+    pub async fn list_markers(&self, screenshot_id: &str) -> Result<Vec<ScreenshotMarker>, RigidError> {
         Ok(sqlx::query_as::<_, ScreenshotMarker>(
             "SELECT * FROM screenshot_markers WHERE screenshot_id = ? ORDER BY created_at ASC"
         )
@@ -259,7 +259,7 @@ impl ScreenshotRepository {
         .await?)
     }
 
-    pub async fn list_markers_by_test(&self, test_id: &str) -> Result<Vec<ScreenshotMarker>, TakaError> {
+    pub async fn list_markers_by_test(&self, test_id: &str) -> Result<Vec<ScreenshotMarker>, RigidError> {
         Ok(sqlx::query_as::<_, ScreenshotMarker>(
             "SELECT m.* FROM screenshot_markers m
              JOIN screenshots s ON m.screenshot_id = s.id
@@ -271,7 +271,7 @@ impl ScreenshotRepository {
         .await?)
     }
 
-    pub async fn update_marker(&self, id: &str, updates: UpdateScreenshotMarker) -> Result<ScreenshotMarker, TakaError> {
+    pub async fn update_marker(&self, id: &str, updates: UpdateScreenshotMarker) -> Result<ScreenshotMarker, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -299,7 +299,7 @@ impl ScreenshotRepository {
         self.get_marker(id).await
     }
 
-    pub async fn delete_marker(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_marker(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM screenshot_markers WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -307,7 +307,7 @@ impl ScreenshotRepository {
         Ok(())
     }
 
-    pub async fn delete_all_markers(&self, screenshot_id: &str) -> Result<(), TakaError> {
+    pub async fn delete_all_markers(&self, screenshot_id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM screenshot_markers WHERE screenshot_id = ?")
             .bind(screenshot_id)
             .execute(&self.pool)
@@ -315,7 +315,7 @@ impl ScreenshotRepository {
         Ok(())
     }
 
-    pub async fn bulk_create_markers(&self, markers: Vec<NewScreenshotMarker>) -> Result<Vec<ScreenshotMarker>, TakaError> {
+    pub async fn bulk_create_markers(&self, markers: Vec<NewScreenshotMarker>) -> Result<Vec<ScreenshotMarker>, RigidError> {
         let mut result = Vec::new();
         for marker in markers {
             result.push(self.create_marker(marker).await?);

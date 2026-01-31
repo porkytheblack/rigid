@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { RigidLogo } from "@/components/ui/rigid-logo";
 import {
   Tooltip,
   TooltipContent,
@@ -102,17 +103,13 @@ export function Sidebar() {
     <aside className="fixed left-0 top-0 z-40 h-screen w-[var(--sidebar-width)] flex flex-col bg-[var(--bg-surface)] border-r border-[var(--border-subtle)]">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 h-14 border-b border-[var(--border-subtle)]">
-        <div className="flex items-center justify-center w-8 h-8 rounded-[var(--radius-md)] bg-[var(--accent)]">
-          <span className="text-[var(--text-inverse)] font-semibold text-sm">
-            T
-          </span>
-        </div>
+        <RigidLogo size={28} />
         <div>
           <h1 className="font-semibold text-[var(--text-primary)] text-sm">
-            Taka
+            Rigid
           </h1>
           <p className="text-[var(--text-xs)] text-[var(--text-tertiary)]">
-            Testing Companion
+            Build Rigid Systems
           </p>
         </div>
       </div>

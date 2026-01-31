@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{
     Diagram, NewDiagram, UpdateDiagram, DiagramFilter, DiagramWithData,
     DiagramNode, NewDiagramNode, UpdateDiagramNode,
@@ -22,7 +22,7 @@ impl DiagramRepository {
 
     // ============ Diagram CRUD ============
 
-    pub async fn create(&self, new: NewDiagram) -> Result<Diagram, TakaError> {
+    pub async fn create(&self, new: NewDiagram) -> Result<Diagram, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -46,18 +46,18 @@ impl DiagramRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<Diagram, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<Diagram, RigidError> {
         sqlx::query_as::<_, Diagram>("SELECT * FROM diagrams WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "Diagram".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn get_with_data(&self, id: &str) -> Result<DiagramWithData, TakaError> {
+    pub async fn get_with_data(&self, id: &str) -> Result<DiagramWithData, RigidError> {
         let diagram = self.get(id).await?;
         let nodes = self.list_nodes(id).await?;
         let edges = self.list_edges(id).await?;
@@ -69,7 +69,7 @@ impl DiagramRepository {
         })
     }
 
-    pub async fn list(&self, filter: DiagramFilter) -> Result<Vec<Diagram>, TakaError> {
+    pub async fn list(&self, filter: DiagramFilter) -> Result<Vec<Diagram>, RigidError> {
         let mut sql = String::from("SELECT * FROM diagrams WHERE 1=1");
         let mut bindings: Vec<String> = Vec::new();
 
@@ -98,7 +98,7 @@ impl DiagramRepository {
         Ok(query.fetch_all(&self.pool).await?)
     }
 
-    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<Diagram>, TakaError> {
+    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<Diagram>, RigidError> {
         self.list(DiagramFilter {
             test_id: Some(test_id.to_string()),
             architecture_doc_id: None,
@@ -106,7 +106,7 @@ impl DiagramRepository {
         }).await
     }
 
-    pub async fn list_by_architecture_doc(&self, doc_id: &str) -> Result<Vec<Diagram>, TakaError> {
+    pub async fn list_by_architecture_doc(&self, doc_id: &str) -> Result<Vec<Diagram>, RigidError> {
         self.list(DiagramFilter {
             test_id: None,
             architecture_doc_id: Some(doc_id.to_string()),
@@ -114,7 +114,7 @@ impl DiagramRepository {
         }).await
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateDiagram) -> Result<Diagram, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateDiagram) -> Result<Diagram, RigidError> {
         self.get(id).await?;
 
         let now = Utc::now().to_rfc3339();
@@ -140,14 +140,14 @@ impl DiagramRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM diagrams WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "Diagram".into(),
                 id: id.into(),
             });
@@ -156,7 +156,7 @@ impl DiagramRepository {
         Ok(())
     }
 
-    pub async fn count_by_test(&self, test_id: &str) -> Result<i32, TakaError> {
+    pub async fn count_by_test(&self, test_id: &str) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM diagrams WHERE test_id = ?")
             .bind(test_id)
             .fetch_one(&self.pool)
@@ -166,7 +166,7 @@ impl DiagramRepository {
 
     // ============ Node CRUD ============
 
-    pub async fn create_node(&self, new: NewDiagramNode) -> Result<DiagramNode, TakaError> {
+    pub async fn create_node(&self, new: NewDiagramNode) -> Result<DiagramNode, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -194,18 +194,18 @@ impl DiagramRepository {
         self.get_node(&id).await
     }
 
-    pub async fn get_node(&self, id: &str) -> Result<DiagramNode, TakaError> {
+    pub async fn get_node(&self, id: &str) -> Result<DiagramNode, RigidError> {
         sqlx::query_as::<_, DiagramNode>("SELECT * FROM diagram_nodes WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "DiagramNode".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list_nodes(&self, diagram_id: &str) -> Result<Vec<DiagramNode>, TakaError> {
+    pub async fn list_nodes(&self, diagram_id: &str) -> Result<Vec<DiagramNode>, RigidError> {
         Ok(sqlx::query_as::<_, DiagramNode>(
             "SELECT * FROM diagram_nodes WHERE diagram_id = ? ORDER BY sort_order ASC"
         )
@@ -214,7 +214,7 @@ impl DiagramRepository {
         .await?)
     }
 
-    pub async fn update_node(&self, id: &str, updates: UpdateDiagramNode) -> Result<DiagramNode, TakaError> {
+    pub async fn update_node(&self, id: &str, updates: UpdateDiagramNode) -> Result<DiagramNode, RigidError> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -250,7 +250,7 @@ impl DiagramRepository {
         self.get_node(id).await
     }
 
-    pub async fn delete_node(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_node(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM diagram_nodes WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -258,7 +258,7 @@ impl DiagramRepository {
         Ok(())
     }
 
-    pub async fn bulk_update_nodes(&self, nodes: Vec<(String, UpdateDiagramNode)>) -> Result<(), TakaError> {
+    pub async fn bulk_update_nodes(&self, nodes: Vec<(String, UpdateDiagramNode)>) -> Result<(), RigidError> {
         for (id, updates) in nodes {
             self.update_node(&id, updates).await?;
         }
@@ -267,7 +267,7 @@ impl DiagramRepository {
 
     // ============ Edge CRUD ============
 
-    pub async fn create_edge(&self, new: NewDiagramEdge) -> Result<DiagramEdge, TakaError> {
+    pub async fn create_edge(&self, new: NewDiagramEdge) -> Result<DiagramEdge, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -289,18 +289,18 @@ impl DiagramRepository {
         self.get_edge(&id).await
     }
 
-    pub async fn get_edge(&self, id: &str) -> Result<DiagramEdge, TakaError> {
+    pub async fn get_edge(&self, id: &str) -> Result<DiagramEdge, RigidError> {
         sqlx::query_as::<_, DiagramEdge>("SELECT * FROM diagram_edges WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "DiagramEdge".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list_edges(&self, diagram_id: &str) -> Result<Vec<DiagramEdge>, TakaError> {
+    pub async fn list_edges(&self, diagram_id: &str) -> Result<Vec<DiagramEdge>, RigidError> {
         Ok(sqlx::query_as::<_, DiagramEdge>(
             "SELECT * FROM diagram_edges WHERE diagram_id = ?"
         )
@@ -309,7 +309,7 @@ impl DiagramRepository {
         .await?)
     }
 
-    pub async fn update_edge(&self, id: &str, updates: UpdateDiagramEdge) -> Result<DiagramEdge, TakaError> {
+    pub async fn update_edge(&self, id: &str, updates: UpdateDiagramEdge) -> Result<DiagramEdge, RigidError> {
         sqlx::query(
             "UPDATE diagram_edges SET
                 edge_type = COALESCE(?, edge_type),
@@ -327,7 +327,7 @@ impl DiagramRepository {
         self.get_edge(id).await
     }
 
-    pub async fn delete_edge(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_edge(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM diagram_edges WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -337,7 +337,7 @@ impl DiagramRepository {
 
     // ============ Attachment CRUD ============
 
-    pub async fn create_attachment(&self, new: NewNodeAttachment) -> Result<NodeAttachment, TakaError> {
+    pub async fn create_attachment(&self, new: NewNodeAttachment) -> Result<NodeAttachment, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -359,18 +359,18 @@ impl DiagramRepository {
         self.get_attachment(&id).await
     }
 
-    pub async fn get_attachment(&self, id: &str) -> Result<NodeAttachment, TakaError> {
+    pub async fn get_attachment(&self, id: &str) -> Result<NodeAttachment, RigidError> {
         sqlx::query_as::<_, NodeAttachment>("SELECT * FROM node_attachments WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "NodeAttachment".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list_attachments(&self, node_id: &str) -> Result<Vec<NodeAttachment>, TakaError> {
+    pub async fn list_attachments(&self, node_id: &str) -> Result<Vec<NodeAttachment>, RigidError> {
         Ok(sqlx::query_as::<_, NodeAttachment>(
             "SELECT * FROM node_attachments WHERE node_id = ? ORDER BY sort_order ASC"
         )
@@ -379,7 +379,7 @@ impl DiagramRepository {
         .await?)
     }
 
-    pub async fn delete_attachment(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete_attachment(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM node_attachments WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -387,7 +387,7 @@ impl DiagramRepository {
         Ok(())
     }
 
-    pub async fn delete_all_attachments(&self, node_id: &str) -> Result<(), TakaError> {
+    pub async fn delete_all_attachments(&self, node_id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM node_attachments WHERE node_id = ?")
             .bind(node_id)
             .execute(&self.pool)

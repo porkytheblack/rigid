@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{
     DocumentBlock, NewDocumentBlock, UpdateDocumentBlock,
     ExplorationTodo, NewExplorationTodo, UpdateExplorationTodo,
@@ -13,7 +13,7 @@ use crate::repositories::DocumentRepository;
 pub async fn create_document_block(
     new_block: NewDocumentBlock,
     repo: State<'_, DocumentRepository>,
-) -> Result<DocumentBlock, TakaError> {
+) -> Result<DocumentBlock, RigidError> {
     repo.create_block(new_block).await
 }
 
@@ -21,7 +21,7 @@ pub async fn create_document_block(
 pub async fn get_document_block(
     id: String,
     repo: State<'_, DocumentRepository>,
-) -> Result<DocumentBlock, TakaError> {
+) -> Result<DocumentBlock, RigidError> {
     repo.get_block(&id).await
 }
 
@@ -29,7 +29,7 @@ pub async fn get_document_block(
 pub async fn list_document_blocks(
     test_id: String,
     repo: State<'_, DocumentRepository>,
-) -> Result<Vec<DocumentBlock>, TakaError> {
+) -> Result<Vec<DocumentBlock>, RigidError> {
     repo.list_blocks(&test_id).await
 }
 
@@ -38,7 +38,7 @@ pub async fn update_document_block(
     id: String,
     updates: UpdateDocumentBlock,
     repo: State<'_, DocumentRepository>,
-) -> Result<DocumentBlock, TakaError> {
+) -> Result<DocumentBlock, RigidError> {
     repo.update_block(&id, updates).await
 }
 
@@ -46,7 +46,7 @@ pub async fn update_document_block(
 pub async fn delete_document_block(
     id: String,
     repo: State<'_, DocumentRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_block(&id).await
 }
 
@@ -54,7 +54,7 @@ pub async fn delete_document_block(
 pub async fn delete_all_document_blocks(
     test_id: String,
     repo: State<'_, DocumentRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_all_blocks(&test_id).await
 }
 
@@ -63,7 +63,7 @@ pub async fn bulk_replace_document_blocks(
     test_id: String,
     blocks: Vec<NewDocumentBlock>,
     repo: State<'_, DocumentRepository>,
-) -> Result<Vec<DocumentBlock>, TakaError> {
+) -> Result<Vec<DocumentBlock>, RigidError> {
     repo.bulk_replace_blocks(&test_id, blocks).await
 }
 
@@ -73,7 +73,7 @@ pub async fn bulk_replace_document_blocks(
 pub async fn create_exploration_todo(
     new_todo: NewExplorationTodo,
     repo: State<'_, DocumentRepository>,
-) -> Result<ExplorationTodo, TakaError> {
+) -> Result<ExplorationTodo, RigidError> {
     repo.create_todo(new_todo).await
 }
 
@@ -81,7 +81,7 @@ pub async fn create_exploration_todo(
 pub async fn get_exploration_todo(
     id: String,
     repo: State<'_, DocumentRepository>,
-) -> Result<ExplorationTodo, TakaError> {
+) -> Result<ExplorationTodo, RigidError> {
     repo.get_todo(&id).await
 }
 
@@ -89,7 +89,7 @@ pub async fn get_exploration_todo(
 pub async fn list_exploration_todos(
     test_id: String,
     repo: State<'_, DocumentRepository>,
-) -> Result<Vec<ExplorationTodo>, TakaError> {
+) -> Result<Vec<ExplorationTodo>, RigidError> {
     repo.list_todos(&test_id).await
 }
 
@@ -98,7 +98,7 @@ pub async fn update_exploration_todo(
     id: String,
     updates: UpdateExplorationTodo,
     repo: State<'_, DocumentRepository>,
-) -> Result<ExplorationTodo, TakaError> {
+) -> Result<ExplorationTodo, RigidError> {
     repo.update_todo(&id, updates).await
 }
 
@@ -106,7 +106,7 @@ pub async fn update_exploration_todo(
 pub async fn delete_exploration_todo(
     id: String,
     repo: State<'_, DocumentRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_todo(&id).await
 }
 
@@ -114,7 +114,7 @@ pub async fn delete_exploration_todo(
 pub async fn delete_all_exploration_todos(
     test_id: String,
     repo: State<'_, DocumentRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete_all_todos(&test_id).await
 }
 
@@ -123,6 +123,6 @@ pub async fn bulk_replace_exploration_todos(
     test_id: String,
     todos: Vec<NewExplorationTodo>,
     repo: State<'_, DocumentRepository>,
-) -> Result<Vec<ExplorationTodo>, TakaError> {
+) -> Result<Vec<ExplorationTodo>, RigidError> {
     repo.bulk_replace_todos(&test_id, todos).await
 }

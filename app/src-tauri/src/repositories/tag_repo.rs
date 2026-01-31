@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{Tag, NewTag, UpdateTag, TaggableType};
 
 #[derive(Clone)]
@@ -14,7 +14,7 @@ impl TagRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, new: NewTag) -> Result<Tag, TakaError> {
+    pub async fn create(&self, new: NewTag) -> Result<Tag, RigidError> {
         let id = Uuid::new_v4().to_string();
 
         sqlx::query("INSERT INTO tags (id, name, color) VALUES (?, ?, ?)")
@@ -27,31 +27,31 @@ impl TagRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<Tag, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<Tag, RigidError> {
         sqlx::query_as::<_, Tag>("SELECT * FROM tags WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "Tag".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn get_by_name(&self, name: &str) -> Result<Option<Tag>, TakaError> {
+    pub async fn get_by_name(&self, name: &str) -> Result<Option<Tag>, RigidError> {
         Ok(sqlx::query_as::<_, Tag>("SELECT * FROM tags WHERE name = ?")
             .bind(name)
             .fetch_optional(&self.pool)
             .await?)
     }
 
-    pub async fn list(&self) -> Result<Vec<Tag>, TakaError> {
+    pub async fn list(&self) -> Result<Vec<Tag>, RigidError> {
         Ok(sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY name ASC")
             .fetch_all(&self.pool)
             .await?)
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateTag) -> Result<Tag, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateTag) -> Result<Tag, RigidError> {
         // Verify exists
         let existing = self.get(id).await?;
 
@@ -67,14 +67,14 @@ impl TagRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM tags WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "Tag".into(),
                 id: id.into(),
             });
@@ -89,7 +89,7 @@ impl TagRepository {
         tag_id: &str,
         entity_type: TaggableType,
         entity_id: &str,
-    ) -> Result<(), TakaError> {
+    ) -> Result<(), RigidError> {
         // Verify tag exists
         self.get(tag_id).await?;
 
@@ -110,7 +110,7 @@ impl TagRepository {
         tag_id: &str,
         entity_type: TaggableType,
         entity_id: &str,
-    ) -> Result<(), TakaError> {
+    ) -> Result<(), RigidError> {
         sqlx::query(
             "DELETE FROM taggables WHERE tag_id = ? AND taggable_type = ? AND taggable_id = ?"
         )
@@ -127,7 +127,7 @@ impl TagRepository {
         &self,
         entity_type: TaggableType,
         entity_id: &str,
-    ) -> Result<Vec<Tag>, TakaError> {
+    ) -> Result<Vec<Tag>, RigidError> {
         Ok(sqlx::query_as::<_, Tag>(
             "SELECT t.* FROM tags t
              INNER JOIN taggables tg ON t.id = tg.tag_id
@@ -144,7 +144,7 @@ impl TagRepository {
         &self,
         tag_id: &str,
         entity_type: TaggableType,
-    ) -> Result<Vec<String>, TakaError> {
+    ) -> Result<Vec<String>, RigidError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT taggable_id FROM taggables WHERE tag_id = ? AND taggable_type = ?"
         )

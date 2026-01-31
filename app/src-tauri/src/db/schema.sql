@@ -1,4 +1,4 @@
--- Taka Database Schema v2
+-- Rigid Database Schema v2
 -- Local-first SQLite database for testing companion
 -- Restructured with App > Test hierarchy
 

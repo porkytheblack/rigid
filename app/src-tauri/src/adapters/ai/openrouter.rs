@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::traits::AIAdapter;
 use super::types::{AICapabilities, AIResponse, CompletionOptions, Message, Role, TokenUsage};
-use crate::error::TakaError;
+use crate::error::RigidError;
 
 const BASE_URL: &str = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL: &str = "anthropic/claude-3.5-sonnet";
@@ -105,7 +105,7 @@ impl AIAdapter for OpenRouterAdapter {
         !self.api_key.is_empty()
     }
 
-    async fn list_models(&self) -> Result<Vec<String>, TakaError> {
+    async fn list_models(&self) -> Result<Vec<String>, RigidError> {
         let url = format!("{}/models", BASE_URL);
         let response = self
             .client
@@ -126,7 +126,7 @@ impl AIAdapter for OpenRouterAdapter {
         &self,
         messages: Vec<Message>,
         options: CompletionOptions,
-    ) -> Result<AIResponse, TakaError> {
+    ) -> Result<AIResponse, RigidError> {
         let url = format!("{}/chat/completions", BASE_URL);
 
         let openrouter_messages: Vec<OpenRouterMessage> = messages
@@ -153,8 +153,8 @@ impl AIAdapter for OpenRouterAdapter {
             .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("HTTP-Referer", "https://taka.app")
-            .header("X-Title", "Taka")
+            .header("HTTP-Referer", "https://rigid.systems")
+            .header("X-Title", "Rigid")
             .json(&request)
             .send()
             .await?;
@@ -162,7 +162,7 @@ impl AIAdapter for OpenRouterAdapter {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "OpenRouter API error ({}): {}",
                 status, text
             )));
@@ -173,7 +173,7 @@ impl AIAdapter for OpenRouterAdapter {
         let choice = openrouter_response
             .choices
             .first()
-            .ok_or_else(|| TakaError::AI("No response from OpenRouter".to_string()))?;
+            .ok_or_else(|| RigidError::AI("No response from OpenRouter".to_string()))?;
 
         let usage = openrouter_response.usage.map(|u| TokenUsage {
             prompt_tokens: u.prompt_tokens,
@@ -189,9 +189,9 @@ impl AIAdapter for OpenRouterAdapter {
         })
     }
 
-    async fn describe_image(&self, image_data: &[u8], prompt: &str) -> Result<String, TakaError> {
+    async fn describe_image(&self, image_data: &[u8], prompt: &str) -> Result<String, RigidError> {
         if !self.is_vision_model(&self.model) {
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "Model {} does not support vision. Use a vision-capable model like claude-3.5-sonnet or gpt-4o.",
                 self.model
             )));
@@ -228,8 +228,8 @@ impl AIAdapter for OpenRouterAdapter {
             .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("HTTP-Referer", "https://taka.app")
-            .header("X-Title", "Taka")
+            .header("HTTP-Referer", "https://rigid.systems")
+            .header("X-Title", "Rigid")
             .json(&request)
             .send()
             .await?;
@@ -237,7 +237,7 @@ impl AIAdapter for OpenRouterAdapter {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(TakaError::AI(format!(
+            return Err(RigidError::AI(format!(
                 "OpenRouter API error ({}): {}",
                 status, text
             )));
@@ -247,7 +247,7 @@ impl AIAdapter for OpenRouterAdapter {
         let choice = openrouter_response
             .choices
             .first()
-            .ok_or_else(|| TakaError::AI("No response from OpenRouter".to_string()))?;
+            .ok_or_else(|| RigidError::AI("No response from OpenRouter".to_string()))?;
 
         Ok(choice.message.content.clone())
     }

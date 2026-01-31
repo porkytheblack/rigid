@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{App, NewApp, UpdateApp, AppFilter};
 
 #[derive(Clone)]
@@ -15,7 +15,7 @@ impl AppRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, new: NewApp) -> Result<App, TakaError> {
+    pub async fn create(&self, new: NewApp) -> Result<App, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -36,18 +36,18 @@ impl AppRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<App, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<App, RigidError> {
         sqlx::query_as::<_, App>("SELECT * FROM apps WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "App".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn list(&self, filter: AppFilter) -> Result<Vec<App>, TakaError> {
+    pub async fn list(&self, filter: AppFilter) -> Result<Vec<App>, RigidError> {
         let mut sql = String::from("SELECT * FROM apps WHERE 1=1");
         let mut bindings: Vec<String> = Vec::new();
 
@@ -72,7 +72,7 @@ impl AppRepository {
         Ok(query.fetch_all(&self.pool).await?)
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateApp) -> Result<App, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateApp) -> Result<App, RigidError> {
         self.get(id).await?;
 
         let now = Utc::now().to_rfc3339();
@@ -98,14 +98,14 @@ impl AppRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM apps WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "App".into(),
                 id: id.into(),
             });
@@ -114,7 +114,7 @@ impl AppRepository {
         Ok(())
     }
 
-    pub async fn count(&self) -> Result<i32, TakaError> {
+    pub async fn count(&self) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM apps")
             .fetch_one(&self.pool)
             .await?;

@@ -43,7 +43,7 @@ pub struct AppInfo {
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {
-    format!("Hello, {}! Welcome to Taka.", name)
+    format!("Hello, {}! Welcome to Rigid.", name)
 }
 
 #[tauri::command]
@@ -56,7 +56,7 @@ pub fn get_app_info(app: tauri::AppHandle) -> Result<AppInfo, String> {
         .to_string();
 
     Ok(AppInfo {
-        name: "Taka".to_string(),
+        name: "Rigid".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         data_dir,
     })

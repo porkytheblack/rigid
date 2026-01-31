@@ -3,8 +3,8 @@ import { AppShell } from "@/components/layout";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "Taka - Testing Companion",
-  description: "Your testing companion for vibe-coded apps",
+  title: "Rigid - Build Rigid Systems",
+  description: "Explore, document and deliver apps you did not write",
 };
 
 export default function RootLayout({

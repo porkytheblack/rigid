@@ -20,12 +20,12 @@ enum ScreenshotError: Error {
 
     var errorCode: Int32 {
         switch self {
-        case .windowNotFound: return 7  // TAKA_ERROR_WINDOW_NOT_FOUND
-        case .displayNotFound: return 8 // TAKA_ERROR_DISPLAY_NOT_FOUND
-        case .captureFailed: return 6   // TAKA_ERROR_SCREENSHOT_FAILED
+        case .windowNotFound: return 7  // RIGID_ERROR_WINDOW_NOT_FOUND
+        case .displayNotFound: return 8 // RIGID_ERROR_DISPLAY_NOT_FOUND
+        case .captureFailed: return 6   // RIGID_ERROR_SCREENSHOT_FAILED
         case .cropFailed: return 6
         case .encodingFailed: return 6
-        case .permissionDenied: return 1 // TAKA_ERROR_NOT_AUTHORIZED
+        case .permissionDenied: return 1 // RIGID_ERROR_NOT_AUTHORIZED
         }
     }
 }

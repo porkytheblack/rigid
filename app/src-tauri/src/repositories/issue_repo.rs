@@ -2,7 +2,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::db::DbPool;
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{Issue, NewIssue, UpdateIssue, IssueFilter};
 
 #[derive(Clone)]
@@ -15,7 +15,7 @@ impl IssueRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, new: NewIssue) -> Result<Issue, TakaError> {
+    pub async fn create(&self, new: NewIssue) -> Result<Issue, RigidError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -45,29 +45,29 @@ impl IssueRepository {
         self.get(&id).await
     }
 
-    pub async fn get(&self, id: &str) -> Result<Issue, TakaError> {
+    pub async fn get(&self, id: &str) -> Result<Issue, RigidError> {
         sqlx::query_as::<_, Issue>("SELECT * FROM issues WHERE id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "Issue".into(),
                 id: id.into(),
             })
     }
 
-    pub async fn get_by_number(&self, number: i32) -> Result<Issue, TakaError> {
+    pub async fn get_by_number(&self, number: i32) -> Result<Issue, RigidError> {
         sqlx::query_as::<_, Issue>("SELECT * FROM issues WHERE number = ?")
             .bind(number)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| TakaError::NotFound {
+            .ok_or_else(|| RigidError::NotFound {
                 entity: "Issue".into(),
                 id: number.to_string(),
             })
     }
 
-    pub async fn list(&self, filter: IssueFilter) -> Result<Vec<Issue>, TakaError> {
+    pub async fn list(&self, filter: IssueFilter) -> Result<Vec<Issue>, RigidError> {
         let mut sql = String::from("SELECT * FROM issues WHERE 1=1");
         let mut bindings: Vec<String> = Vec::new();
 
@@ -100,7 +100,7 @@ impl IssueRepository {
         Ok(query.fetch_all(&self.pool).await?)
     }
 
-    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<Issue>, TakaError> {
+    pub async fn list_by_test(&self, test_id: &str) -> Result<Vec<Issue>, RigidError> {
         self.list(IssueFilter {
             test_id: Some(test_id.to_string()),
             status: None,
@@ -109,7 +109,7 @@ impl IssueRepository {
         }).await
     }
 
-    pub async fn update(&self, id: &str, updates: UpdateIssue) -> Result<Issue, TakaError> {
+    pub async fn update(&self, id: &str, updates: UpdateIssue) -> Result<Issue, RigidError> {
         self.get(id).await?;
 
         let now = Utc::now().to_rfc3339();
@@ -139,14 +139,14 @@ impl IssueRepository {
         self.get(id).await
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), TakaError> {
+    pub async fn delete(&self, id: &str) -> Result<(), RigidError> {
         let result = sqlx::query("DELETE FROM issues WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(TakaError::NotFound {
+            return Err(RigidError::NotFound {
                 entity: "Issue".into(),
                 id: id.into(),
             });
@@ -155,7 +155,7 @@ impl IssueRepository {
         Ok(())
     }
 
-    pub async fn count_by_status(&self, status: &str) -> Result<i32, TakaError> {
+    pub async fn count_by_status(&self, status: &str) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM issues WHERE status = ?")
             .bind(status)
             .fetch_one(&self.pool)
@@ -163,7 +163,7 @@ impl IssueRepository {
         Ok(count.0)
     }
 
-    pub async fn count_by_priority(&self, priority: &str) -> Result<i32, TakaError> {
+    pub async fn count_by_priority(&self, priority: &str) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM issues WHERE priority = ? AND status != 'verified'")
             .bind(priority)
             .fetch_one(&self.pool)
@@ -171,7 +171,7 @@ impl IssueRepository {
         Ok(count.0)
     }
 
-    pub async fn count_by_test(&self, test_id: &str) -> Result<i32, TakaError> {
+    pub async fn count_by_test(&self, test_id: &str) -> Result<i32, RigidError> {
         let count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM issues WHERE test_id = ?")
             .bind(test_id)
             .fetch_one(&self.pool)

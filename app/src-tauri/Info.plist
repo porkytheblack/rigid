@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>Taka needs screen capture access to record and screenshot windows for testing documentation.</string>
+    <string>Rigid needs screen capture access to record and screenshot windows for testing documentation.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Taka needs microphone access to record audio commentary with screen recordings.</string>
+    <string>Rigid needs microphone access to record audio commentary with screen recordings.</string>
     <key>NSCameraUsageDescription</key>
-    <string>Taka needs camera access to record webcam footage alongside screen recordings.</string>
+    <string>Rigid needs camera access to record webcam footage alongside screen recordings.</string>
 </dict>
 </plist>

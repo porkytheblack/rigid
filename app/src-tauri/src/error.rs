@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum TakaError {
+pub enum RigidError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -30,20 +30,20 @@ pub enum TakaError {
     Internal(String),
 }
 
-impl From<tauri::Error> for TakaError {
+impl From<tauri::Error> for RigidError {
     fn from(err: tauri::Error) -> Self {
-        TakaError::Tauri(err.to_string())
+        RigidError::Tauri(err.to_string())
     }
 }
 
-impl From<reqwest::Error> for TakaError {
+impl From<reqwest::Error> for RigidError {
     fn from(err: reqwest::Error) -> Self {
-        TakaError::Http(err.to_string())
+        RigidError::Http(err.to_string())
     }
 }
 
-// Make TakaError serializable for Tauri IPC
-impl serde::Serialize for TakaError {
+// Make RigidError serializable for Tauri IPC
+impl serde::Serialize for RigidError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

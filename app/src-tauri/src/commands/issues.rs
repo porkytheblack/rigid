@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::error::TakaError;
+use crate::error::RigidError;
 use crate::models::{Issue, NewIssue, UpdateIssue, IssueFilter};
 use crate::repositories::IssueRepository;
 
@@ -8,7 +8,7 @@ use crate::repositories::IssueRepository;
 pub async fn create_issue(
     new_issue: NewIssue,
     repo: State<'_, IssueRepository>,
-) -> Result<Issue, TakaError> {
+) -> Result<Issue, RigidError> {
     repo.create(new_issue).await
 }
 
@@ -16,7 +16,7 @@ pub async fn create_issue(
 pub async fn get_issue(
     id: String,
     repo: State<'_, IssueRepository>,
-) -> Result<Issue, TakaError> {
+) -> Result<Issue, RigidError> {
     repo.get(&id).await
 }
 
@@ -24,7 +24,7 @@ pub async fn get_issue(
 pub async fn get_issue_by_number(
     number: i32,
     repo: State<'_, IssueRepository>,
-) -> Result<Issue, TakaError> {
+) -> Result<Issue, RigidError> {
     repo.get_by_number(number).await
 }
 
@@ -32,7 +32,7 @@ pub async fn get_issue_by_number(
 pub async fn list_issues(
     filter: IssueFilter,
     repo: State<'_, IssueRepository>,
-) -> Result<Vec<Issue>, TakaError> {
+) -> Result<Vec<Issue>, RigidError> {
     repo.list(filter).await
 }
 
@@ -41,7 +41,7 @@ pub async fn update_issue(
     id: String,
     updates: UpdateIssue,
     repo: State<'_, IssueRepository>,
-) -> Result<Issue, TakaError> {
+) -> Result<Issue, RigidError> {
     repo.update(&id, updates).await
 }
 
@@ -49,7 +49,7 @@ pub async fn update_issue(
 pub async fn delete_issue(
     id: String,
     repo: State<'_, IssueRepository>,
-) -> Result<(), TakaError> {
+) -> Result<(), RigidError> {
     repo.delete(&id).await
 }
 
@@ -57,7 +57,7 @@ pub async fn delete_issue(
 pub async fn count_issues_by_status(
     status: String,
     repo: State<'_, IssueRepository>,
-) -> Result<i32, TakaError> {
+) -> Result<i32, RigidError> {
     repo.count_by_status(&status).await
 }
 
@@ -65,6 +65,6 @@ pub async fn count_issues_by_status(
 pub async fn count_issues_by_priority(
     priority: String,
     repo: State<'_, IssueRepository>,
-) -> Result<i32, TakaError> {
+) -> Result<i32, RigidError> {
     repo.count_by_priority(&priority).await
 }
