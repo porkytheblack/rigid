@@ -1,19 +1,25 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Plus, Search, FolderOpen, Settings, MoreHorizontal, Trash2, Pencil, X, Command } from "lucide-react";
-import { useAppsStore, useRouterStore } from "@/lib/stores";
+import { Plus, Search, FolderOpen, Settings, MoreHorizontal, Trash2, Pencil, X, Command, Loader2 } from "lucide-react";
+import { useAppsStore, useRouterStore, useAnimationFeedback } from "@/lib/stores";
 import type { NewApp } from "@/lib/tauri/types";
 import { RigidLogo } from "@/components/ui/rigid-logo";
+import { RigidCharacter, RigidCharacterMini } from "@/components/ui/rigid-character";
+import { useToast } from "@/components/ui/toast";
+import { CardSkeleton } from "@/components/ui/loading-state";
 
 export function HomeView() {
   const { items: apps, loading, load, create, delete: deleteApp } = useAppsStore();
   const { navigate } = useRouterStore();
+  const { addToast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [newAppData, setNewAppData] = useState<NewApp>({ name: "" });
   const [contextMenuApp, setContextMenuApp] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -49,15 +55,36 @@ export function HomeView() {
 
   const handleCreateApp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAppData.name.trim()) return;
+    if (!newAppData.name.trim()) {
+      setFormError(true);
+      setTimeout(() => setFormError(false), 500);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(false);
 
     try {
       const app = await create(newAppData);
+      addToast({
+        type: "success",
+        title: "App created!",
+        description: `${app.name} is ready to explore.`,
+      });
       setShowCreateModal(false);
       setNewAppData({ name: "" });
       navigate({ name: "app", appId: app.id });
     } catch (err) {
       console.error("Failed to create app:", err);
+      addToast({
+        type: "error",
+        title: "Failed to create app",
+        description: err instanceof Error ? err.message : "Something went wrong",
+      });
+      setFormError(true);
+      setTimeout(() => setFormError(false), 500);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -119,17 +146,18 @@ export function HomeView() {
           {loading && apps.length === 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="h-48 bg-[var(--surface-secondary)] border border-[var(--border-default)] animate-pulse" />
+                <CardSkeleton key={i} />
               ))}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {/* Existing Apps */}
-              {filteredApps.map((app) => (
+              {filteredApps.map((app, index) => (
                 <div
                   key={app.id}
                   onClick={() => navigate({ name: "app", appId: app.id })}
-                  className="group relative bg-[var(--surface-secondary)] border border-[var(--border-default)] p-6 hover:border-[var(--border-strong)] transition-all cursor-pointer"
+                  className="group relative bg-[var(--surface-secondary)] border border-[var(--border-default)] p-6 hover:border-[var(--border-strong)] cursor-pointer card-animated card-stagger-enter"
+                  style={{ animationDelay: `${index * 50}ms` }}
                 >
                   {/* App Initial */}
                   <div className="w-12 h-12 bg-[var(--text-primary)] flex items-center justify-center mb-5">
@@ -288,11 +316,15 @@ export function HomeView() {
 
       {/* Create App Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8" onClick={() => setShowCreateModal(false)}>
-          <div className="w-full max-w-lg bg-[var(--surface-secondary)] border border-[var(--border-default)] shadow-xl animate-scale-in" onClick={(e) => e.stopPropagation()}>
-            {/* Modal Header */}
-            <div className="px-6 py-5 border-b border-[var(--border-default)]">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8 modal-backdrop-animated" onClick={() => !isSubmitting && setShowCreateModal(false)}>
+          <div className="w-full max-w-lg bg-[var(--surface-secondary)] border border-[var(--border-default)] shadow-xl modal-content-animated" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header with Character */}
+            <div className="px-6 py-5 border-b border-[var(--border-default)] flex items-center justify-between">
               <h2 className="text-[var(--text-heading-md)] font-bold text-[var(--text-primary)] tracking-tight">Create New App</h2>
+              <RigidCharacterMini
+                animation={isSubmitting ? "work" : formError ? "shake" : "idle"}
+                size={28}
+              />
             </div>
 
             {/* Modal Body */}
@@ -307,7 +339,8 @@ export function HomeView() {
                   onChange={(e) => setNewAppData({ ...newAppData, name: e.target.value })}
                   placeholder="My Awesome App"
                   autoFocus
-                  className="w-full h-12 px-4 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--text-primary)] focus:border-2 transition-all"
+                  disabled={isSubmitting}
+                  className={`w-full h-12 px-4 bg-[var(--surface-primary)] border text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--text-primary)] focus:border-2 transition-all input-animated ${formError && !newAppData.name.trim() ? 'input-error-shake border-[var(--status-error)]' : 'border-[var(--border-default)]'}`}
                 />
               </div>
               <div>
@@ -319,7 +352,8 @@ export function HomeView() {
                   onChange={(e) => setNewAppData({ ...newAppData, description: e.target.value })}
                   placeholder="Brief description of your app..."
                   rows={3}
-                  className="w-full px-4 py-3 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-[var(--text-primary)] focus:border-2 transition-all"
+                  disabled={isSubmitting}
+                  className="w-full px-4 py-3 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-[var(--text-primary)] focus:border-2 transition-all input-animated"
                 />
               </div>
 
@@ -328,16 +362,24 @@ export function HomeView() {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 h-12 border border-[var(--border-strong)] text-[var(--text-primary)] font-semibold hover:bg-[var(--surface-hover)] transition-colors"
+                  disabled={isSubmitting}
+                  className="flex-1 h-12 border border-[var(--border-strong)] text-[var(--text-primary)] font-semibold hover:bg-[var(--surface-hover)] transition-all btn-animated disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={!newAppData.name.trim()}
-                  className="flex-1 h-12 bg-[var(--text-primary)] text-[var(--text-inverse)] font-semibold hover:bg-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  disabled={!newAppData.name.trim() || isSubmitting}
+                  className="flex-1 h-12 bg-[var(--text-primary)] text-[var(--text-inverse)] font-semibold hover:bg-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-all btn-animated flex items-center justify-center gap-2"
                 >
-                  Create App
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create App"
+                  )}
                 </button>
               </div>
             </form>

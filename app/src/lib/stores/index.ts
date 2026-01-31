@@ -12,4 +12,5 @@ export { useDiagramsStore } from './diagrams';
 export { useArchitectureDocsStore } from './architecture-docs';
 export { useDemosStore } from './demos';
 export { useExportsStore, type Export } from './exports';
+export { useAnimationsStore, useAnimationFeedback } from './animations';
 export type { Route } from './router';

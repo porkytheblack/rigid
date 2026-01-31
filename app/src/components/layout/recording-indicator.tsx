@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Circle, Square } from 'lucide-react';
+import { Square } from 'lucide-react';
 import { useRecordingsStore } from '@/lib/stores';
+import { RigidCharacterMini } from '@/components/ui/rigid-character';
 
 export function RecordingIndicator() {
   const { isRecording, stopRecording } = useRecordingsStore();
@@ -40,8 +41,10 @@ export function RecordingIndicator() {
 
   return (
     <div className="flex items-center gap-2">
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--status-error)]/10 border border-[var(--status-error)]/20 rounded-full">
-        <Circle className="w-3 h-3 fill-[var(--status-error)] text-[var(--status-error)] animate-pulse" />
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--status-error)]/10 border border-[var(--status-error)]/20">
+        {/* Animated character watching the recording */}
+        <RigidCharacterMini animation="pulse" size={18} />
+        <div className="w-2 h-2 bg-[var(--status-error)] recording-indicator-pulse" />
         <span className="text-sm font-medium text-[var(--status-error)]">
           REC
         </span>
@@ -51,7 +54,7 @@ export function RecordingIndicator() {
       </div>
       <button
         onClick={() => stopRecording()}
-        className="p-1.5 rounded-full bg-[var(--status-error)] text-white hover:opacity-90 transition-opacity"
+        className="p-1.5 bg-[var(--status-error)] text-white hover:opacity-90 transition-opacity btn-animated"
         title="Stop Recording"
       >
         <Square className="w-3 h-3" />

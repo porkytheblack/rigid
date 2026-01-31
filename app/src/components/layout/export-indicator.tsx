@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Download, X, Check, Loader2 } from "lucide-react";
+import { Download, X, Check } from "lucide-react";
 import { useExportsStore, type Export } from "@/lib/stores";
 import { useShallow } from "zustand/react/shallow";
+import { RigidCharacterMini } from "@/components/ui/rigid-character";
 
 // Format time for display (e.g., "2:15" or "1:23:45")
 const formatDuration = (seconds: number): string => {
@@ -70,24 +71,24 @@ export function ExportIndicator() {
       {!isExpanded && (
         <button
           onClick={() => setIsExpanded(true)}
-          className="flex items-center gap-2 px-3 py-2 bg-[var(--surface-secondary)] border border-[var(--border-default)] shadow-lg hover:bg-[var(--surface-hover)] transition-colors"
+          className="flex items-center gap-2 px-3 py-2 bg-[var(--surface-secondary)] border border-[var(--border-default)] shadow-lg hover:bg-[var(--surface-hover)] transition-colors btn-animated"
         >
           {primaryExport.status === 'encoding' || primaryExport.status === 'pending' ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin text-[var(--text-primary)]" />
+              <RigidCharacterMini animation="work" size={18} />
               <span className="text-sm font-medium text-[var(--text-primary)]">
                 {primaryExport.progress.toFixed(0)}%
               </span>
             </>
           ) : primaryExport.status === 'complete' ? (
             <>
-              <Check className="w-4 h-4 text-[var(--status-success)]" />
-              <span className="text-sm text-[var(--text-secondary)]">Export done</span>
+              <RigidCharacterMini animation="celebrate" size={18} />
+              <span className="text-sm text-[var(--status-success)]">Done!</span>
             </>
           ) : (
             <>
-              <X className="w-4 h-4 text-[var(--accent-error)]" />
-              <span className="text-sm text-[var(--text-secondary)]">Export failed</span>
+              <RigidCharacterMini animation="sad" size={18} />
+              <span className="text-sm text-[var(--accent-error)]">Failed</span>
             </>
           )}
         </button>
@@ -148,11 +149,11 @@ function ExportItem({ export: exp }: { export: Export }) {
   return (
     <div className="px-3 py-2 border-b border-[var(--border-default)] last:border-b-0">
       <div className="flex items-start gap-2">
-        {/* Status icon */}
+        {/* Animated status character */}
         <div className="mt-0.5">
-          {isActive && <Loader2 className="w-4 h-4 animate-spin text-[var(--text-primary)]" />}
-          {isComplete && <Check className="w-4 h-4 text-[var(--status-success)]" />}
-          {isError && <X className="w-4 h-4 text-[var(--accent-error)]" />}
+          {isActive && <RigidCharacterMini animation="work" size={16} />}
+          {isComplete && <RigidCharacterMini animation="celebrate" size={16} />}
+          {isError && <RigidCharacterMini animation="sad" size={16} />}
         </div>
 
         {/* Content */}

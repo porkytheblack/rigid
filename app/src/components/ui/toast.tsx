@@ -3,6 +3,7 @@
 import * as React from "react";
 import { createContext, useContext, useState, useCallback } from "react";
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from "lucide-react";
+import { RigidCharacterMini, type RigidAnimation } from "@/components/ui/rigid-character";
 
 export type ToastType = "success" | "error" | "info" | "warning";
 
@@ -59,11 +60,11 @@ export function useToast() {
   return context;
 }
 
-const toastConfig: Record<ToastType, { icon: typeof CheckCircle; color: string; bgColor: string }> = {
-  success: { icon: CheckCircle, color: "var(--accent-success)", bgColor: "var(--status-success-bg)" },
-  error: { icon: AlertCircle, color: "var(--accent-error)", bgColor: "var(--status-error-bg)" },
-  info: { icon: Info, color: "#3B82F6", bgColor: "rgba(59, 130, 246, 0.15)" },
-  warning: { icon: AlertTriangle, color: "var(--accent-warning)", bgColor: "var(--status-warning-bg)" },
+const toastConfig: Record<ToastType, { icon: typeof CheckCircle; color: string; bgColor: string; animation: RigidAnimation }> = {
+  success: { icon: CheckCircle, color: "var(--accent-success)", bgColor: "var(--status-success-bg)", animation: "celebrate" },
+  error: { icon: AlertCircle, color: "var(--accent-error)", bgColor: "var(--status-error-bg)", animation: "shake" },
+  info: { icon: Info, color: "#3B82F6", bgColor: "rgba(59, 130, 246, 0.15)", animation: "wave" },
+  warning: { icon: AlertTriangle, color: "var(--accent-warning)", bgColor: "var(--status-warning-bg)", animation: "think" },
 };
 
 function ToastContainer() {
@@ -73,14 +74,16 @@ function ToastContainer() {
     <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
       {toasts.map((toast) => {
         const config = toastConfig[toast.type];
-        const Icon = config.icon;
         return (
           <div
             key={toast.id}
-            className="flex items-start gap-3 p-4 border border-[var(--border-default)] bg-[var(--surface-elevated)] shadow-lg animate-in slide-in-from-right-full duration-200"
+            className={`flex items-start gap-3 p-4 border border-[var(--border-default)] bg-[var(--surface-elevated)] shadow-lg toast-animated-enter ${toast.type === 'success' ? 'toast-success-pop' : ''}`}
             style={{ borderLeftWidth: "3px", borderLeftColor: config.color }}
           >
-            <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: config.color }} />
+            {/* Animated character instead of static icon */}
+            <div className="flex-shrink-0 mt-0.5">
+              <RigidCharacterMini animation={config.animation} size={20} />
+            </div>
             <div className="flex-1 min-w-0">
               <p className="text-[var(--text-body-sm)] font-medium text-[var(--text-primary)]">
                 {toast.title}
@@ -93,7 +96,7 @@ function ToastContainer() {
             </div>
             <button
               onClick={() => removeToast(toast.id)}
-              className="p-1 hover:bg-[var(--surface-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+              className="p-1 hover:bg-[var(--surface-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors btn-animated"
             >
               <X className="w-4 h-4" />
             </button>

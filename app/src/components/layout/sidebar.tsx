@@ -129,13 +129,13 @@ export function Sidebar() {
                     <Link
                       href={item.href}
                       className={cn(
-                        "flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-[var(--text-sm)] font-medium transition-colors",
+                        "flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-[var(--text-sm)] font-medium transition-all duration-150 nav-item-animated",
                         isActive
                           ? "bg-[var(--bg-active)] text-[var(--text-primary)] border-l-2 border-[var(--accent)] -ml-0.5 pl-[calc(0.75rem+2px)]"
-                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:translate-x-0.5"
                       )}
                     >
-                      <item.icon className="w-4 h-4 flex-shrink-0" />
+                      <item.icon className={cn("w-4 h-4 flex-shrink-0 transition-transform duration-150", isActive && "scale-110")} />
                       <span className="flex-1">{item.label}</span>
                       {item.badge !== undefined && item.badge > 0 && (
                         <Badge variant="error">{item.badge}</Badge>
@@ -199,13 +199,13 @@ export function Sidebar() {
             <Link
               href="/settings"
               className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-[var(--text-sm)] font-medium transition-colors",
+                "flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-[var(--text-sm)] font-medium transition-all duration-150 nav-item-animated",
                 pathname === "/settings"
                   ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
-                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] hover:translate-x-0.5"
               )}
             >
-              <Settings className="w-4 h-4 flex-shrink-0" />
+              <Settings className={cn("w-4 h-4 flex-shrink-0 transition-transform duration-150", pathname === "/settings" && "scale-110")} />
               <span>Settings</span>
             </Link>
           </TooltipTrigger>
