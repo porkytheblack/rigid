@@ -1503,6 +1503,7 @@ export interface VideoTrack {
 }
 
 export interface NewVideoTrack {
+  id?: string | null;
   video_id: string;
   track_type: string;
   name: string;
@@ -1572,6 +1573,7 @@ export interface VideoClip {
 }
 
 export interface NewVideoClip {
+  id?: string | null;
   track_id: string;
   name: string;
   source_path: string;
@@ -1671,6 +1673,7 @@ export interface VideoZoomClip {
 }
 
 export interface NewVideoZoomClip {
+  id?: string | null;
   track_id: string;
   name: string;
   start_time_ms: number;
@@ -1713,6 +1716,7 @@ export interface VideoBlurClip {
 }
 
 export interface NewVideoBlurClip {
+  id?: string | null;
   track_id: string;
   name: string;
   start_time_ms: number;
@@ -1760,6 +1764,7 @@ export interface VideoPanClip {
 }
 
 export interface NewVideoPanClip {
+  id?: string | null;
   track_id: string;
   name: string;
   start_time_ms: number;
@@ -1800,6 +1805,7 @@ export interface VideoAsset {
 }
 
 export interface NewVideoAsset {
+  id?: string | null;
   video_id: string;
   name: string;
   file_path: string;

@@ -529,7 +529,7 @@ async function saveVideoState(videoId: string, currentDemo: DemoWithData, pendin
       });
     } catch {
       await videoTracksApi.create({
-        video_id: videoId, track_type: track.track_type,
+        id: track.id, video_id: videoId, track_type: track.track_type,
         name: track.name, sort_order: track.sort_order, target_track_id: track.target_track_id,
         locked: track.locked, visible: track.visible, muted: track.muted, volume: track.volume,
       });
@@ -561,7 +561,7 @@ async function saveVideoState(videoId: string, currentDemo: DemoWithData, pendin
       });
     } catch {
       await videoClipsApi.create({
-        track_id: clip.track_id, name: clip.name, source_path: clip.source_path,
+        id: clip.id, track_id: clip.track_id, name: clip.name, source_path: clip.source_path,
         source_type: clip.source_type, duration_ms: clip.duration_ms,
         source_duration_ms: clip.source_duration_ms, start_time_ms: clip.start_time_ms,
         in_point_ms: clip.in_point_ms, out_point_ms: clip.out_point_ms,
@@ -596,7 +596,7 @@ async function saveVideoState(videoId: string, currentDemo: DemoWithData, pendin
       });
     } catch {
       await videoZoomClipsApi.create({
-        track_id: zoomClip.track_id, name: zoomClip.name,
+        id: zoomClip.id, track_id: zoomClip.track_id, name: zoomClip.name,
         start_time_ms: zoomClip.start_time_ms, duration_ms: zoomClip.duration_ms,
         zoom_scale: zoomClip.zoom_scale, zoom_center_x: zoomClip.zoom_center_x,
         zoom_center_y: zoomClip.zoom_center_y, ease_in_duration_ms: zoomClip.ease_in_duration_ms,
@@ -617,7 +617,7 @@ async function saveVideoState(videoId: string, currentDemo: DemoWithData, pendin
       });
     } catch {
       await videoBlurClipsApi.create({
-        track_id: blurClip.track_id, name: blurClip.name,
+        id: blurClip.id, track_id: blurClip.track_id, name: blurClip.name,
         start_time_ms: blurClip.start_time_ms, duration_ms: blurClip.duration_ms,
         blur_intensity: blurClip.blur_intensity, region_x: blurClip.region_x, region_y: blurClip.region_y,
         region_width: blurClip.region_width, region_height: blurClip.region_height,
@@ -637,7 +637,7 @@ async function saveVideoState(videoId: string, currentDemo: DemoWithData, pendin
       });
     } catch {
       await videoPanClipsApi.create({
-        track_id: panClip.track_id, name: panClip.name,
+        id: panClip.id, track_id: panClip.track_id, name: panClip.name,
         start_time_ms: panClip.start_time_ms, duration_ms: panClip.duration_ms,
         start_x: panClip.start_x, start_y: panClip.start_y, end_x: panClip.end_x, end_y: panClip.end_y,
         ease_in_duration_ms: panClip.ease_in_duration_ms, ease_out_duration_ms: panClip.ease_out_duration_ms,
@@ -651,7 +651,7 @@ async function saveVideoState(videoId: string, currentDemo: DemoWithData, pendin
       await videoAssetsApi.update(asset.id, { name: asset.name, thumbnail_path: asset.thumbnail_path });
     } catch {
       await videoAssetsApi.create({
-        video_id: videoId, name: asset.name, file_path: asset.file_path,
+        id: asset.id, video_id: videoId, name: asset.name, file_path: asset.file_path,
         asset_type: asset.asset_type, duration_ms: asset.duration_ms, width: asset.width,
         height: asset.height, thumbnail_path: asset.thumbnail_path, file_size: asset.file_size,
         has_audio: asset.has_audio,

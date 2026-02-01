@@ -1292,7 +1292,8 @@ impl DemoRepository {
     }
 
     pub async fn create_video_track(&self, new: NewVideoTrack) -> Result<VideoTrack, RigidError> {
-        let id = Uuid::new_v4().to_string();
+        // Use provided ID or generate new one
+        let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -1394,7 +1395,8 @@ impl DemoRepository {
     }
 
     pub async fn create_video_clip(&self, new: NewVideoClip) -> Result<VideoClip, RigidError> {
-        let id = Uuid::new_v4().to_string();
+        // Use provided ID or generate new one
+        let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -1568,7 +1570,8 @@ impl DemoRepository {
     }
 
     pub async fn create_video_zoom_clip(&self, new: NewVideoZoomClip) -> Result<VideoZoomClip, RigidError> {
-        let id = Uuid::new_v4().to_string();
+        // Use provided ID or generate new one
+        let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -1652,7 +1655,8 @@ impl DemoRepository {
     }
 
     pub async fn create_video_blur_clip(&self, new: NewVideoBlurClip) -> Result<VideoBlurClip, RigidError> {
-        let id = Uuid::new_v4().to_string();
+        // Use provided ID or generate new one
+        let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -1748,7 +1752,8 @@ impl DemoRepository {
     }
 
     pub async fn create_video_pan_clip(&self, new: NewVideoPanClip) -> Result<VideoPanClip, RigidError> {
-        let id = Uuid::new_v4().to_string();
+        // Use provided ID or generate new one
+        let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -1835,7 +1840,8 @@ impl DemoRepository {
     }
 
     pub async fn create_video_asset(&self, new: NewVideoAsset) -> Result<VideoAsset, RigidError> {
-        let id = Uuid::new_v4().to_string();
+        // Use provided ID or generate new one
+        let id = new.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
