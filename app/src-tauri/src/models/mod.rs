@@ -1,0 +1,27 @@
+pub mod app;
+pub mod test;
+pub mod recording;
+pub mod issue;
+pub mod checklist;
+pub mod screenshot;
+pub mod tag;
+pub mod settings;
+pub mod document;
+pub mod diagram;
+pub mod architecture_doc;
+pub mod demo;
+pub mod feature;
+
+pub use app::*;
+pub use test::*;
+pub use recording::*;
+pub use issue::*;
+pub use checklist::*;
+pub use screenshot::*;
+pub use tag::*;
+pub use settings::*;
+pub use document::*;
+pub use diagram::*;
+pub use architecture_doc::*;
+pub use demo::*;
+pub use feature::*;
