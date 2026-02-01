@@ -8,4 +8,5 @@ export { ArchitectureDocView } from './ArchitectureDocView';
 export { ArchitectureDiagramEditorView } from './ArchitectureDiagramEditorView';
 export { DemoView } from './DemoView';
 export { DemoEditorView } from './DemoEditorView';
+export { FeaturesKanbanView } from './FeaturesKanbanView';
 export { SettingsView } from './SettingsView';

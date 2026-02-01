@@ -13,4 +13,5 @@ export { useArchitectureDocsStore } from './architecture-docs';
 export { useDemosStore } from './demos';
 export { useExportsStore, type Export } from './exports';
 export { useAnimationsStore, useAnimationFeedback } from './animations';
+export { useFeaturesStore } from './features';
 export type { Route } from './router';

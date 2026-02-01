@@ -18,6 +18,7 @@ use repositories::{
     AppRepository, TestRepository, RecordingRepository, IssueRepository,
     ChecklistRepository, ScreenshotRepository, TagRepository, SettingsRepository,
     DocumentRepository, DiagramRepository, ArchitectureDocRepository, DemoRepository,
+    FeatureRepository,
 };
 use services::AIService;
 
@@ -60,7 +61,8 @@ pub fn run() {
                 app_handle.manage(DocumentRepository::new(pool.clone()));
                 app_handle.manage(DiagramRepository::new(pool.clone()));
                 app_handle.manage(ArchitectureDocRepository::new(pool.clone()));
-                app_handle.manage(DemoRepository::new(pool));
+                app_handle.manage(DemoRepository::new(pool.clone()));
+                app_handle.manage(FeatureRepository::new(pool));
 
                 // Initialize AI service
                 app_handle.manage(AIService::new());
@@ -349,6 +351,46 @@ pub fn run() {
             commands::demo_videos_create,
             commands::demo_videos_update,
             commands::demo_videos_delete,
+            // Video editor state commands
+            commands::video_editor_get_with_data,
+            commands::video_backgrounds_get,
+            commands::video_backgrounds_create,
+            commands::video_backgrounds_update,
+            commands::video_backgrounds_delete,
+            commands::video_tracks_list,
+            commands::video_tracks_create,
+            commands::video_tracks_update,
+            commands::video_tracks_delete,
+            commands::video_tracks_reorder,
+            commands::video_clips_list,
+            commands::video_clips_get,
+            commands::video_clips_create,
+            commands::video_clips_update,
+            commands::video_clips_delete,
+            commands::video_zoom_clips_list,
+            commands::video_zoom_clips_create,
+            commands::video_zoom_clips_update,
+            commands::video_zoom_clips_delete,
+            commands::video_blur_clips_list,
+            commands::video_blur_clips_create,
+            commands::video_blur_clips_update,
+            commands::video_blur_clips_delete,
+            commands::video_pan_clips_list,
+            commands::video_pan_clips_create,
+            commands::video_pan_clips_update,
+            commands::video_pan_clips_delete,
+            commands::video_assets_list,
+            commands::video_assets_create,
+            commands::video_assets_update,
+            commands::video_assets_delete,
+            // Feature commands
+            commands::create_feature,
+            commands::get_feature,
+            commands::list_features,
+            commands::list_features_by_app,
+            commands::update_feature,
+            commands::delete_feature,
+            commands::reorder_features,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

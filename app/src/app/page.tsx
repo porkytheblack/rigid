@@ -12,6 +12,7 @@ import {
   ArchitectureDiagramEditorView,
   DemoView,
   DemoEditorView,
+  FeaturesKanbanView,
   SettingsView,
 } from "@/views";
 
@@ -77,6 +78,7 @@ export default function App() {
         <DemoEditorView
           appId={route.appId}
           demoId={route.demoId}
+          parentDemoId={route.parentDemoId}
         />
       );
     case "demo-video-editor":
@@ -85,8 +87,11 @@ export default function App() {
           appId={route.appId}
           demoId={route.demoId}
           videoId={route.videoId}
+          parentDemoId={route.parentDemoId}
         />
       );
+    case "features-kanban":
+      return <FeaturesKanbanView appId={route.appId} />;
     case "settings":
       return <SettingsView />;
     default:

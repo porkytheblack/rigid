@@ -14,6 +14,15 @@ use crate::models::{
     DemoScreenshot, NewDemoScreenshot,
     DemoVideo, NewDemoVideo, UpdateDemoVideo,
     Recording, Screenshot,
+    // Video editor types
+    VideoWithData,
+    VideoBackground, NewVideoBackground, UpdateVideoBackground,
+    VideoTrack, NewVideoTrack, UpdateVideoTrack,
+    VideoClip, NewVideoClip, UpdateVideoClip,
+    VideoZoomClip, NewVideoZoomClip, UpdateVideoZoomClip,
+    VideoBlurClip, NewVideoBlurClip, UpdateVideoBlurClip,
+    VideoPanClip, NewVideoPanClip, UpdateVideoPanClip,
+    VideoAsset, NewVideoAsset, UpdateVideoAsset,
 };
 use crate::repositories::DemoRepository;
 
@@ -433,4 +442,276 @@ pub async fn demo_videos_delete(
     repo: State<'_, DemoRepository>,
 ) -> Result<(), RigidError> {
     repo.delete_demo_video(&id).await
+}
+
+// ============ Video Editor State Commands ============
+
+#[tauri::command]
+pub async fn video_editor_get_with_data(
+    video_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoWithData, RigidError> {
+    repo.get_video_with_data(&video_id).await
+}
+
+// ============ Video Background Commands ============
+
+#[tauri::command]
+pub async fn video_backgrounds_get(
+    video_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Option<VideoBackground>, RigidError> {
+    repo.get_video_background(&video_id).await
+}
+
+#[tauri::command]
+pub async fn video_backgrounds_create(
+    data: NewVideoBackground,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoBackground, RigidError> {
+    repo.create_video_background(data).await
+}
+
+#[tauri::command]
+pub async fn video_backgrounds_update(
+    id: String,
+    updates: UpdateVideoBackground,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoBackground, RigidError> {
+    repo.update_video_background(&id, updates).await
+}
+
+#[tauri::command]
+pub async fn video_backgrounds_delete(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), RigidError> {
+    repo.delete_video_background(&id).await
+}
+
+// ============ Video Track Commands ============
+
+#[tauri::command]
+pub async fn video_tracks_list(
+    video_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<VideoTrack>, RigidError> {
+    repo.list_video_tracks(&video_id).await
+}
+
+#[tauri::command]
+pub async fn video_tracks_create(
+    data: NewVideoTrack,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoTrack, RigidError> {
+    repo.create_video_track(data).await
+}
+
+#[tauri::command]
+pub async fn video_tracks_update(
+    id: String,
+    updates: UpdateVideoTrack,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoTrack, RigidError> {
+    repo.update_video_track(&id, updates).await
+}
+
+#[tauri::command]
+pub async fn video_tracks_delete(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), RigidError> {
+    repo.delete_video_track(&id).await
+}
+
+#[tauri::command]
+pub async fn video_tracks_reorder(
+    video_id: String,
+    track_ids: Vec<String>,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), RigidError> {
+    repo.reorder_video_tracks(&video_id, track_ids).await
+}
+
+// ============ Video Clip Commands ============
+
+#[tauri::command]
+pub async fn video_clips_list(
+    track_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<VideoClip>, RigidError> {
+    repo.list_video_clips(&track_id).await
+}
+
+#[tauri::command]
+pub async fn video_clips_get(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoClip, RigidError> {
+    repo.get_video_clip(&id).await
+}
+
+#[tauri::command]
+pub async fn video_clips_create(
+    data: NewVideoClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoClip, RigidError> {
+    repo.create_video_clip(data).await
+}
+
+#[tauri::command]
+pub async fn video_clips_update(
+    id: String,
+    updates: UpdateVideoClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoClip, RigidError> {
+    repo.update_video_clip(&id, updates).await
+}
+
+#[tauri::command]
+pub async fn video_clips_delete(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), RigidError> {
+    repo.delete_video_clip(&id).await
+}
+
+// ============ Video Zoom Clip Commands ============
+
+#[tauri::command]
+pub async fn video_zoom_clips_list(
+    track_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<VideoZoomClip>, RigidError> {
+    repo.list_video_zoom_clips(&track_id).await
+}
+
+#[tauri::command]
+pub async fn video_zoom_clips_create(
+    data: NewVideoZoomClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoZoomClip, RigidError> {
+    repo.create_video_zoom_clip(data).await
+}
+
+#[tauri::command]
+pub async fn video_zoom_clips_update(
+    id: String,
+    updates: UpdateVideoZoomClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoZoomClip, RigidError> {
+    repo.update_video_zoom_clip(&id, updates).await
+}
+
+#[tauri::command]
+pub async fn video_zoom_clips_delete(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), RigidError> {
+    repo.delete_video_zoom_clip(&id).await
+}
+
+// ============ Video Blur Clip Commands ============
+
+#[tauri::command]
+pub async fn video_blur_clips_list(
+    track_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<VideoBlurClip>, RigidError> {
+    repo.list_video_blur_clips(&track_id).await
+}
+
+#[tauri::command]
+pub async fn video_blur_clips_create(
+    data: NewVideoBlurClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoBlurClip, RigidError> {
+    repo.create_video_blur_clip(data).await
+}
+
+#[tauri::command]
+pub async fn video_blur_clips_update(
+    id: String,
+    updates: UpdateVideoBlurClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoBlurClip, RigidError> {
+    repo.update_video_blur_clip(&id, updates).await
+}
+
+#[tauri::command]
+pub async fn video_blur_clips_delete(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), RigidError> {
+    repo.delete_video_blur_clip(&id).await
+}
+
+// ============ Video Pan Clip Commands ============
+
+#[tauri::command]
+pub async fn video_pan_clips_list(
+    track_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<VideoPanClip>, RigidError> {
+    repo.list_video_pan_clips(&track_id).await
+}
+
+#[tauri::command]
+pub async fn video_pan_clips_create(
+    data: NewVideoPanClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoPanClip, RigidError> {
+    repo.create_video_pan_clip(data).await
+}
+
+#[tauri::command]
+pub async fn video_pan_clips_update(
+    id: String,
+    updates: UpdateVideoPanClip,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoPanClip, RigidError> {
+    repo.update_video_pan_clip(&id, updates).await
+}
+
+#[tauri::command]
+pub async fn video_pan_clips_delete(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), RigidError> {
+    repo.delete_video_pan_clip(&id).await
+}
+
+// ============ Video Asset Commands ============
+
+#[tauri::command]
+pub async fn video_assets_list(
+    video_id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<Vec<VideoAsset>, RigidError> {
+    repo.list_video_assets(&video_id).await
+}
+
+#[tauri::command]
+pub async fn video_assets_create(
+    data: NewVideoAsset,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoAsset, RigidError> {
+    repo.create_video_asset(data).await
+}
+
+#[tauri::command]
+pub async fn video_assets_update(
+    id: String,
+    updates: UpdateVideoAsset,
+    repo: State<'_, DemoRepository>,
+) -> Result<VideoAsset, RigidError> {
+    repo.update_video_asset(&id, updates).await
+}
+
+#[tauri::command]
+pub async fn video_assets_delete(
+    id: String,
+    repo: State<'_, DemoRepository>,
+) -> Result<(), RigidError> {
+    repo.delete_video_asset(&id).await
 }

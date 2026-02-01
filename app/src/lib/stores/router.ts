@@ -10,8 +10,9 @@ export type Route =
   | { name: 'architecture-doc'; appId: string; docId: string }
   | { name: 'architecture-diagram-editor'; appId: string; docId: string; diagramId: string }
   | { name: 'demo-view'; appId: string; demoId: string }
-  | { name: 'demo-editor'; appId: string; demoId: string }
-  | { name: 'demo-video-editor'; appId: string; demoId: string; videoId: string }
+  | { name: 'demo-editor'; appId: string; demoId: string; parentDemoId?: string; videoId?: string }
+  | { name: 'demo-video-editor'; appId: string; demoId: string; videoId: string; parentDemoId?: string }
+  | { name: 'features-kanban'; appId: string }
   | { name: 'settings' };
 
 interface RouterState {

@@ -220,8 +220,8 @@ impl ScreenshotRepository {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
-            "INSERT INTO screenshot_markers (id, screenshot_id, title, description, severity, position_x, position_y, issue_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO screenshot_markers (id, screenshot_id, title, description, severity, position_x, position_y, issue_id, feature_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
         .bind(&new.screenshot_id)
@@ -231,6 +231,7 @@ impl ScreenshotRepository {
         .bind(new.position_x)
         .bind(new.position_y)
         .bind(&new.issue_id)
+        .bind(&new.feature_id)
         .bind(&now)
         .bind(&now)
         .execute(&self.pool)
@@ -282,6 +283,7 @@ impl ScreenshotRepository {
                 position_x = COALESCE(?, position_x),
                 position_y = COALESCE(?, position_y),
                 issue_id = COALESCE(?, issue_id),
+                feature_id = COALESCE(?, feature_id),
                 updated_at = ?
              WHERE id = ?"
         )
@@ -291,6 +293,7 @@ impl ScreenshotRepository {
         .bind(updates.position_x)
         .bind(updates.position_y)
         .bind(&updates.issue_id)
+        .bind(&updates.feature_id)
         .bind(&now)
         .bind(id)
         .execute(&self.pool)

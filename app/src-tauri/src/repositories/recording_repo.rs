@@ -152,8 +152,8 @@ impl RecordingRepository {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
-            "INSERT INTO annotations (id, recording_id, timestamp_ms, title, description, severity, issue_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO annotations (id, recording_id, timestamp_ms, title, description, severity, issue_id, feature_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
         .bind(&new.recording_id)
@@ -162,6 +162,7 @@ impl RecordingRepository {
         .bind(&new.description)
         .bind(new.severity.as_deref().unwrap_or("info"))
         .bind(&new.issue_id)
+        .bind(&new.feature_id)
         .bind(&now)
         .bind(&now)
         .execute(&self.pool)
@@ -201,6 +202,7 @@ impl RecordingRepository {
                 description = COALESCE(?, description),
                 severity = COALESCE(?, severity),
                 issue_id = COALESCE(?, issue_id),
+                feature_id = COALESCE(?, feature_id),
                 updated_at = ?
              WHERE id = ?"
         )
@@ -208,6 +210,7 @@ impl RecordingRepository {
         .bind(&updates.description)
         .bind(&updates.severity)
         .bind(&updates.issue_id)
+        .bind(&updates.feature_id)
         .bind(&now)
         .bind(id)
         .execute(&self.pool)

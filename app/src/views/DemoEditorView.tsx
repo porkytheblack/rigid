@@ -55,6 +55,7 @@ interface DemoEditorViewProps {
   appId: string;
   demoId: string;
   videoId?: string;
+  parentDemoId?: string;
 }
 
 // Format time in mm:ss format
@@ -105,12 +106,13 @@ const backgroundPresets = {
   ],
 };
 
-export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) {
+export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEditorViewProps) {
   const { navigate } = useRouterStore();
   const {
     currentDemo,
     items: demos,
     loadDemo,
+    loadVideo,
     playback,
     canvas,
     timeline,
@@ -231,20 +233,25 @@ export function DemoEditorView({ appId, demoId, videoId }: DemoEditorViewProps) 
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map()); // Video elements for multi-track sync
 
   // Navigate back to demo view
+  // If parentDemoId is set, navigate to that (the parent demo that contains this video)
+  // Otherwise navigate to the current demo's view
   const goBack = useCallback(() => {
-    navigate({ name: "demo-view", appId, demoId });
-  }, [navigate, appId, demoId]);
+    navigate({ name: "demo-view", appId, demoId: parentDemoId || demoId });
+  }, [navigate, appId, demoId, parentDemoId]);
 
-  // Load demo on mount
+  // Load demo or video on mount
   useEffect(() => {
-    if (demoId) {
+    // If videoId is provided, load the video's editor state (isolated from demo)
+    if (videoId) {
+      loadVideo(videoId).catch(console.error);
+    } else if (demoId) {
       // Check if it's a new demo (placeholder ID)
       const existingDemo = demos.find(d => d.id === demoId);
       if (existingDemo) {
         loadDemo(demoId).catch(console.error);
       }
     }
-  }, [demoId, loadDemo, demos]);
+  }, [demoId, videoId, loadDemo, loadVideo, demos]);
 
   // Load recordings and screenshots linked to this demo
   useEffect(() => {

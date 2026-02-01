@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { ArrowLeft, Undo, Redo, Circle, Square, ArrowUpRight, Type, Pencil, ZoomIn, ZoomOut, RotateCcw, Plus, Trash2, Flag, MessageSquare, AlertTriangle, CheckCircle, Pencil as PencilIcon, X, Eraser, GripVertical } from "lucide-react";
-import { useScreenshotsStore, useRouterStore } from "@/lib/stores";
+import { useScreenshotsStore, useRouterStore, useFeaturesStore } from "@/lib/stores";
 import { screenshots as screenshotsApi } from "@/lib/tauri/commands";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { MarkerSeverity, DrawingToolType } from "@/lib/tauri/types";
@@ -34,6 +34,7 @@ interface MarkerAnnotation {
   description: string;
   severity: AnnotationSeverity;
   position: Point; // Position on the image where marker is placed
+  feature_id: string | null;
 }
 
 interface ScreenshotEditorViewProps {
@@ -54,6 +55,7 @@ const severityConfig: Record<AnnotationSeverity, { icon: typeof Flag; color: str
 export function ScreenshotEditorView({ appId, explorationId, screenshotId }: ScreenshotEditorViewProps) {
   const { navigate } = useRouterStore();
   const { items: screenshots, update } = useScreenshotsStore();
+  const { items: features, loadByApp: loadFeatures } = useFeaturesStore();
   const screenshot = screenshots.find(s => s.id === screenshotId);
 
   // Navigate back to exploration view with screenshots tab
@@ -93,6 +95,7 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
     severity: "info",
     title: "",
     description: "",
+    feature_id: null,
   });
   const [selectedMarker, setSelectedMarker] = useState<MarkerAnnotation | null>(null);
   const [showEditMarkerModal, setShowEditMarkerModal] = useState(false);
@@ -129,6 +132,7 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
           description: m.description || '',
           severity: m.severity as AnnotationSeverity,
           position: { x: m.position_x, y: m.position_y },
+          feature_id: m.feature_id || null,
         }));
         setMarkerAnnotations(markers);
       } catch (e) {
@@ -137,6 +141,13 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
     };
     loadAnnotations();
   }, [screenshotId]);
+
+  // Load features for this app
+  useEffect(() => {
+    if (appId) {
+      loadFeatures(appId);
+    }
+  }, [appId, loadFeatures]);
 
   // Update edited title when screenshot changes
   useEffect(() => {
@@ -427,6 +438,7 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
         severity: m.severity as MarkerSeverity,
         position_x: m.position.x,
         position_y: m.position.y,
+        feature_id: m.feature_id || undefined,
       }));
       await screenshotsApi.bulkReplaceMarkers(screenshotId, dbMarkers);
 
@@ -582,10 +594,11 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
       description: newMarker.description || "",
       severity: newMarker.severity || "info",
       position: pendingMarkerPosition,
+      feature_id: newMarker.feature_id || null,
     };
 
     setMarkerAnnotations((prev) => [...prev, marker]);
-    setNewMarker({ severity: "info", title: "", description: "" });
+    setNewMarker({ severity: "info", title: "", description: "", feature_id: null });
     setPendingMarkerPosition(null);
     setShowAddMarkerModal(false);
   }, [newMarker, pendingMarkerPosition]);
@@ -885,6 +898,15 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
                               {marker.description}
                             </p>
                           )}
+                          {marker.feature_id && (() => {
+                            const linkedFeature = features.find(f => f.id === marker.feature_id);
+                            return linkedFeature ? (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <Flag className="w-3 h-3 text-[var(--text-tertiary)]" />
+                                <span className="text-[var(--text-caption)] text-[var(--accent-interactive)]">{linkedFeature.name}</span>
+                              </div>
+                            ) : null;
+                          })()}
                         </div>
                         <div className="flex flex-col gap-1">
                           <button
@@ -992,6 +1014,27 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
                   className="w-full px-3 py-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-[var(--text-primary)]"
                 />
               </div>
+
+              {/* Feature selector */}
+              {features.length > 0 && (
+                <div>
+                  <label className="block text-[var(--text-caption)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">
+                    Feature <span className="text-[var(--text-tertiary)] normal-case">(optional)</span>
+                  </label>
+                  <select
+                    value={newMarker.feature_id || ""}
+                    onChange={(e) => setNewMarker((prev) => ({ ...prev, feature_id: e.target.value || null }))}
+                    className="w-full h-10 px-3 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--text-primary)]"
+                  >
+                    <option value="">No feature linked</option>
+                    {features.map((feature) => (
+                      <option key={feature.id} value={feature.id}>
+                        {feature.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 p-4 border-t border-[var(--border-default)]">
@@ -1086,6 +1129,27 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
                   className="w-full px-3 py-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-[var(--text-primary)]"
                 />
               </div>
+
+              {/* Feature selector */}
+              {features.length > 0 && (
+                <div>
+                  <label className="block text-[var(--text-caption)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">
+                    Feature <span className="text-[var(--text-tertiary)] normal-case">(optional)</span>
+                  </label>
+                  <select
+                    value={editingMarker.feature_id || ""}
+                    onChange={(e) => setEditingMarker((prev) => prev ? { ...prev, feature_id: e.target.value || null } : null)}
+                    className="w-full h-10 px-3 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--text-primary)]"
+                  >
+                    <option value="">No feature linked</option>
+                    {features.map((feature) => (
+                      <option key={feature.id} value={feature.id}>
+                        {feature.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 p-4 border-t border-[var(--border-default)]">

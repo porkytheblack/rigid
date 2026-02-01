@@ -32,6 +32,7 @@ export function Editor({
   className = "",
   screenshots = [],
   showCopyButton = false,
+  compact = false,
 }: EditorProps) {
   const {
     blocks,
@@ -660,7 +661,7 @@ export function Editor({
       onContextMenu={handleContextMenu}
     >
       {/* Editor content area */}
-      <div className="max-w-[720px] mx-auto px-24 py-12">
+      <div className={compact ? "py-1" : "max-w-[720px] mx-auto px-24 py-12"}>
         {/* Title */}
         {title !== undefined && (
           <div className="mb-8">

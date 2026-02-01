@@ -10,6 +10,7 @@ mod document_repo;
 mod diagram_repo;
 mod architecture_doc_repo;
 mod demo_repo;
+mod feature_repo;
 
 pub use app_repo::AppRepository;
 pub use test_repo::TestRepository;
@@ -23,3 +24,4 @@ pub use document_repo::DocumentRepository;
 pub use diagram_repo::DiagramRepository;
 pub use architecture_doc_repo::ArchitectureDocRepository;
 pub use demo_repo::DemoRepository;
+pub use feature_repo::FeatureRepository;

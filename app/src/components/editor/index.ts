@@ -37,6 +37,7 @@ export { FormattingToolbar } from './ui/FormattingToolbar';
 // Utilities
 export {
   parseMarkdownShortcut,
+  parseMarkdownToBlocks,
   getBlockTypeName,
   isTextBlock,
   isListBlock,

@@ -16,6 +16,15 @@ use crate::models::{
     DemoScreenshot, NewDemoScreenshot,
     DemoVideo, NewDemoVideo, UpdateDemoVideo,
     Recording, Screenshot,
+    // Video editor types
+    VideoWithData,
+    VideoBackground, NewVideoBackground, UpdateVideoBackground,
+    VideoTrack, NewVideoTrack, UpdateVideoTrack,
+    VideoClip, NewVideoClip, UpdateVideoClip,
+    VideoZoomClip, NewVideoZoomClip, UpdateVideoZoomClip,
+    VideoBlurClip, NewVideoBlurClip, UpdateVideoBlurClip,
+    VideoPanClip, NewVideoPanClip, UpdateVideoPanClip,
+    VideoAsset, NewVideoAsset, UpdateVideoAsset,
 };
 
 #[derive(Clone)]
@@ -1050,19 +1059,25 @@ impl DemoRepository {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let format = new.format.unwrap_or_else(|| "mp4".to_string());
+        let file_path = new.file_path.unwrap_or_default();
+        let width = new.width.unwrap_or(1920);
+        let height = new.height.unwrap_or(1080);
+        let frame_rate = new.frame_rate.unwrap_or(60);
+        let duration_ms = new.duration_ms.unwrap_or(0);
 
         sqlx::query(
-            "INSERT INTO demo_videos (id, demo_id, name, file_path, thumbnail_path, duration_ms, width, height, file_size, format, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO demo_videos (id, demo_id, name, file_path, thumbnail_path, duration_ms, width, height, frame_rate, file_size, format, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
         .bind(&new.demo_id)
         .bind(&new.name)
-        .bind(&new.file_path)
+        .bind(&file_path)
         .bind(&new.thumbnail_path)
-        .bind(new.duration_ms)
-        .bind(new.width)
-        .bind(new.height)
+        .bind(duration_ms)
+        .bind(width)
+        .bind(height)
+        .bind(frame_rate)
         .bind(new.file_size)
         .bind(&format)
         .bind(&now)
@@ -1086,6 +1101,9 @@ impl DemoRepository {
                 file_path = COALESCE(?, file_path),
                 thumbnail_path = COALESCE(?, thumbnail_path),
                 duration_ms = COALESCE(?, duration_ms),
+                width = COALESCE(?, width),
+                height = COALESCE(?, height),
+                frame_rate = COALESCE(?, frame_rate),
                 updated_at = ?
              WHERE id = ?"
         )
@@ -1093,6 +1111,9 @@ impl DemoRepository {
         .bind(&updates.file_path)
         .bind(&updates.thumbnail_path)
         .bind(&updates.duration_ms)
+        .bind(&updates.width)
+        .bind(&updates.height)
+        .bind(&updates.frame_rate)
         .bind(&now)
         .bind(id)
         .execute(&self.pool)
@@ -1107,6 +1128,764 @@ impl DemoRepository {
 
     pub async fn delete_demo_video(&self, id: &str) -> Result<(), RigidError> {
         sqlx::query("DELETE FROM demo_videos WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Video Editor State Methods ============
+
+    /// Get video with all editor data (similar to get_with_data for demos)
+    pub async fn get_video_with_data(&self, video_id: &str) -> Result<VideoWithData, RigidError> {
+        let video = self.get_demo_video(video_id).await?;
+        let background = self.get_video_background(video_id).await?;
+        let tracks = self.list_video_tracks(video_id).await?;
+
+        // Get all clips for all tracks
+        let mut clips = Vec::new();
+        let mut zoom_clips = Vec::new();
+        let mut blur_clips = Vec::new();
+        let mut pan_clips = Vec::new();
+
+        for track in &tracks {
+            match track.track_type.as_str() {
+                "zoom" => {
+                    zoom_clips.extend(self.list_video_zoom_clips(&track.id).await?);
+                }
+                "blur" => {
+                    blur_clips.extend(self.list_video_blur_clips(&track.id).await?);
+                }
+                "pan" => {
+                    pan_clips.extend(self.list_video_pan_clips(&track.id).await?);
+                }
+                _ => {
+                    clips.extend(self.list_video_clips(&track.id).await?);
+                }
+            }
+        }
+
+        let assets = self.list_video_assets(video_id).await?;
+
+        Ok(VideoWithData {
+            video,
+            background,
+            tracks,
+            clips,
+            zoom_clips,
+            blur_clips,
+            pan_clips,
+            assets,
+        })
+    }
+
+    // ============ Video Background Methods ============
+
+    pub async fn get_video_background(&self, video_id: &str) -> Result<Option<VideoBackground>, RigidError> {
+        sqlx::query_as::<_, VideoBackground>("SELECT * FROM video_backgrounds WHERE video_id = ?")
+            .bind(video_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn create_video_background(&self, new: NewVideoBackground) -> Result<VideoBackground, RigidError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO video_backgrounds (id, video_id, background_type, color, gradient_stops, gradient_direction, gradient_angle, pattern_type, pattern_color, pattern_scale, media_path, media_scale, media_position_x, media_position_y, image_url, image_attribution, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.video_id)
+        .bind(&new.background_type)
+        .bind(&new.color)
+        .bind(&new.gradient_stops)
+        .bind(&new.gradient_direction)
+        .bind(&new.gradient_angle)
+        .bind(&new.pattern_type)
+        .bind(&new.pattern_color)
+        .bind(&new.pattern_scale)
+        .bind(&new.media_path)
+        .bind(&new.media_scale)
+        .bind(&new.media_position_x)
+        .bind(&new.media_position_y)
+        .bind(&new.image_url)
+        .bind(&new.image_attribution)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoBackground>("SELECT * FROM video_backgrounds WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_video_background(&self, id: &str, updates: UpdateVideoBackground) -> Result<VideoBackground, RigidError> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "UPDATE video_backgrounds SET
+                background_type = COALESCE(?, background_type),
+                color = COALESCE(?, color),
+                gradient_stops = COALESCE(?, gradient_stops),
+                gradient_direction = COALESCE(?, gradient_direction),
+                gradient_angle = COALESCE(?, gradient_angle),
+                pattern_type = COALESCE(?, pattern_type),
+                pattern_color = COALESCE(?, pattern_color),
+                pattern_scale = COALESCE(?, pattern_scale),
+                media_path = COALESCE(?, media_path),
+                media_scale = COALESCE(?, media_scale),
+                media_position_x = COALESCE(?, media_position_x),
+                media_position_y = COALESCE(?, media_position_y),
+                image_url = COALESCE(?, image_url),
+                image_attribution = COALESCE(?, image_attribution),
+                updated_at = ?
+             WHERE id = ?"
+        )
+        .bind(&updates.background_type)
+        .bind(&updates.color)
+        .bind(&updates.gradient_stops)
+        .bind(&updates.gradient_direction)
+        .bind(&updates.gradient_angle)
+        .bind(&updates.pattern_type)
+        .bind(&updates.pattern_color)
+        .bind(&updates.pattern_scale)
+        .bind(&updates.media_path)
+        .bind(&updates.media_scale)
+        .bind(&updates.media_position_x)
+        .bind(&updates.media_position_y)
+        .bind(&updates.image_url)
+        .bind(&updates.image_attribution)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoBackground>("SELECT * FROM video_backgrounds WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn delete_video_background(&self, id: &str) -> Result<(), RigidError> {
+        sqlx::query("DELETE FROM video_backgrounds WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Video Track Methods ============
+
+    pub async fn list_video_tracks(&self, video_id: &str) -> Result<Vec<VideoTrack>, RigidError> {
+        sqlx::query_as::<_, VideoTrack>("SELECT * FROM video_tracks WHERE video_id = ? ORDER BY sort_order")
+            .bind(video_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn create_video_track(&self, new: NewVideoTrack) -> Result<VideoTrack, RigidError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO video_tracks (id, video_id, track_type, name, locked, visible, muted, volume, sort_order, target_track_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.video_id)
+        .bind(&new.track_type)
+        .bind(&new.name)
+        .bind(new.locked.unwrap_or(false))
+        .bind(new.visible.unwrap_or(true))
+        .bind(new.muted.unwrap_or(false))
+        .bind(new.volume.unwrap_or(1.0))
+        .bind(new.sort_order.unwrap_or(0))
+        .bind(&new.target_track_id)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoTrack>("SELECT * FROM video_tracks WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_video_track(&self, id: &str, updates: UpdateVideoTrack) -> Result<VideoTrack, RigidError> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "UPDATE video_tracks SET
+                name = COALESCE(?, name),
+                locked = COALESCE(?, locked),
+                visible = COALESCE(?, visible),
+                muted = COALESCE(?, muted),
+                volume = COALESCE(?, volume),
+                sort_order = COALESCE(?, sort_order),
+                target_track_id = COALESCE(?, target_track_id),
+                updated_at = ?
+             WHERE id = ?"
+        )
+        .bind(&updates.name)
+        .bind(&updates.locked)
+        .bind(&updates.visible)
+        .bind(&updates.muted)
+        .bind(&updates.volume)
+        .bind(&updates.sort_order)
+        .bind(&updates.target_track_id)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoTrack>("SELECT * FROM video_tracks WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn delete_video_track(&self, id: &str) -> Result<(), RigidError> {
+        sqlx::query("DELETE FROM video_tracks WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn reorder_video_tracks(&self, video_id: &str, track_ids: Vec<String>) -> Result<(), RigidError> {
+        for (index, track_id) in track_ids.iter().enumerate() {
+            sqlx::query("UPDATE video_tracks SET sort_order = ? WHERE id = ? AND video_id = ?")
+                .bind(index as i32)
+                .bind(track_id)
+                .bind(video_id)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
+    }
+
+    // ============ Video Clip Methods ============
+
+    pub async fn list_video_clips(&self, track_id: &str) -> Result<Vec<VideoClip>, RigidError> {
+        sqlx::query_as::<_, VideoClip>("SELECT * FROM video_clips WHERE track_id = ? ORDER BY start_time_ms")
+            .bind(track_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn get_video_clip(&self, id: &str) -> Result<VideoClip, RigidError> {
+        sqlx::query_as::<_, VideoClip>("SELECT * FROM video_clips WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn create_video_clip(&self, new: NewVideoClip) -> Result<VideoClip, RigidError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO video_clips (id, track_id, name, source_path, source_type, source_duration_ms, start_time_ms, duration_ms, in_point_ms, out_point_ms, position_x, position_y, scale, rotation, crop_top, crop_bottom, crop_left, crop_right, corner_radius, opacity, shadow_enabled, shadow_blur, shadow_offset_x, shadow_offset_y, shadow_color, shadow_opacity, border_enabled, border_width, border_color, volume, muted, speed, freeze_frame, freeze_frame_time_ms, transition_in_type, transition_in_duration_ms, transition_out_type, transition_out_duration_ms, audio_fade_in_ms, audio_fade_out_ms, linked_clip_id, has_audio, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.track_id)
+        .bind(&new.name)
+        .bind(&new.source_path)
+        .bind(&new.source_type)
+        .bind(&new.source_duration_ms)
+        .bind(new.start_time_ms.unwrap_or(0))
+        .bind(&new.duration_ms)
+        .bind(new.in_point_ms.unwrap_or(0))
+        .bind(&new.out_point_ms)
+        .bind(&new.position_x)
+        .bind(&new.position_y)
+        .bind(&new.scale)
+        .bind(&new.rotation)
+        .bind(&new.crop_top)
+        .bind(&new.crop_bottom)
+        .bind(&new.crop_left)
+        .bind(&new.crop_right)
+        .bind(&new.corner_radius)
+        .bind(&new.opacity)
+        .bind(new.shadow_enabled.unwrap_or(false))
+        .bind(&new.shadow_blur)
+        .bind(&new.shadow_offset_x)
+        .bind(&new.shadow_offset_y)
+        .bind(&new.shadow_color)
+        .bind(&new.shadow_opacity)
+        .bind(new.border_enabled.unwrap_or(false))
+        .bind(&new.border_width)
+        .bind(&new.border_color)
+        .bind(new.volume.unwrap_or(1.0))
+        .bind(new.muted.unwrap_or(false))
+        .bind(new.speed.unwrap_or(1.0))
+        .bind(new.freeze_frame.unwrap_or(false))
+        .bind(&new.freeze_frame_time_ms)
+        .bind(&new.transition_in_type)
+        .bind(&new.transition_in_duration_ms)
+        .bind(&new.transition_out_type)
+        .bind(&new.transition_out_duration_ms)
+        .bind(&new.audio_fade_in_ms)
+        .bind(&new.audio_fade_out_ms)
+        .bind(&new.linked_clip_id)
+        .bind(&new.has_audio)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoClip>("SELECT * FROM video_clips WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_video_clip(&self, id: &str, updates: UpdateVideoClip) -> Result<VideoClip, RigidError> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "UPDATE video_clips SET
+                track_id = COALESCE(?, track_id),
+                name = COALESCE(?, name),
+                start_time_ms = COALESCE(?, start_time_ms),
+                duration_ms = COALESCE(?, duration_ms),
+                in_point_ms = COALESCE(?, in_point_ms),
+                out_point_ms = COALESCE(?, out_point_ms),
+                position_x = COALESCE(?, position_x),
+                position_y = COALESCE(?, position_y),
+                scale = COALESCE(?, scale),
+                rotation = COALESCE(?, rotation),
+                crop_top = COALESCE(?, crop_top),
+                crop_bottom = COALESCE(?, crop_bottom),
+                crop_left = COALESCE(?, crop_left),
+                crop_right = COALESCE(?, crop_right),
+                corner_radius = COALESCE(?, corner_radius),
+                opacity = COALESCE(?, opacity),
+                shadow_enabled = COALESCE(?, shadow_enabled),
+                shadow_blur = COALESCE(?, shadow_blur),
+                shadow_offset_x = COALESCE(?, shadow_offset_x),
+                shadow_offset_y = COALESCE(?, shadow_offset_y),
+                shadow_color = COALESCE(?, shadow_color),
+                shadow_opacity = COALESCE(?, shadow_opacity),
+                border_enabled = COALESCE(?, border_enabled),
+                border_width = COALESCE(?, border_width),
+                border_color = COALESCE(?, border_color),
+                volume = COALESCE(?, volume),
+                muted = COALESCE(?, muted),
+                speed = COALESCE(?, speed),
+                freeze_frame = COALESCE(?, freeze_frame),
+                freeze_frame_time_ms = COALESCE(?, freeze_frame_time_ms),
+                transition_in_type = COALESCE(?, transition_in_type),
+                transition_in_duration_ms = COALESCE(?, transition_in_duration_ms),
+                transition_out_type = COALESCE(?, transition_out_type),
+                transition_out_duration_ms = COALESCE(?, transition_out_duration_ms),
+                audio_fade_in_ms = COALESCE(?, audio_fade_in_ms),
+                audio_fade_out_ms = COALESCE(?, audio_fade_out_ms),
+                linked_clip_id = COALESCE(?, linked_clip_id),
+                updated_at = ?
+             WHERE id = ?"
+        )
+        .bind(&updates.track_id)
+        .bind(&updates.name)
+        .bind(&updates.start_time_ms)
+        .bind(&updates.duration_ms)
+        .bind(&updates.in_point_ms)
+        .bind(&updates.out_point_ms)
+        .bind(&updates.position_x)
+        .bind(&updates.position_y)
+        .bind(&updates.scale)
+        .bind(&updates.rotation)
+        .bind(&updates.crop_top)
+        .bind(&updates.crop_bottom)
+        .bind(&updates.crop_left)
+        .bind(&updates.crop_right)
+        .bind(&updates.corner_radius)
+        .bind(&updates.opacity)
+        .bind(&updates.shadow_enabled)
+        .bind(&updates.shadow_blur)
+        .bind(&updates.shadow_offset_x)
+        .bind(&updates.shadow_offset_y)
+        .bind(&updates.shadow_color)
+        .bind(&updates.shadow_opacity)
+        .bind(&updates.border_enabled)
+        .bind(&updates.border_width)
+        .bind(&updates.border_color)
+        .bind(&updates.volume)
+        .bind(&updates.muted)
+        .bind(&updates.speed)
+        .bind(&updates.freeze_frame)
+        .bind(&updates.freeze_frame_time_ms)
+        .bind(&updates.transition_in_type)
+        .bind(&updates.transition_in_duration_ms)
+        .bind(&updates.transition_out_type)
+        .bind(&updates.transition_out_duration_ms)
+        .bind(&updates.audio_fade_in_ms)
+        .bind(&updates.audio_fade_out_ms)
+        .bind(&updates.linked_clip_id)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoClip>("SELECT * FROM video_clips WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn delete_video_clip(&self, id: &str) -> Result<(), RigidError> {
+        sqlx::query("DELETE FROM video_clips WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Video Zoom Clip Methods ============
+
+    pub async fn list_video_zoom_clips(&self, track_id: &str) -> Result<Vec<VideoZoomClip>, RigidError> {
+        sqlx::query_as::<_, VideoZoomClip>("SELECT * FROM video_zoom_clips WHERE track_id = ? ORDER BY start_time_ms")
+            .bind(track_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn create_video_zoom_clip(&self, new: NewVideoZoomClip) -> Result<VideoZoomClip, RigidError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO video_zoom_clips (id, track_id, name, start_time_ms, duration_ms, zoom_scale, zoom_center_x, zoom_center_y, ease_in_duration_ms, ease_out_duration_ms, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.track_id)
+        .bind(&new.name)
+        .bind(new.start_time_ms)
+        .bind(&new.duration_ms)
+        .bind(new.zoom_scale.unwrap_or(1.5))
+        .bind(new.zoom_center_x.unwrap_or(50.0))
+        .bind(new.zoom_center_y.unwrap_or(50.0))
+        .bind(new.ease_in_duration_ms.unwrap_or(300))
+        .bind(new.ease_out_duration_ms.unwrap_or(300))
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoZoomClip>("SELECT * FROM video_zoom_clips WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_video_zoom_clip(&self, id: &str, updates: UpdateVideoZoomClip) -> Result<VideoZoomClip, RigidError> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "UPDATE video_zoom_clips SET
+                name = COALESCE(?, name),
+                start_time_ms = COALESCE(?, start_time_ms),
+                duration_ms = COALESCE(?, duration_ms),
+                zoom_scale = COALESCE(?, zoom_scale),
+                zoom_center_x = COALESCE(?, zoom_center_x),
+                zoom_center_y = COALESCE(?, zoom_center_y),
+                ease_in_duration_ms = COALESCE(?, ease_in_duration_ms),
+                ease_out_duration_ms = COALESCE(?, ease_out_duration_ms),
+                updated_at = ?
+             WHERE id = ?"
+        )
+        .bind(&updates.name)
+        .bind(&updates.start_time_ms)
+        .bind(&updates.duration_ms)
+        .bind(&updates.zoom_scale)
+        .bind(&updates.zoom_center_x)
+        .bind(&updates.zoom_center_y)
+        .bind(&updates.ease_in_duration_ms)
+        .bind(&updates.ease_out_duration_ms)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoZoomClip>("SELECT * FROM video_zoom_clips WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn delete_video_zoom_clip(&self, id: &str) -> Result<(), RigidError> {
+        sqlx::query("DELETE FROM video_zoom_clips WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Video Blur Clip Methods ============
+
+    pub async fn list_video_blur_clips(&self, track_id: &str) -> Result<Vec<VideoBlurClip>, RigidError> {
+        sqlx::query_as::<_, VideoBlurClip>("SELECT * FROM video_blur_clips WHERE track_id = ? ORDER BY start_time_ms")
+            .bind(track_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn create_video_blur_clip(&self, new: NewVideoBlurClip) -> Result<VideoBlurClip, RigidError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO video_blur_clips (id, track_id, name, start_time_ms, duration_ms, blur_intensity, region_x, region_y, region_width, region_height, corner_radius, blur_inside, ease_in_duration_ms, ease_out_duration_ms, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.track_id)
+        .bind(&new.name)
+        .bind(new.start_time_ms)
+        .bind(&new.duration_ms)
+        .bind(new.blur_intensity.unwrap_or(20.0))
+        .bind(new.region_x.unwrap_or(50.0))
+        .bind(new.region_y.unwrap_or(50.0))
+        .bind(new.region_width.unwrap_or(30.0))
+        .bind(new.region_height.unwrap_or(30.0))
+        .bind(new.corner_radius.unwrap_or(0.0))
+        .bind(new.blur_inside.unwrap_or(true))
+        .bind(new.ease_in_duration_ms.unwrap_or(0))
+        .bind(new.ease_out_duration_ms.unwrap_or(0))
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoBlurClip>("SELECT * FROM video_blur_clips WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_video_blur_clip(&self, id: &str, updates: UpdateVideoBlurClip) -> Result<VideoBlurClip, RigidError> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "UPDATE video_blur_clips SET
+                name = COALESCE(?, name),
+                start_time_ms = COALESCE(?, start_time_ms),
+                duration_ms = COALESCE(?, duration_ms),
+                blur_intensity = COALESCE(?, blur_intensity),
+                region_x = COALESCE(?, region_x),
+                region_y = COALESCE(?, region_y),
+                region_width = COALESCE(?, region_width),
+                region_height = COALESCE(?, region_height),
+                corner_radius = COALESCE(?, corner_radius),
+                blur_inside = COALESCE(?, blur_inside),
+                ease_in_duration_ms = COALESCE(?, ease_in_duration_ms),
+                ease_out_duration_ms = COALESCE(?, ease_out_duration_ms),
+                updated_at = ?
+             WHERE id = ?"
+        )
+        .bind(&updates.name)
+        .bind(&updates.start_time_ms)
+        .bind(&updates.duration_ms)
+        .bind(&updates.blur_intensity)
+        .bind(&updates.region_x)
+        .bind(&updates.region_y)
+        .bind(&updates.region_width)
+        .bind(&updates.region_height)
+        .bind(&updates.corner_radius)
+        .bind(&updates.blur_inside)
+        .bind(&updates.ease_in_duration_ms)
+        .bind(&updates.ease_out_duration_ms)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoBlurClip>("SELECT * FROM video_blur_clips WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn delete_video_blur_clip(&self, id: &str) -> Result<(), RigidError> {
+        sqlx::query("DELETE FROM video_blur_clips WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Video Pan Clip Methods ============
+
+    pub async fn list_video_pan_clips(&self, track_id: &str) -> Result<Vec<VideoPanClip>, RigidError> {
+        sqlx::query_as::<_, VideoPanClip>("SELECT * FROM video_pan_clips WHERE track_id = ? ORDER BY start_time_ms")
+            .bind(track_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn create_video_pan_clip(&self, new: NewVideoPanClip) -> Result<VideoPanClip, RigidError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO video_pan_clips (id, track_id, name, start_time_ms, duration_ms, start_x, start_y, end_x, end_y, ease_in_duration_ms, ease_out_duration_ms, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.track_id)
+        .bind(&new.name)
+        .bind(new.start_time_ms)
+        .bind(&new.duration_ms)
+        .bind(new.start_x.unwrap_or(50.0))
+        .bind(new.start_y.unwrap_or(50.0))
+        .bind(new.end_x.unwrap_or(50.0))
+        .bind(new.end_y.unwrap_or(50.0))
+        .bind(new.ease_in_duration_ms.unwrap_or(300))
+        .bind(new.ease_out_duration_ms.unwrap_or(300))
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoPanClip>("SELECT * FROM video_pan_clips WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_video_pan_clip(&self, id: &str, updates: UpdateVideoPanClip) -> Result<VideoPanClip, RigidError> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "UPDATE video_pan_clips SET
+                name = COALESCE(?, name),
+                start_time_ms = COALESCE(?, start_time_ms),
+                duration_ms = COALESCE(?, duration_ms),
+                start_x = COALESCE(?, start_x),
+                start_y = COALESCE(?, start_y),
+                end_x = COALESCE(?, end_x),
+                end_y = COALESCE(?, end_y),
+                ease_in_duration_ms = COALESCE(?, ease_in_duration_ms),
+                ease_out_duration_ms = COALESCE(?, ease_out_duration_ms),
+                updated_at = ?
+             WHERE id = ?"
+        )
+        .bind(&updates.name)
+        .bind(&updates.start_time_ms)
+        .bind(&updates.duration_ms)
+        .bind(&updates.start_x)
+        .bind(&updates.start_y)
+        .bind(&updates.end_x)
+        .bind(&updates.end_y)
+        .bind(&updates.ease_in_duration_ms)
+        .bind(&updates.ease_out_duration_ms)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoPanClip>("SELECT * FROM video_pan_clips WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn delete_video_pan_clip(&self, id: &str) -> Result<(), RigidError> {
+        sqlx::query("DELETE FROM video_pan_clips WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============ Video Asset Methods ============
+
+    pub async fn list_video_assets(&self, video_id: &str) -> Result<Vec<VideoAsset>, RigidError> {
+        sqlx::query_as::<_, VideoAsset>("SELECT * FROM video_assets WHERE video_id = ? ORDER BY created_at DESC")
+            .bind(video_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn create_video_asset(&self, new: NewVideoAsset) -> Result<VideoAsset, RigidError> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "INSERT INTO video_assets (id, video_id, name, file_path, asset_type, duration_ms, width, height, thumbnail_path, file_size, has_audio, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&id)
+        .bind(&new.video_id)
+        .bind(&new.name)
+        .bind(&new.file_path)
+        .bind(&new.asset_type)
+        .bind(&new.duration_ms)
+        .bind(&new.width)
+        .bind(&new.height)
+        .bind(&new.thumbnail_path)
+        .bind(&new.file_size)
+        .bind(&new.has_audio)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoAsset>("SELECT * FROM video_assets WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_video_asset(&self, id: &str, updates: UpdateVideoAsset) -> Result<VideoAsset, RigidError> {
+        sqlx::query(
+            "UPDATE video_assets SET
+                name = COALESCE(?, name),
+                thumbnail_path = COALESCE(?, thumbnail_path)
+             WHERE id = ?"
+        )
+        .bind(&updates.name)
+        .bind(&updates.thumbnail_path)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query_as::<_, VideoAsset>("SELECT * FROM video_assets WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn delete_video_asset(&self, id: &str) -> Result<(), RigidError> {
+        sqlx::query("DELETE FROM video_assets WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;

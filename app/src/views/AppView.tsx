@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { ArrowLeft, Plus, Search, Settings, MoreHorizontal, Trash2, Pencil, FileText, CheckCircle, Clock, AlertCircle, X, Command, Compass, BookOpen, Video, Play } from "lucide-react";
-import { useAppsStore, useExplorationsStore, useRouterStore, useArchitectureDocsStore, useDemosStore } from "@/lib/stores";
-import type { NewExploration, NewArchitectureDoc, NewDemo } from "@/lib/tauri/types";
+import { ArrowLeft, Plus, Search, Settings, MoreHorizontal, Trash2, Pencil, FileText, CheckCircle, Clock, AlertCircle, X, Command, Compass, BookOpen, Video, Flag, ChevronDown } from "lucide-react";
+import { useAppsStore, useExplorationsStore, useRouterStore, useArchitectureDocsStore, useDemosStore, useFeaturesStore } from "@/lib/stores";
+import type { NewExploration, NewArchitectureDoc } from "@/lib/tauri/types";
 import { NewDemoDialog } from "@/components/demos/NewDemoDialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -27,6 +27,7 @@ export function AppView({ appId }: AppViewProps) {
   const { items: explorations, loading, loadByApp, create, delete: deleteExploration } = useExplorationsStore();
   const { items: archDocs, loading: archDocsLoading, loadByApp: loadArchDocs, create: createArchDoc, delete: deleteArchDoc } = useArchitectureDocsStore();
   const { items: demos, loading: demosLoading, loadByApp: loadDemos, create: createDemo, delete: deleteDemo } = useDemosStore();
+  const { items: features, loadByApp: loadFeatures } = useFeaturesStore();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -51,10 +52,11 @@ export function AppView({ appId }: AppViewProps) {
       loadByApp(appId);
       loadArchDocs(appId);
       loadDemos(appId);
+      loadFeatures(appId);
       setNewExplorationData((prev) => ({ ...prev, app_id: appId }));
       setNewArchDocData((prev) => ({ ...prev, app_id: appId }));
     }
-  }, [appId, loadByApp, loadArchDocs, loadDemos]);
+  }, [appId, loadByApp, loadArchDocs, loadDemos, loadFeatures]);
 
   useEffect(() => {
     if (showSearchModal && searchInputRef.current) {
@@ -137,7 +139,15 @@ export function AppView({ appId }: AppViewProps) {
   };
 
   const handleDeleteArchDoc = async (id: string) => {
-    if (confirm("Delete this architecture document?")) {
+    const confirmed = await confirm({
+      title: "Delete Architecture Document",
+      description: "Are you sure you want to delete this architecture document? This action cannot be undone.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+
+    if (confirmed) {
       try {
         await deleteArchDoc(id);
         setContextMenuArchDoc(null);
@@ -241,15 +251,39 @@ export function AppView({ appId }: AppViewProps) {
       {/* Main Content */}
       <main className="flex-1 overflow-auto min-h-0 pb-32">
         <div className="max-w-6xl mx-auto px-8 py-16">
-          {/* Title */}
-          <h2 className="text-[var(--text-display-md)] font-bold text-[var(--text-primary)] tracking-tight mb-4">Explorations</h2>
-          <p className="text-[var(--text-body-lg)] text-[var(--text-secondary)] mb-16 max-w-2xl">
-            Each exploration is a focused QA session. Capture screenshots, record your screen, and document bugs as you test.
-          </p>
+          {/* Features Section */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[var(--text-display-md)] font-bold text-[var(--text-primary)] tracking-tight">Features</h2>
+            </div>
+            <p className="text-[var(--text-body-lg)] text-[var(--text-secondary)] mb-8 max-w-2xl">
+              Track features and link them to explorations and annotations for better documentation.
+            </p>
+            <button
+              onClick={() => navigate({ name: 'features-kanban', appId })}
+              className="flex items-center gap-3 px-6 py-4 bg-(--surface-secondary) border border-(--border-default) hover:border-(--border-strong) transition-colors w-full max-w-md"
+            >
+              <Flag className="w-5 h-5 text-[var(--text-tertiary)]" />
+              <div className="flex-1 text-left">
+                <span className="text-[var(--text-body-md)] font-medium text-[var(--text-primary)]">Features Board</span>
+                <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)]">
+                  {features.length === 0 ? 'No features yet' : `${features.length} feature${features.length === 1 ? '' : 's'}`}
+                </p>
+              </div>
+              <ChevronDown className="w-5 h-5 text-[var(--text-tertiary)] rotate-[-90deg]" />
+            </button>
+          </div>
 
-          {loading && explorations.length === 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[1, 2, 3].map((i) => (
+          {/* Explorations Section */}
+          <div className="mt-24">
+            <h2 className="text-[var(--text-display-md)] font-bold text-[var(--text-primary)] tracking-tight mb-4">Explorations</h2>
+            <p className="text-[var(--text-body-lg)] text-[var(--text-secondary)] mb-16 max-w-2xl">
+              Each exploration is a focused QA session. Capture screenshots, record your screen, and document bugs as you test.
+            </p>
+
+            {loading && explorations.length === 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3].map((i) => (
                 <div key={i} className="h-56 bg-[var(--surface-secondary)] border border-[var(--border-default)] animate-pulse" />
               ))}
             </div>
@@ -324,14 +358,15 @@ export function AppView({ appId }: AppViewProps) {
             </div>
           )}
 
-          {/* Empty state */}
-          {!loading && filteredExplorations.length === 0 && searchQuery && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Compass className="w-16 h-16 text-[var(--text-tertiary)] mb-6" />
-              <h2 className="text-[var(--text-heading-md)] font-bold text-[var(--text-primary)] mb-2">No explorations found</h2>
-              <p className="text-[var(--text-body-md)] text-[var(--text-secondary)]">Try adjusting your search</p>
-            </div>
-          )}
+            {/* Empty state */}
+            {!loading && filteredExplorations.length === 0 && searchQuery && (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <Compass className="w-16 h-16 text-[var(--text-tertiary)] mb-6" />
+                <h2 className="text-[var(--text-heading-md)] font-bold text-[var(--text-primary)] mb-2">No explorations found</h2>
+                <p className="text-[var(--text-body-md)] text-[var(--text-secondary)]">Try adjusting your search</p>
+              </div>
+            )}
+          </div>
 
           {/* Architecture Documentation Section */}
           <div className="mt-24">

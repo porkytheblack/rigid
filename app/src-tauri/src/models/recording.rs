@@ -50,6 +50,7 @@ pub struct Annotation {
     pub description: Option<String>,
     pub severity: String,
     pub issue_id: Option<String>,
+    pub feature_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -62,6 +63,7 @@ pub struct NewAnnotation {
     pub description: Option<String>,
     pub severity: Option<String>,
     pub issue_id: Option<String>,
+    pub feature_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,4 +72,5 @@ pub struct UpdateAnnotation {
     pub description: Option<String>,
     pub severity: Option<String>,
     pub issue_id: Option<String>,
+    pub feature_id: Option<String>,
 }

@@ -16,6 +16,7 @@ pub mod documents;
 pub mod diagrams;
 pub mod architecture_docs;
 pub mod demos;
+pub mod features;
 
 // Re-export all commands
 pub use apps::*;
@@ -33,6 +34,7 @@ pub use documents::*;
 pub use diagrams::*;
 pub use architecture_docs::*;
 pub use demos::*;
+pub use features::*;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppInfo {

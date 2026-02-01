@@ -701,15 +701,14 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     setShowCreateVideoModal(true);
   };
 
-  // Create a video record and navigate to the editor
+  // Create a video record under this demo
+  // Videos are independent entities with their own isolated editor state
   const handleVideoCreate = async (name: string, format: DemoFormat, width: number, height: number) => {
     try {
-      // Create the video record in the database
-      const video = await demoVideosApi.create({
-        demo_id: demoId,
+      // Create just the video record - videos have their own editor state, not backed by demos
+      const newVideo = await demoVideosApi.create({
+        demo_id: demoId, // Link video to parent demo for organization
         name: name,
-        file_path: "", // Will be set when exported
-        duration_ms: 0, // Will be updated when exported
         width: width,
         height: height,
         format: format === "youtube" || format === "youtube_4k" ? "mp4" : "mp4",
@@ -717,8 +716,11 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
 
       setShowCreateVideoModal(false);
 
-      // Navigate to the video editor with the video ID
-      navigate({ name: "demo-video-editor", appId, demoId, videoId: video.id });
+      // Reload videos to show the new one
+      loadDemoMedia();
+
+      // Navigate directly to the video editor
+      navigate({ name: "demo-video-editor", appId, demoId, videoId: newVideo.id, parentDemoId: demoId });
     } catch (err) {
       console.error("Failed to create video:", err);
       addToast({
@@ -727,6 +729,21 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
         description: "Could not create the video. Please try again.",
       });
     }
+  };
+
+  // Handle clicking on a video - navigate to its editor
+  // Each video has its own isolated editor state stored directly on the video
+  const handleVideoClick = (videoItem: DemoVideo) => {
+    if (deletingIds.has(videoItem.id)) return;
+
+    // Navigate to the video editor
+    navigate({
+      name: "demo-video-editor",
+      appId,
+      demoId, // Parent demo ID for context
+      videoId: videoItem.id,
+      parentDemoId: demoId // So back navigation returns to parent demo
+    });
   };
 
   // Handle demo edit from modal
@@ -1329,11 +1346,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                       return (
                         <div
                           key={videoItem.id}
-                          onClick={() => {
-                            if (!isDeleting) {
-                              navigate({ name: "demo-video-editor", appId, demoId, videoId: videoItem.id });
-                            }
-                          }}
+                          onClick={() => handleVideoClick(videoItem)}
                           className={`group relative aspect-video bg-[var(--surface-secondary)] border border-[var(--border-default)] overflow-hidden transition-all ${
                             isDeleting
                               ? "opacity-50 cursor-wait"
@@ -1369,7 +1382,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                navigate({ name: "demo-video-editor", appId, demoId, videoId: videoItem.id });
+                                handleVideoClick(videoItem);
                               }}
                               className="p-1.5 bg-black/50 text-white hover:bg-black/70"
                               title="Edit video"

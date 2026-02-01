@@ -79,7 +79,7 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: var(--font-semibold);
   letter-spacing: var(--tracking-tight);
   line-height: var(--leading-heading);
-  margin: 0;
+  margin: 0 !important;
   margin-bottom: 0.75em;
 }
 

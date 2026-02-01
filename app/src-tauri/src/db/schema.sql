@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS screenshot_markers (
     position_x REAL NOT NULL,
     position_y REAL NOT NULL,
     issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
+    feature_id TEXT REFERENCES features(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -167,6 +168,7 @@ CREATE TABLE IF NOT EXISTS annotations (
     description TEXT,
     severity TEXT NOT NULL DEFAULT 'info',
     issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
+    feature_id TEXT REFERENCES features(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -561,16 +563,18 @@ CREATE INDEX IF NOT EXISTS idx_demo_recordings_recording ON demo_recordings(reco
 CREATE INDEX IF NOT EXISTS idx_demo_screenshots_demo ON demo_screenshots(demo_id);
 CREATE INDEX IF NOT EXISTS idx_demo_screenshots_screenshot ON demo_screenshots(screenshot_id);
 
--- Demo videos (exported video outputs for a demo)
+-- Demo videos (video projects within a demo, each with its own editor state)
+-- Videos are independent entities under demos with their own isolated editor state
 CREATE TABLE IF NOT EXISTS demo_videos (
     id TEXT PRIMARY KEY,
     demo_id TEXT NOT NULL REFERENCES demos(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     file_path TEXT NOT NULL,
     thumbnail_path TEXT,
-    duration_ms INTEGER NOT NULL,
-    width INTEGER NOT NULL,
-    height INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    width INTEGER NOT NULL DEFAULT 1920,
+    height INTEGER NOT NULL DEFAULT 1080,
+    frame_rate INTEGER NOT NULL DEFAULT 60,
     file_size INTEGER,
     format TEXT NOT NULL DEFAULT 'mp4', -- mp4, webm, etc.
     created_at TEXT NOT NULL,
@@ -579,3 +583,195 @@ CREATE TABLE IF NOT EXISTS demo_videos (
 
 CREATE INDEX IF NOT EXISTS idx_demo_videos_demo ON demo_videos(demo_id);
 CREATE INDEX IF NOT EXISTS idx_demo_videos_created ON demo_videos(created_at DESC);
+
+-- =============================================================================
+-- Video Editor State Tables (isolated per-video editor state)
+-- These mirror the demo editor tables but are keyed to video_id
+-- =============================================================================
+
+-- Video backgrounds (canvas background configuration per video)
+CREATE TABLE IF NOT EXISTS video_backgrounds (
+    id TEXT PRIMARY KEY,
+    video_id TEXT NOT NULL REFERENCES demo_videos(id) ON DELETE CASCADE,
+    background_type TEXT NOT NULL DEFAULT 'solid', -- solid, gradient, pattern, image, video, blur
+    color TEXT,
+    gradient_stops TEXT,
+    gradient_direction TEXT,
+    gradient_angle REAL,
+    pattern_type TEXT,
+    pattern_color TEXT,
+    pattern_scale REAL,
+    media_path TEXT,
+    media_scale REAL,
+    media_position_x REAL,
+    media_position_y REAL,
+    image_url TEXT,
+    image_attribution TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Video tracks (timeline tracks per video)
+CREATE TABLE IF NOT EXISTS video_tracks (
+    id TEXT PRIMARY KEY,
+    video_id TEXT NOT NULL REFERENCES demo_videos(id) ON DELETE CASCADE,
+    track_type TEXT NOT NULL, -- video, image, audio, zoom, blur, pan
+    name TEXT NOT NULL,
+    locked INTEGER NOT NULL DEFAULT 0,
+    visible INTEGER NOT NULL DEFAULT 1,
+    muted INTEGER NOT NULL DEFAULT 0,
+    volume REAL NOT NULL DEFAULT 1.0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    target_track_id TEXT REFERENCES video_tracks(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Video clips (media clips on tracks per video)
+CREATE TABLE IF NOT EXISTS video_clips (
+    id TEXT PRIMARY KEY,
+    track_id TEXT NOT NULL REFERENCES video_tracks(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    source_type TEXT NOT NULL, -- video, image, audio
+    source_duration_ms INTEGER,
+    start_time_ms INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL,
+    in_point_ms INTEGER NOT NULL DEFAULT 0,
+    out_point_ms INTEGER,
+    position_x REAL,
+    position_y REAL,
+    scale REAL,
+    rotation REAL,
+    crop_top REAL,
+    crop_bottom REAL,
+    crop_left REAL,
+    crop_right REAL,
+    corner_radius REAL,
+    opacity REAL,
+    shadow_enabled INTEGER NOT NULL DEFAULT 0,
+    shadow_blur REAL,
+    shadow_offset_x REAL,
+    shadow_offset_y REAL,
+    shadow_color TEXT,
+    shadow_opacity REAL,
+    border_enabled INTEGER NOT NULL DEFAULT 0,
+    border_width REAL,
+    border_color TEXT,
+    volume REAL NOT NULL DEFAULT 1.0,
+    muted INTEGER NOT NULL DEFAULT 0,
+    speed REAL NOT NULL DEFAULT 1.0,
+    freeze_frame INTEGER NOT NULL DEFAULT 0,
+    freeze_frame_time_ms INTEGER,
+    transition_in_type TEXT,
+    transition_in_duration_ms INTEGER,
+    transition_out_type TEXT,
+    transition_out_duration_ms INTEGER,
+    audio_fade_in_ms INTEGER,
+    audio_fade_out_ms INTEGER,
+    linked_clip_id TEXT REFERENCES video_clips(id) ON DELETE SET NULL,
+    has_audio INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Video zoom clips (zoom effect clips per video)
+CREATE TABLE IF NOT EXISTS video_zoom_clips (
+    id TEXT PRIMARY KEY,
+    track_id TEXT NOT NULL REFERENCES video_tracks(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    start_time_ms INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL,
+    zoom_scale REAL NOT NULL DEFAULT 1.5,
+    zoom_center_x REAL NOT NULL DEFAULT 50.0,
+    zoom_center_y REAL NOT NULL DEFAULT 50.0,
+    ease_in_duration_ms INTEGER NOT NULL DEFAULT 300,
+    ease_out_duration_ms INTEGER NOT NULL DEFAULT 300,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Video blur clips (blur effect clips per video)
+CREATE TABLE IF NOT EXISTS video_blur_clips (
+    id TEXT PRIMARY KEY,
+    track_id TEXT NOT NULL REFERENCES video_tracks(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    start_time_ms INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL,
+    blur_intensity REAL NOT NULL DEFAULT 20.0,
+    region_x REAL NOT NULL DEFAULT 50.0,
+    region_y REAL NOT NULL DEFAULT 50.0,
+    region_width REAL NOT NULL DEFAULT 30.0,
+    region_height REAL NOT NULL DEFAULT 30.0,
+    corner_radius REAL NOT NULL DEFAULT 0.0,
+    blur_inside INTEGER NOT NULL DEFAULT 1,
+    ease_in_duration_ms INTEGER NOT NULL DEFAULT 0,
+    ease_out_duration_ms INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Video pan clips (pan/move effect clips per video)
+CREATE TABLE IF NOT EXISTS video_pan_clips (
+    id TEXT PRIMARY KEY,
+    track_id TEXT NOT NULL REFERENCES video_tracks(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    start_time_ms INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL,
+    start_x REAL NOT NULL DEFAULT 50.0,
+    start_y REAL NOT NULL DEFAULT 50.0,
+    end_x REAL NOT NULL DEFAULT 50.0,
+    end_y REAL NOT NULL DEFAULT 50.0,
+    ease_in_duration_ms INTEGER NOT NULL DEFAULT 300,
+    ease_out_duration_ms INTEGER NOT NULL DEFAULT 300,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Video assets (imported media files per video)
+CREATE TABLE IF NOT EXISTS video_assets (
+    id TEXT PRIMARY KEY,
+    video_id TEXT NOT NULL REFERENCES demo_videos(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    asset_type TEXT NOT NULL, -- video, image, audio
+    duration_ms INTEGER,
+    width INTEGER,
+    height INTEGER,
+    thumbnail_path TEXT,
+    file_size INTEGER,
+    has_audio INTEGER,
+    created_at TEXT NOT NULL
+);
+
+-- Video editor indexes
+CREATE INDEX IF NOT EXISTS idx_video_backgrounds_video ON video_backgrounds(video_id);
+CREATE INDEX IF NOT EXISTS idx_video_tracks_video ON video_tracks(video_id);
+CREATE INDEX IF NOT EXISTS idx_video_tracks_sort ON video_tracks(sort_order);
+CREATE INDEX IF NOT EXISTS idx_video_clips_track ON video_clips(track_id);
+CREATE INDEX IF NOT EXISTS idx_video_clips_start ON video_clips(start_time_ms);
+CREATE INDEX IF NOT EXISTS idx_video_zoom_clips_track ON video_zoom_clips(track_id);
+CREATE INDEX IF NOT EXISTS idx_video_blur_clips_track ON video_blur_clips(track_id);
+CREATE INDEX IF NOT EXISTS idx_video_pan_clips_track ON video_pan_clips(track_id);
+CREATE INDEX IF NOT EXISTS idx_video_assets_video ON video_assets(video_id);
+
+-- =============================================================================
+-- Features (app-wide primitives for documentation and annotations)
+-- =============================================================================
+
+-- Features (app-level feature tracking)
+CREATE TABLE IF NOT EXISTS features (
+    id TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'planned', -- planned, in_progress, completed, deprecated
+    priority TEXT NOT NULL DEFAULT 'medium', -- low, medium, high, critical
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_features_app ON features(app_id);
+CREATE INDEX IF NOT EXISTS idx_features_status ON features(status);
+CREATE INDEX IF NOT EXISTS idx_features_sort ON features(sort_order);

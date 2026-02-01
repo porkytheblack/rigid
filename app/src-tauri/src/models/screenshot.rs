@@ -79,6 +79,7 @@ pub struct ScreenshotMarker {
     pub position_x: f64,
     pub position_y: f64,
     pub issue_id: Option<String>,
+    pub feature_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -92,6 +93,7 @@ pub struct NewScreenshotMarker {
     pub position_x: f64,
     pub position_y: f64,
     pub issue_id: Option<String>,
+    pub feature_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,4 +104,5 @@ pub struct UpdateScreenshotMarker {
     pub position_x: Option<f64>,
     pub position_y: Option<f64>,
     pub issue_id: Option<String>,
+    pub feature_id: Option<String>,
 }

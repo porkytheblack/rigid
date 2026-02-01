@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Plus, Trash2, Flag, MessageSquare, AlertTriangle, CheckCircle, Pencil, X, Scissors, GripVertical, ZoomIn, ZoomOut } from "lucide-react";
-import { useRecordingsStore, useRouterStore } from "@/lib/stores";
+import { useRecordingsStore, useRouterStore, useFeaturesStore } from "@/lib/stores";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { annotations as annotationsApi } from "@/lib/tauri/commands";
 import type { AnnotationSeverity } from "@/lib/tauri/types";
@@ -14,6 +14,7 @@ interface VideoAnnotation {
   title: string;
   description: string;
   severity: AnnotationSeverity;
+  feature_id: string | null;
 }
 
 interface TrimRange {
@@ -37,8 +38,16 @@ const severityConfig: Record<AnnotationSeverity, { icon: typeof Flag; color: str
 
 export function VideoEditorView({ appId, explorationId, recordingId, initialTimestamp }: VideoEditorViewProps) {
   const { navigate } = useRouterStore();
-  const { items: recordings, update } = useRecordingsStore();
+  const { items: recordings, update, loadByExploration } = useRecordingsStore();
+  const { items: features, loadByApp: loadFeatures } = useFeaturesStore();
   const recording = recordings.find(r => r.id === recordingId);
+
+  // Load recordings for this exploration if not already loaded
+  useEffect(() => {
+    if (explorationId && !recording) {
+      loadByExploration(explorationId);
+    }
+  }, [explorationId, recording, loadByExploration]);
 
   // Navigate back to exploration view with recordings tab
   const goBackToRecordings = useCallback(() => {
@@ -63,6 +72,7 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
     severity: "info",
     title: "",
     description: "",
+    feature_id: null,
   });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -116,6 +126,7 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
           title: a.title,
           description: a.description || "",
           severity: a.severity || "info",
+          feature_id: a.feature_id || null,
         }));
         setAnnotations(videoAnnotations);
       } catch (e) {
@@ -125,6 +136,13 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
 
     loadAnnotations();
   }, [recordingId]);
+
+  // Load features for this app
+  useEffect(() => {
+    if (appId) {
+      loadFeatures(appId);
+    }
+  }, [appId, loadFeatures]);
 
   // Update edited title when recording changes
   useEffect(() => {
@@ -355,6 +373,7 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
         title: newAnnotation.title,
         description: newAnnotation.description || null,
         severity: newAnnotation.severity || "info",
+        feature_id: newAnnotation.feature_id || null,
       });
 
       // Convert to local format and add to state
@@ -364,11 +383,12 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
         title: created.title,
         description: created.description || "",
         severity: created.severity || "info",
+        feature_id: created.feature_id || null,
       };
 
       setAnnotations((prev) => [...prev, annotation].sort((a, b) => a.timestamp_ms - b.timestamp_ms));
       setShowAddModal(false);
-      setNewAnnotation({ severity: "info", title: "", description: "" });
+      setNewAnnotation({ severity: "info", title: "", description: "", feature_id: null });
     } catch (err) {
       console.error("Failed to create annotation:", err);
       showToast("Failed to create annotation");
@@ -387,6 +407,7 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
         title: editingAnnotation.title,
         description: editingAnnotation.description || null,
         severity: editingAnnotation.severity,
+        feature_id: editingAnnotation.feature_id,
       });
 
       // Update local state
@@ -942,6 +963,15 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
                         {ann.description && (
                           <p className="text-[var(--text-caption)] text-[var(--text-secondary)] mt-2 line-clamp-2">{ann.description}</p>
                         )}
+                        {ann.feature_id && (() => {
+                          const linkedFeature = features.find(f => f.id === ann.feature_id);
+                          return linkedFeature ? (
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <Flag className="w-3 h-3 text-[var(--text-tertiary)]" />
+                              <span className="text-[var(--text-caption)] text-[var(--accent-interactive)]">{linkedFeature.name}</span>
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                     );
                   })}
@@ -1015,6 +1045,26 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
                   className="w-full px-3 py-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-[var(--text-primary)]"
                 />
               </div>
+
+              {features.length > 0 && (
+                <div>
+                  <label className="block text-[var(--text-caption)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">
+                    Feature <span className="text-[var(--text-tertiary)] normal-case">(optional)</span>
+                  </label>
+                  <select
+                    value={newAnnotation.feature_id || ""}
+                    onChange={(e) => setNewAnnotation((prev) => ({ ...prev, feature_id: e.target.value || null }))}
+                    className="w-full h-10 px-3 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--text-primary)]"
+                  >
+                    <option value="">No feature linked</option>
+                    {features.map((feature) => (
+                      <option key={feature.id} value={feature.id}>
+                        {feature.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 p-4 border-t border-[var(--border-default)]">
@@ -1088,6 +1138,26 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
                   className="w-full px-3 py-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-[var(--text-primary)]"
                 />
               </div>
+
+              {features.length > 0 && (
+                <div>
+                  <label className="block text-[var(--text-caption)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">
+                    Feature <span className="text-[var(--text-tertiary)] normal-case">(optional)</span>
+                  </label>
+                  <select
+                    value={editingAnnotation.feature_id || ""}
+                    onChange={(e) => setEditingAnnotation((prev) => prev ? { ...prev, feature_id: e.target.value || null } : null)}
+                    className="w-full h-10 px-3 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--text-primary)]"
+                  >
+                    <option value="">No feature linked</option>
+                    {features.map((feature) => (
+                      <option key={feature.id} value={feature.id}>
+                        {feature.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 p-4 border-t border-[var(--border-default)]">

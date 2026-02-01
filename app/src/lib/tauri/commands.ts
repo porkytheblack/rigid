@@ -1361,10 +1361,90 @@ export const demoVideos = {
   delete: async (id: string) => await invoke<void>('demo_videos_delete', { id }),
 };
 
+// Video Editor State Commands
+import type {
+  VideoWithData,
+  VideoBackground, NewVideoBackground, UpdateVideoBackground,
+  VideoTrack, NewVideoTrack, UpdateVideoTrack,
+  VideoClip, NewVideoClip, UpdateVideoClip,
+  VideoZoomClip, NewVideoZoomClip, UpdateVideoZoomClip,
+  VideoBlurClip, NewVideoBlurClip, UpdateVideoBlurClip,
+  VideoPanClip, NewVideoPanClip, UpdateVideoPanClip,
+  VideoAsset, NewVideoAsset, UpdateVideoAsset,
+} from './types';
+
+export const videoEditor = {
+  getWithData: async (videoId: string) => await invoke<VideoWithData>('video_editor_get_with_data', { videoId }),
+};
+
+export const videoBackgrounds = {
+  get: async (videoId: string) => await invoke<VideoBackground | null>('video_backgrounds_get', { videoId }),
+  create: async (data: NewVideoBackground) => await invoke<VideoBackground>('video_backgrounds_create', { data }),
+  update: async (id: string, updates: UpdateVideoBackground) => await invoke<VideoBackground>('video_backgrounds_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('video_backgrounds_delete', { id }),
+};
+
+export const videoTracks = {
+  list: async (videoId: string) => await invoke<VideoTrack[]>('video_tracks_list', { videoId }),
+  create: async (data: NewVideoTrack) => await invoke<VideoTrack>('video_tracks_create', { data }),
+  update: async (id: string, updates: UpdateVideoTrack) => await invoke<VideoTrack>('video_tracks_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('video_tracks_delete', { id }),
+  reorder: async (videoId: string, trackIds: string[]) => await invoke<void>('video_tracks_reorder', { videoId, trackIds }),
+};
+
+export const videoClips = {
+  list: async (trackId: string) => await invoke<VideoClip[]>('video_clips_list', { trackId }),
+  get: async (id: string) => await invoke<VideoClip>('video_clips_get', { id }),
+  create: async (data: NewVideoClip) => await invoke<VideoClip>('video_clips_create', { data }),
+  update: async (id: string, updates: UpdateVideoClip) => await invoke<VideoClip>('video_clips_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('video_clips_delete', { id }),
+};
+
+export const videoZoomClips = {
+  list: async (trackId: string) => await invoke<VideoZoomClip[]>('video_zoom_clips_list', { trackId }),
+  create: async (data: NewVideoZoomClip) => await invoke<VideoZoomClip>('video_zoom_clips_create', { data }),
+  update: async (id: string, updates: UpdateVideoZoomClip) => await invoke<VideoZoomClip>('video_zoom_clips_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('video_zoom_clips_delete', { id }),
+};
+
+export const videoBlurClips = {
+  list: async (trackId: string) => await invoke<VideoBlurClip[]>('video_blur_clips_list', { trackId }),
+  create: async (data: NewVideoBlurClip) => await invoke<VideoBlurClip>('video_blur_clips_create', { data }),
+  update: async (id: string, updates: UpdateVideoBlurClip) => await invoke<VideoBlurClip>('video_blur_clips_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('video_blur_clips_delete', { id }),
+};
+
+export const videoPanClips = {
+  list: async (trackId: string) => await invoke<VideoPanClip[]>('video_pan_clips_list', { trackId }),
+  create: async (data: NewVideoPanClip) => await invoke<VideoPanClip>('video_pan_clips_create', { data }),
+  update: async (id: string, updates: UpdateVideoPanClip) => await invoke<VideoPanClip>('video_pan_clips_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('video_pan_clips_delete', { id }),
+};
+
+export const videoAssets = {
+  list: async (videoId: string) => await invoke<VideoAsset[]>('video_assets_list', { videoId }),
+  create: async (data: NewVideoAsset) => await invoke<VideoAsset>('video_assets_create', { data }),
+  update: async (id: string, updates: UpdateVideoAsset) => await invoke<VideoAsset>('video_assets_update', { id, updates }),
+  delete: async (id: string) => await invoke<void>('video_assets_delete', { id }),
+};
+
 export const demoExport = {
   start: async (demoId: string, config: DemoExportConfig) => await invoke<string>('demo_export_start', { demoId, config }),
   progress: async (exportId: string) => await invoke<{ progress: number; status: string }>('demo_export_progress', { exportId }),
   cancel: async (exportId: string) => await invoke<void>('demo_export_cancel', { exportId }),
+};
+
+// Feature commands
+import type { Feature, NewFeature, UpdateFeature, FeatureFilter } from './types';
+
+export const features = {
+  create: async (newFeature: NewFeature) => await invoke<Feature>('create_feature', { newFeature }),
+  get: async (id: string) => await invoke<Feature>('get_feature', { id }),
+  list: async (filter: FeatureFilter) => await invoke<Feature[]>('list_features', { filter }),
+  listByApp: async (appId: string) => await invoke<Feature[]>('list_features_by_app', { appId }),
+  update: async (id: string, updates: UpdateFeature) => await invoke<Feature>('update_feature', { id, updates }),
+  delete: async (id: string) => await invoke<void>('delete_feature', { id }),
+  reorder: async (appId: string, featureIds: string[]) => await invoke<void>('reorder_features', { appId, featureIds }),
 };
 
 // Re-export types for convenience
@@ -1398,4 +1478,10 @@ export type {
   DemoVideo,
   NewDemoVideo,
   UpdateDemoVideo,
+  Feature,
+  NewFeature,
+  UpdateFeature,
+  FeatureFilter,
+  FeatureStatus,
+  FeaturePriority,
 } from './types';

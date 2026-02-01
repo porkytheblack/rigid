@@ -20,6 +20,9 @@ import type {
   DemoPanClip,
   NewDemoPanClip,
   DemoFormat,
+  DemoBackgroundType,
+  DemoTrackType,
+  GradientDirection,
 } from '@/lib/tauri/types';
 import { DEMO_FORMAT_DIMENSIONS } from '@/lib/tauri/types';
 import {
@@ -31,6 +34,14 @@ import {
   demoBlurClips as demoBlurClipsApi,
   demoPanClips as demoPanClipsApi,
   demoAssets as demoAssetsApi,
+  videoEditor as videoEditorApi,
+  videoBackgrounds as videoBackgroundsApi,
+  videoTracks as videoTracksApi,
+  videoClips as videoClipsApi,
+  videoZoomClips as videoZoomClipsApi,
+  videoBlurClips as videoBlurClipsApi,
+  videoPanClips as videoPanClipsApi,
+  videoAssets as videoAssetsApi,
 } from '@/lib/tauri/commands';
 
 // =============================================================================
@@ -95,6 +106,9 @@ interface DemosState {
   currentDemo: DemoWithData | null;
   selectedDemoId: string | null;
 
+  // Video editing mode - when set, we're editing a video not a demo
+  currentVideoId: string | null;
+
   // Editor state
   playback: PlaybackState;
   canvas: CanvasState;
@@ -112,6 +126,7 @@ interface DemosActions {
   // Demo CRUD
   loadByApp: (appId: string) => Promise<void>;
   loadDemo: (id: string) => Promise<DemoWithData>;
+  loadVideo: (videoId: string) => Promise<DemoWithData>;
   select: (id: string | null) => void;
   create: (data: NewDemo) => Promise<Demo>;
   update: (id: string, updates: UpdateDemo) => Promise<Demo>;
@@ -119,6 +134,10 @@ interface DemosActions {
   getById: (id: string) => Demo | undefined;
   clearError: () => void;
   clearCurrentDemo: () => void;
+
+  // Video editing mode
+  isEditingVideo: () => boolean;
+  getCurrentVideoId: () => string | null;
 
   // Save/persist operations
   saveDemo: () => Promise<void>;
@@ -213,6 +232,433 @@ const generateId = (): string => {
   );
 };
 
+// =============================================================================
+// Save Helper Functions
+// =============================================================================
+
+// Helper to save demo state to demo tables
+async function saveDemoState(currentDemo: DemoWithData, pendingDeletions: PendingDeletions): Promise<void> {
+  // Save the demo itself
+  await demosApi.update(currentDemo.demo.id, {
+    name: currentDemo.demo.name,
+    format: currentDemo.demo.format,
+    width: currentDemo.demo.width,
+    height: currentDemo.demo.height,
+    frame_rate: currentDemo.demo.frame_rate,
+    duration_ms: currentDemo.demo.duration_ms,
+  });
+
+  // Process pending deletions first
+  // First, clear linked_clip_id references to avoid FK constraint failures
+  if (pendingDeletions.clips.length > 0) {
+    for (const clip of currentDemo.clips) {
+      if (clip.linked_clip_id && pendingDeletions.clips.includes(clip.linked_clip_id)) {
+        try {
+          await demoClipsApi.update(clip.id, { linked_clip_id: null });
+        } catch {
+          // Ignore - clip might not exist in DB
+        }
+      }
+    }
+    for (const clipId of pendingDeletions.clips) {
+      try {
+        await demoClipsApi.update(clipId, { linked_clip_id: null });
+      } catch {
+        // Ignore - clip might not exist in DB
+      }
+    }
+  }
+
+  // Delete clips
+  for (const clipId of pendingDeletions.clips) {
+    try { await demoClipsApi.delete(clipId); } catch { /* Ignore */ }
+  }
+  // Delete zoom clips
+  for (const zoomClipId of pendingDeletions.zoomClips) {
+    try { await demoZoomClipsApi.delete(zoomClipId); } catch { /* Ignore */ }
+  }
+  // Delete blur clips
+  for (const blurClipId of pendingDeletions.blurClips) {
+    try { await demoBlurClipsApi.delete(blurClipId); } catch { /* Ignore */ }
+  }
+  // Delete pan clips
+  for (const panClipId of pendingDeletions.panClips) {
+    try { await demoPanClipsApi.delete(panClipId); } catch { /* Ignore */ }
+  }
+  // Delete assets
+  for (const assetId of pendingDeletions.assets) {
+    try { await demoAssetsApi.delete(assetId); } catch { /* Ignore */ }
+  }
+  // Delete tracks last
+  for (const trackId of pendingDeletions.tracks) {
+    try { await demoTracksApi.delete(trackId); } catch { /* Ignore */ }
+  }
+
+  // Save background if exists
+  if (currentDemo.background) {
+    const backgroundData = {
+      background_type: currentDemo.background.background_type,
+      color: currentDemo.background.color,
+      gradient_stops: currentDemo.background.gradient_stops,
+      gradient_direction: currentDemo.background.gradient_direction,
+      gradient_angle: currentDemo.background.gradient_angle,
+      pattern_type: currentDemo.background.pattern_type,
+      pattern_color: currentDemo.background.pattern_color,
+      pattern_scale: currentDemo.background.pattern_scale,
+      media_path: currentDemo.background.media_path,
+      media_scale: currentDemo.background.media_scale,
+      media_position_x: currentDemo.background.media_position_x,
+      media_position_y: currentDemo.background.media_position_y,
+      image_url: currentDemo.background.image_url,
+      image_attribution: currentDemo.background.image_attribution,
+    };
+    try {
+      await demoBackgroundsApi.update(currentDemo.background.id, backgroundData);
+    } catch {
+      await demoBackgroundsApi.create({ demo_id: currentDemo.demo.id, ...backgroundData });
+    }
+  }
+
+  // Save tracks
+  for (const track of currentDemo.tracks) {
+    try {
+      await demoTracksApi.update(track.id, {
+        name: track.name, locked: track.locked, visible: track.visible,
+        muted: track.muted, volume: track.volume, sort_order: track.sort_order,
+        target_track_id: track.target_track_id,
+      });
+    } catch {
+      await demoTracksApi.create({
+        id: track.id, demo_id: currentDemo.demo.id, track_type: track.track_type,
+        name: track.name, sort_order: track.sort_order, target_track_id: track.target_track_id,
+      });
+    }
+  }
+
+  // Save clips - first pass without linked_clip_id
+  const clipsWithLinks: Array<{ id: string; linked_clip_id: string }> = [];
+  for (const clip of currentDemo.clips) {
+    if (clip.linked_clip_id) {
+      clipsWithLinks.push({ id: clip.id, linked_clip_id: clip.linked_clip_id });
+    }
+    try {
+      await demoClipsApi.update(clip.id, {
+        name: clip.name, start_time_ms: clip.start_time_ms, duration_ms: clip.duration_ms,
+        in_point_ms: clip.in_point_ms, out_point_ms: clip.out_point_ms,
+        position_x: clip.position_x, position_y: clip.position_y, scale: clip.scale,
+        opacity: clip.opacity, speed: clip.speed, corner_radius: clip.corner_radius,
+        shadow_enabled: clip.shadow_enabled, shadow_blur: clip.shadow_blur,
+        shadow_opacity: clip.shadow_opacity, shadow_offset_x: clip.shadow_offset_x,
+        shadow_offset_y: clip.shadow_offset_y, crop_top: clip.crop_top, crop_bottom: clip.crop_bottom,
+        crop_left: clip.crop_left, crop_right: clip.crop_right, freeze_frame: clip.freeze_frame,
+        freeze_frame_time_ms: clip.freeze_frame_time_ms, transition_in_type: clip.transition_in_type,
+        transition_in_duration_ms: clip.transition_in_duration_ms, transition_out_type: clip.transition_out_type,
+        transition_out_duration_ms: clip.transition_out_duration_ms, audio_fade_in_ms: clip.audio_fade_in_ms,
+        audio_fade_out_ms: clip.audio_fade_out_ms, muted: clip.muted,
+      });
+    } catch {
+      await demoClipsApi.create({
+        id: clip.id, track_id: clip.track_id, name: clip.name, source_path: clip.source_path,
+        source_type: clip.source_type, start_time_ms: clip.start_time_ms, duration_ms: clip.duration_ms,
+        in_point_ms: clip.in_point_ms, position_x: clip.position_x, position_y: clip.position_y,
+        scale: clip.scale, speed: clip.speed, has_audio: clip.has_audio, muted: clip.muted,
+      });
+    }
+  }
+  // Second pass: update linked_clip_id
+  for (const { id, linked_clip_id } of clipsWithLinks) {
+    try { await demoClipsApi.update(id, { linked_clip_id }); } catch { /* Ignore */ }
+  }
+
+  // Save zoom clips
+  for (const zoomClip of currentDemo.zoomClips) {
+    try {
+      await demoZoomClipsApi.update(zoomClip.id, {
+        name: zoomClip.name, start_time_ms: zoomClip.start_time_ms, duration_ms: zoomClip.duration_ms,
+        zoom_scale: zoomClip.zoom_scale, zoom_center_x: zoomClip.zoom_center_x,
+        zoom_center_y: zoomClip.zoom_center_y, ease_in_duration_ms: zoomClip.ease_in_duration_ms,
+        ease_out_duration_ms: zoomClip.ease_out_duration_ms,
+      });
+    } catch {
+      await demoZoomClipsApi.create({
+        id: zoomClip.id, track_id: zoomClip.track_id, name: zoomClip.name,
+        start_time_ms: zoomClip.start_time_ms, duration_ms: zoomClip.duration_ms,
+        zoom_scale: zoomClip.zoom_scale, zoom_center_x: zoomClip.zoom_center_x,
+        zoom_center_y: zoomClip.zoom_center_y, ease_in_duration_ms: zoomClip.ease_in_duration_ms,
+        ease_out_duration_ms: zoomClip.ease_out_duration_ms,
+      });
+    }
+  }
+
+  // Save blur clips
+  for (const blurClip of currentDemo.blurClips) {
+    try {
+      await demoBlurClipsApi.update(blurClip.id, {
+        name: blurClip.name, start_time_ms: blurClip.start_time_ms, duration_ms: blurClip.duration_ms,
+        blur_intensity: blurClip.blur_intensity, region_x: blurClip.region_x, region_y: blurClip.region_y,
+        region_width: blurClip.region_width, region_height: blurClip.region_height,
+        corner_radius: blurClip.corner_radius, blur_inside: blurClip.blur_inside,
+        ease_in_duration_ms: blurClip.ease_in_duration_ms, ease_out_duration_ms: blurClip.ease_out_duration_ms,
+      });
+    } catch {
+      await demoBlurClipsApi.create({
+        id: blurClip.id, track_id: blurClip.track_id, name: blurClip.name,
+        start_time_ms: blurClip.start_time_ms, duration_ms: blurClip.duration_ms,
+        blur_intensity: blurClip.blur_intensity, region_x: blurClip.region_x, region_y: blurClip.region_y,
+        region_width: blurClip.region_width, region_height: blurClip.region_height,
+        corner_radius: blurClip.corner_radius, blur_inside: blurClip.blur_inside,
+        ease_in_duration_ms: blurClip.ease_in_duration_ms, ease_out_duration_ms: blurClip.ease_out_duration_ms,
+      });
+    }
+  }
+
+  // Save pan clips
+  for (const panClip of currentDemo.panClips) {
+    try {
+      await demoPanClipsApi.update(panClip.id, {
+        name: panClip.name, start_time_ms: panClip.start_time_ms, duration_ms: panClip.duration_ms,
+        start_x: panClip.start_x, start_y: panClip.start_y, end_x: panClip.end_x, end_y: panClip.end_y,
+        ease_in_duration_ms: panClip.ease_in_duration_ms, ease_out_duration_ms: panClip.ease_out_duration_ms,
+      });
+    } catch {
+      await demoPanClipsApi.create({
+        id: panClip.id, track_id: panClip.track_id, name: panClip.name,
+        start_time_ms: panClip.start_time_ms, duration_ms: panClip.duration_ms,
+        start_x: panClip.start_x, start_y: panClip.start_y, end_x: panClip.end_x, end_y: panClip.end_y,
+        ease_in_duration_ms: panClip.ease_in_duration_ms, ease_out_duration_ms: panClip.ease_out_duration_ms,
+      });
+    }
+  }
+
+  // Save assets
+  for (const asset of currentDemo.assets) {
+    try {
+      await demoAssetsApi.update(asset.id, { name: asset.name, thumbnail_path: asset.thumbnail_path });
+    } catch {
+      await demoAssetsApi.create({
+        id: asset.id, demo_id: currentDemo.demo.id, name: asset.name, file_path: asset.file_path,
+        asset_type: asset.asset_type, duration_ms: asset.duration_ms, width: asset.width,
+        height: asset.height, thumbnail_path: asset.thumbnail_path, file_size: asset.file_size,
+        has_audio: asset.has_audio,
+      });
+    }
+  }
+}
+
+// Helper to save video editor state to video-specific tables
+async function saveVideoState(videoId: string, currentDemo: DemoWithData, pendingDeletions: PendingDeletions): Promise<void> {
+  // Process pending deletions first
+  // First, clear linked_clip_id references to avoid FK constraint failures
+  if (pendingDeletions.clips.length > 0) {
+    for (const clip of currentDemo.clips) {
+      if (clip.linked_clip_id && pendingDeletions.clips.includes(clip.linked_clip_id)) {
+        try {
+          await videoClipsApi.update(clip.id, { linked_clip_id: null });
+        } catch {
+          // Ignore - clip might not exist in DB
+        }
+      }
+    }
+    for (const clipId of pendingDeletions.clips) {
+      try {
+        await videoClipsApi.update(clipId, { linked_clip_id: null });
+      } catch {
+        // Ignore - clip might not exist in DB
+      }
+    }
+  }
+
+  // Delete clips
+  for (const clipId of pendingDeletions.clips) {
+    try { await videoClipsApi.delete(clipId); } catch { /* Ignore */ }
+  }
+  // Delete zoom clips
+  for (const zoomClipId of pendingDeletions.zoomClips) {
+    try { await videoZoomClipsApi.delete(zoomClipId); } catch { /* Ignore */ }
+  }
+  // Delete blur clips
+  for (const blurClipId of pendingDeletions.blurClips) {
+    try { await videoBlurClipsApi.delete(blurClipId); } catch { /* Ignore */ }
+  }
+  // Delete pan clips
+  for (const panClipId of pendingDeletions.panClips) {
+    try { await videoPanClipsApi.delete(panClipId); } catch { /* Ignore */ }
+  }
+  // Delete assets
+  for (const assetId of pendingDeletions.assets) {
+    try { await videoAssetsApi.delete(assetId); } catch { /* Ignore */ }
+  }
+  // Delete tracks last
+  for (const trackId of pendingDeletions.tracks) {
+    try { await videoTracksApi.delete(trackId); } catch { /* Ignore */ }
+  }
+
+  // Save background if exists
+  if (currentDemo.background) {
+    const backgroundData = {
+      background_type: currentDemo.background.background_type,
+      color: currentDemo.background.color,
+      gradient_stops: currentDemo.background.gradient_stops,
+      gradient_direction: currentDemo.background.gradient_direction,
+      gradient_angle: currentDemo.background.gradient_angle,
+      pattern_type: currentDemo.background.pattern_type,
+      pattern_color: currentDemo.background.pattern_color,
+      pattern_scale: currentDemo.background.pattern_scale,
+      media_path: currentDemo.background.media_path,
+      media_scale: currentDemo.background.media_scale,
+      media_position_x: currentDemo.background.media_position_x,
+      media_position_y: currentDemo.background.media_position_y,
+      image_url: currentDemo.background.image_url,
+      image_attribution: currentDemo.background.image_attribution,
+    };
+    try {
+      await videoBackgroundsApi.update(currentDemo.background.id, backgroundData);
+    } catch {
+      await videoBackgroundsApi.create({ video_id: videoId, ...backgroundData });
+    }
+  }
+
+  // Save tracks
+  for (const track of currentDemo.tracks) {
+    try {
+      await videoTracksApi.update(track.id, {
+        name: track.name, locked: track.locked, visible: track.visible,
+        muted: track.muted, volume: track.volume, sort_order: track.sort_order,
+        target_track_id: track.target_track_id,
+      });
+    } catch {
+      await videoTracksApi.create({
+        video_id: videoId, track_type: track.track_type,
+        name: track.name, sort_order: track.sort_order, target_track_id: track.target_track_id,
+        locked: track.locked, visible: track.visible, muted: track.muted, volume: track.volume,
+      });
+    }
+  }
+
+  // Save clips - first pass without linked_clip_id
+  const clipsWithLinks: Array<{ id: string; linked_clip_id: string }> = [];
+  for (const clip of currentDemo.clips) {
+    if (clip.linked_clip_id) {
+      clipsWithLinks.push({ id: clip.id, linked_clip_id: clip.linked_clip_id });
+    }
+    try {
+      await videoClipsApi.update(clip.id, {
+        track_id: clip.track_id, name: clip.name, start_time_ms: clip.start_time_ms,
+        duration_ms: clip.duration_ms, in_point_ms: clip.in_point_ms, out_point_ms: clip.out_point_ms,
+        position_x: clip.position_x, position_y: clip.position_y, scale: clip.scale,
+        rotation: clip.rotation, crop_top: clip.crop_top, crop_bottom: clip.crop_bottom,
+        crop_left: clip.crop_left, crop_right: clip.crop_right, corner_radius: clip.corner_radius,
+        opacity: clip.opacity, shadow_enabled: clip.shadow_enabled, shadow_blur: clip.shadow_blur,
+        shadow_offset_x: clip.shadow_offset_x, shadow_offset_y: clip.shadow_offset_y,
+        shadow_color: clip.shadow_color, shadow_opacity: clip.shadow_opacity,
+        border_enabled: clip.border_enabled, border_width: clip.border_width, border_color: clip.border_color,
+        volume: clip.volume, muted: clip.muted, speed: clip.speed, freeze_frame: clip.freeze_frame,
+        freeze_frame_time_ms: clip.freeze_frame_time_ms, transition_in_type: clip.transition_in_type,
+        transition_in_duration_ms: clip.transition_in_duration_ms, transition_out_type: clip.transition_out_type,
+        transition_out_duration_ms: clip.transition_out_duration_ms, audio_fade_in_ms: clip.audio_fade_in_ms,
+        audio_fade_out_ms: clip.audio_fade_out_ms,
+      });
+    } catch {
+      await videoClipsApi.create({
+        track_id: clip.track_id, name: clip.name, source_path: clip.source_path,
+        source_type: clip.source_type, duration_ms: clip.duration_ms,
+        source_duration_ms: clip.source_duration_ms, start_time_ms: clip.start_time_ms,
+        in_point_ms: clip.in_point_ms, out_point_ms: clip.out_point_ms,
+        position_x: clip.position_x, position_y: clip.position_y, scale: clip.scale,
+        rotation: clip.rotation, crop_top: clip.crop_top, crop_bottom: clip.crop_bottom,
+        crop_left: clip.crop_left, crop_right: clip.crop_right, corner_radius: clip.corner_radius,
+        opacity: clip.opacity, shadow_enabled: clip.shadow_enabled, shadow_blur: clip.shadow_blur,
+        shadow_offset_x: clip.shadow_offset_x, shadow_offset_y: clip.shadow_offset_y,
+        shadow_color: clip.shadow_color, shadow_opacity: clip.shadow_opacity,
+        border_enabled: clip.border_enabled, border_width: clip.border_width, border_color: clip.border_color,
+        volume: clip.volume, muted: clip.muted, speed: clip.speed, freeze_frame: clip.freeze_frame,
+        freeze_frame_time_ms: clip.freeze_frame_time_ms, transition_in_type: clip.transition_in_type,
+        transition_in_duration_ms: clip.transition_in_duration_ms, transition_out_type: clip.transition_out_type,
+        transition_out_duration_ms: clip.transition_out_duration_ms, audio_fade_in_ms: clip.audio_fade_in_ms,
+        audio_fade_out_ms: clip.audio_fade_out_ms, has_audio: clip.has_audio,
+      });
+    }
+  }
+  // Second pass: update linked_clip_id
+  for (const { id, linked_clip_id } of clipsWithLinks) {
+    try { await videoClipsApi.update(id, { linked_clip_id }); } catch { /* Ignore */ }
+  }
+
+  // Save zoom clips
+  for (const zoomClip of currentDemo.zoomClips) {
+    try {
+      await videoZoomClipsApi.update(zoomClip.id, {
+        name: zoomClip.name, start_time_ms: zoomClip.start_time_ms, duration_ms: zoomClip.duration_ms,
+        zoom_scale: zoomClip.zoom_scale, zoom_center_x: zoomClip.zoom_center_x,
+        zoom_center_y: zoomClip.zoom_center_y, ease_in_duration_ms: zoomClip.ease_in_duration_ms,
+        ease_out_duration_ms: zoomClip.ease_out_duration_ms,
+      });
+    } catch {
+      await videoZoomClipsApi.create({
+        track_id: zoomClip.track_id, name: zoomClip.name,
+        start_time_ms: zoomClip.start_time_ms, duration_ms: zoomClip.duration_ms,
+        zoom_scale: zoomClip.zoom_scale, zoom_center_x: zoomClip.zoom_center_x,
+        zoom_center_y: zoomClip.zoom_center_y, ease_in_duration_ms: zoomClip.ease_in_duration_ms,
+        ease_out_duration_ms: zoomClip.ease_out_duration_ms,
+      });
+    }
+  }
+
+  // Save blur clips
+  for (const blurClip of currentDemo.blurClips) {
+    try {
+      await videoBlurClipsApi.update(blurClip.id, {
+        name: blurClip.name, start_time_ms: blurClip.start_time_ms, duration_ms: blurClip.duration_ms,
+        blur_intensity: blurClip.blur_intensity, region_x: blurClip.region_x, region_y: blurClip.region_y,
+        region_width: blurClip.region_width, region_height: blurClip.region_height,
+        corner_radius: blurClip.corner_radius, blur_inside: blurClip.blur_inside,
+        ease_in_duration_ms: blurClip.ease_in_duration_ms, ease_out_duration_ms: blurClip.ease_out_duration_ms,
+      });
+    } catch {
+      await videoBlurClipsApi.create({
+        track_id: blurClip.track_id, name: blurClip.name,
+        start_time_ms: blurClip.start_time_ms, duration_ms: blurClip.duration_ms,
+        blur_intensity: blurClip.blur_intensity, region_x: blurClip.region_x, region_y: blurClip.region_y,
+        region_width: blurClip.region_width, region_height: blurClip.region_height,
+        corner_radius: blurClip.corner_radius, blur_inside: blurClip.blur_inside,
+        ease_in_duration_ms: blurClip.ease_in_duration_ms, ease_out_duration_ms: blurClip.ease_out_duration_ms,
+      });
+    }
+  }
+
+  // Save pan clips
+  for (const panClip of currentDemo.panClips) {
+    try {
+      await videoPanClipsApi.update(panClip.id, {
+        name: panClip.name, start_time_ms: panClip.start_time_ms, duration_ms: panClip.duration_ms,
+        start_x: panClip.start_x, start_y: panClip.start_y, end_x: panClip.end_x, end_y: panClip.end_y,
+        ease_in_duration_ms: panClip.ease_in_duration_ms, ease_out_duration_ms: panClip.ease_out_duration_ms,
+      });
+    } catch {
+      await videoPanClipsApi.create({
+        track_id: panClip.track_id, name: panClip.name,
+        start_time_ms: panClip.start_time_ms, duration_ms: panClip.duration_ms,
+        start_x: panClip.start_x, start_y: panClip.start_y, end_x: panClip.end_x, end_y: panClip.end_y,
+        ease_in_duration_ms: panClip.ease_in_duration_ms, ease_out_duration_ms: panClip.ease_out_duration_ms,
+      });
+    }
+  }
+
+  // Save assets
+  for (const asset of currentDemo.assets) {
+    try {
+      await videoAssetsApi.update(asset.id, { name: asset.name, thumbnail_path: asset.thumbnail_path });
+    } catch {
+      await videoAssetsApi.create({
+        video_id: videoId, name: asset.name, file_path: asset.file_path,
+        asset_type: asset.asset_type, duration_ms: asset.duration_ms, width: asset.width,
+        height: asset.height, thumbnail_path: asset.thumbnail_path, file_size: asset.file_size,
+        has_audio: asset.has_audio,
+      });
+    }
+  }
+}
+
 export const useDemosStore = create<DemosStore>()(
   immer((set, get) => ({
     // ==========================================================================
@@ -224,6 +670,7 @@ export const useDemosStore = create<DemosStore>()(
     error: null,
     currentDemo: null,
     selectedDemoId: null,
+    currentVideoId: null,
 
     playback: {
       isPlaying: false,
@@ -337,6 +784,235 @@ export const useDemosStore = create<DemosStore>()(
         });
         throw err;
       }
+    },
+
+    loadVideo: async (videoId: string) => {
+      // If we already have this video loaded, return early
+      const existingVideoId = get().currentVideoId;
+      if (existingVideoId === videoId && get().currentDemo) {
+        return get().currentDemo!;
+      }
+
+      set((state) => {
+        state.loading = true;
+        state.error = null;
+      });
+
+      try {
+        // Load the video with all its editor data from the database
+        const videoWithData = await videoEditorApi.getWithData(videoId);
+
+        // Convert video data to DemoWithData format for the editor
+        // This allows reusing the existing editor UI
+        const convertedBackground: DemoBackground | null = videoWithData.background ? {
+          id: videoWithData.background.id,
+          demo_id: `video_${videoWithData.video.id}`,
+          background_type: videoWithData.background.background_type as DemoBackgroundType,
+          color: videoWithData.background.color,
+          gradient_stops: videoWithData.background.gradient_stops,
+          gradient_direction: videoWithData.background.gradient_direction as GradientDirection | null,
+          gradient_angle: videoWithData.background.gradient_angle,
+          pattern_type: videoWithData.background.pattern_type,
+          pattern_color: videoWithData.background.pattern_color,
+          pattern_scale: videoWithData.background.pattern_scale,
+          media_path: videoWithData.background.media_path,
+          media_scale: videoWithData.background.media_scale,
+          media_position_x: videoWithData.background.media_position_x,
+          media_position_y: videoWithData.background.media_position_y,
+          image_url: videoWithData.background.image_url,
+          image_attribution: videoWithData.background.image_attribution,
+          created_at: videoWithData.background.created_at,
+          updated_at: videoWithData.background.updated_at,
+        } : null;
+
+        const convertedTracks: DemoTrack[] = videoWithData.tracks.map((t) => ({
+          id: t.id,
+          demo_id: `video_${videoWithData.video.id}`,
+          track_type: t.track_type as DemoTrackType,
+          name: t.name,
+          locked: t.locked,
+          visible: t.visible,
+          muted: t.muted,
+          volume: t.volume,
+          sort_order: t.sort_order,
+          target_track_id: t.target_track_id,
+          created_at: t.created_at,
+          updated_at: t.updated_at,
+        }));
+
+        const convertedClips: DemoClip[] = videoWithData.clips.map((c) => ({
+          id: c.id,
+          track_id: c.track_id,
+          name: c.name,
+          source_path: c.source_path,
+          source_type: c.source_type as 'video' | 'image' | 'audio',
+          source_duration_ms: c.source_duration_ms,
+          start_time_ms: c.start_time_ms,
+          duration_ms: c.duration_ms,
+          in_point_ms: c.in_point_ms,
+          out_point_ms: c.out_point_ms,
+          position_x: c.position_x,
+          position_y: c.position_y,
+          scale: c.scale,
+          rotation: c.rotation,
+          crop_top: c.crop_top,
+          crop_bottom: c.crop_bottom,
+          crop_left: c.crop_left,
+          crop_right: c.crop_right,
+          corner_radius: c.corner_radius,
+          opacity: c.opacity,
+          shadow_enabled: c.shadow_enabled,
+          shadow_blur: c.shadow_blur,
+          shadow_offset_x: c.shadow_offset_x,
+          shadow_offset_y: c.shadow_offset_y,
+          shadow_color: c.shadow_color,
+          shadow_opacity: c.shadow_opacity,
+          border_enabled: c.border_enabled,
+          border_width: c.border_width,
+          border_color: c.border_color,
+          volume: c.volume,
+          muted: c.muted,
+          speed: c.speed,
+          freeze_frame: c.freeze_frame,
+          freeze_frame_time_ms: c.freeze_frame_time_ms,
+          transition_in_type: c.transition_in_type,
+          transition_in_duration_ms: c.transition_in_duration_ms,
+          transition_out_type: c.transition_out_type,
+          transition_out_duration_ms: c.transition_out_duration_ms,
+          audio_fade_in_ms: c.audio_fade_in_ms,
+          audio_fade_out_ms: c.audio_fade_out_ms,
+          linked_clip_id: c.linked_clip_id,
+          has_audio: c.has_audio,
+          // Zoom properties (not stored in video clips, use defaults)
+          zoom_enabled: false,
+          zoom_scale: null,
+          zoom_center_x: null,
+          zoom_center_y: null,
+          zoom_in_start_ms: null,
+          zoom_in_duration_ms: null,
+          zoom_out_start_ms: null,
+          zoom_out_duration_ms: null,
+          created_at: c.created_at,
+          updated_at: c.updated_at,
+        }));
+
+        const convertedAssets: DemoAsset[] = videoWithData.assets.map((a) => ({
+          id: a.id,
+          demo_id: `video_${videoWithData.video.id}`,
+          name: a.name,
+          file_path: a.file_path,
+          asset_type: a.asset_type as 'video' | 'image' | 'audio',
+          duration_ms: a.duration_ms,
+          width: a.width,
+          height: a.height,
+          thumbnail_path: a.thumbnail_path,
+          file_size: a.file_size,
+          has_audio: a.has_audio,
+          created_at: a.created_at,
+        }));
+
+        const demoWithData: DemoWithData = {
+          demo: {
+            id: `video_${videoWithData.video.id}`, // Prefix to distinguish from demos
+            app_id: '', // Not used for videos
+            name: videoWithData.video.name,
+            format: 'youtube' as DemoFormat, // Default format for videos
+            width: videoWithData.video.width,
+            height: videoWithData.video.height,
+            frame_rate: videoWithData.video.frame_rate,
+            duration_ms: videoWithData.video.duration_ms,
+            thumbnail_path: videoWithData.video.thumbnail_path,
+            export_path: null,
+            created_at: videoWithData.video.created_at,
+            updated_at: videoWithData.video.updated_at,
+          },
+          background: convertedBackground,
+          tracks: convertedTracks,
+          clips: convertedClips,
+          zoomClips: videoWithData.zoomClips.map((z) => ({
+            id: z.id,
+            track_id: z.track_id,
+            name: z.name,
+            start_time_ms: z.start_time_ms,
+            duration_ms: z.duration_ms,
+            zoom_scale: z.zoom_scale,
+            zoom_center_x: z.zoom_center_x,
+            zoom_center_y: z.zoom_center_y,
+            ease_in_duration_ms: z.ease_in_duration_ms,
+            ease_out_duration_ms: z.ease_out_duration_ms,
+            created_at: z.created_at,
+            updated_at: z.updated_at,
+          })),
+          blurClips: videoWithData.blurClips.map((b) => ({
+            id: b.id,
+            track_id: b.track_id,
+            name: b.name,
+            start_time_ms: b.start_time_ms,
+            duration_ms: b.duration_ms,
+            blur_intensity: b.blur_intensity,
+            region_x: b.region_x,
+            region_y: b.region_y,
+            region_width: b.region_width,
+            region_height: b.region_height,
+            corner_radius: b.corner_radius,
+            blur_inside: b.blur_inside,
+            ease_in_duration_ms: b.ease_in_duration_ms,
+            ease_out_duration_ms: b.ease_out_duration_ms,
+            created_at: b.created_at,
+            updated_at: b.updated_at,
+          })),
+          panClips: videoWithData.panClips.map((p) => ({
+            id: p.id,
+            track_id: p.track_id,
+            name: p.name,
+            start_time_ms: p.start_time_ms,
+            duration_ms: p.duration_ms,
+            start_x: p.start_x,
+            start_y: p.start_y,
+            end_x: p.end_x,
+            end_y: p.end_y,
+            ease_in_duration_ms: p.ease_in_duration_ms,
+            ease_out_duration_ms: p.ease_out_duration_ms,
+            created_at: p.created_at,
+            updated_at: p.updated_at,
+          })),
+          assets: convertedAssets,
+        };
+
+        set((state) => {
+          state.currentDemo = demoWithData;
+          state.currentVideoId = videoId;
+          state.selectedDemoId = null; // Not editing a demo
+          state.playback.durationMs = videoWithData.video.duration_ms || 60000;
+          state.loading = false;
+          // Clear pending deletions when loading a new video
+          state.pendingDeletions = {
+            clips: [],
+            zoomClips: [],
+            blurClips: [],
+            panClips: [],
+            assets: [],
+            tracks: [],
+          };
+        });
+
+        return demoWithData;
+      } catch (err) {
+        console.error('Failed to load video:', err);
+        set((state) => {
+          state.error = String(err);
+          state.loading = false;
+        });
+        throw err;
+      }
+    },
+
+    isEditingVideo: () => {
+      return get().currentVideoId !== null;
+    },
+
+    getCurrentVideoId: () => {
+      return get().currentVideoId;
     },
 
     select: (id) => {
@@ -480,97 +1156,19 @@ export const useDemosStore = create<DemosStore>()(
 
     saveDemo: async () => {
       const currentDemo = get().currentDemo;
+      const videoId = get().currentVideoId;
       if (!currentDemo) return;
 
+      // Check if we're editing a video (isolated state) or a demo
+      const isEditingVideo = videoId !== null;
+
       try {
-        // Save the demo itself
-        await demosApi.update(currentDemo.demo.id, {
-          name: currentDemo.demo.name,
-          format: currentDemo.demo.format,
-          width: currentDemo.demo.width,
-          height: currentDemo.demo.height,
-          frame_rate: currentDemo.demo.frame_rate,
-          duration_ms: currentDemo.demo.duration_ms,
-        });
-
-        // Process pending deletions first
-        const { pendingDeletions } = get();
-
-        // First, clear linked_clip_id references to avoid FK constraint failures
-        // We need to clear links both FROM clips being deleted and TO clips being deleted
-        if (pendingDeletions.clips.length > 0) {
-          // Clear linked_clip_id on all remaining clips that might reference deleted clips
-          for (const clip of currentDemo.clips) {
-            if (clip.linked_clip_id && pendingDeletions.clips.includes(clip.linked_clip_id)) {
-              try {
-                await demoClipsApi.update(clip.id, { linked_clip_id: null });
-              } catch {
-                // Ignore - clip might not exist in DB
-              }
-            }
-          }
-          // Clear linked_clip_id on clips being deleted (in case something else references them)
-          for (const clipId of pendingDeletions.clips) {
-            try {
-              await demoClipsApi.update(clipId, { linked_clip_id: null });
-            } catch {
-              // Ignore - clip might not exist in DB
-            }
-          }
-        }
-
-        // Delete clips (now safe since linked_clip_id references are cleared)
-        for (const clipId of pendingDeletions.clips) {
-          try {
-            await demoClipsApi.delete(clipId);
-          } catch {
-            // Ignore errors - clip might not exist in DB yet
-          }
-        }
-
-        // Delete zoom clips
-        for (const zoomClipId of pendingDeletions.zoomClips) {
-          try {
-            await demoZoomClipsApi.delete(zoomClipId);
-          } catch {
-            // Ignore errors - zoom clip might not exist in DB yet
-          }
-        }
-
-        // Delete blur clips
-        for (const blurClipId of pendingDeletions.blurClips) {
-          try {
-            await demoBlurClipsApi.delete(blurClipId);
-          } catch {
-            // Ignore errors - blur clip might not exist in DB yet
-          }
-        }
-
-        // Delete pan clips
-        for (const panClipId of pendingDeletions.panClips) {
-          try {
-            await demoPanClipsApi.delete(panClipId);
-          } catch {
-            // Ignore errors - pan clip might not exist in DB yet
-          }
-        }
-
-        // Delete assets
-        for (const assetId of pendingDeletions.assets) {
-          try {
-            await demoAssetsApi.delete(assetId);
-          } catch {
-            // Ignore errors - asset might not exist in DB yet
-          }
-        }
-
-        // Delete tracks last (after clips are deleted)
-        for (const trackId of pendingDeletions.tracks) {
-          try {
-            await demoTracksApi.delete(trackId);
-          } catch {
-            // Ignore errors - track might not exist in DB yet
-          }
+        if (isEditingVideo) {
+          // Save video editor state to video-specific tables
+          await saveVideoState(videoId, currentDemo, get().pendingDeletions);
+        } else {
+          // Save demo state to demo tables
+          await saveDemoState(currentDemo, get().pendingDeletions);
         }
 
         // Clear pending deletions after processing
@@ -585,271 +1183,11 @@ export const useDemosStore = create<DemosStore>()(
           };
         });
 
-        // Save background if exists
-        if (currentDemo.background) {
-          const backgroundData = {
-            background_type: currentDemo.background.background_type,
-            color: currentDemo.background.color,
-            gradient_stops: currentDemo.background.gradient_stops,
-            gradient_direction: currentDemo.background.gradient_direction,
-            gradient_angle: currentDemo.background.gradient_angle,
-            pattern_type: currentDemo.background.pattern_type,
-            pattern_color: currentDemo.background.pattern_color,
-            pattern_scale: currentDemo.background.pattern_scale,
-            media_path: currentDemo.background.media_path,
-            media_scale: currentDemo.background.media_scale,
-            media_position_x: currentDemo.background.media_position_x,
-            media_position_y: currentDemo.background.media_position_y,
-            image_url: currentDemo.background.image_url,
-            image_attribution: currentDemo.background.image_attribution,
-          };
-          try {
-            await demoBackgroundsApi.update(currentDemo.background.id, backgroundData);
-          } catch {
-            // Background might not exist yet, try to create it
-            const createdBackground = await demoBackgroundsApi.create({
-              demo_id: currentDemo.demo.id,
-              ...backgroundData,
-            });
-            // Update local state with the server-generated ID
-            set((state) => {
-              if (state.currentDemo) {
-                state.currentDemo.background = createdBackground;
-              }
-            });
-          }
-        }
-
-        // Save tracks
-        for (const track of currentDemo.tracks) {
-          try {
-            await demoTracksApi.update(track.id, {
-              name: track.name,
-              locked: track.locked,
-              visible: track.visible,
-              muted: track.muted,
-              volume: track.volume,
-              sort_order: track.sort_order,
-              target_track_id: track.target_track_id,
-            });
-          } catch {
-            // Track might not exist yet, try to create it
-            await demoTracksApi.create({
-              id: track.id,  // Use client-provided ID for consistency
-              demo_id: currentDemo.demo.id,
-              track_type: track.track_type,
-              name: track.name,
-              sort_order: track.sort_order,
-              target_track_id: track.target_track_id,
-            });
-          }
-        }
-
-        // Save clips - first pass: create/update without linked_clip_id to avoid FK constraint issues
-        const clipsWithLinks: Array<{ id: string; linked_clip_id: string }> = [];
-        for (const clip of currentDemo.clips) {
-          // Track clips that have linked_clip_id for second pass
-          if (clip.linked_clip_id) {
-            clipsWithLinks.push({ id: clip.id, linked_clip_id: clip.linked_clip_id });
-          }
-
-          try {
-            await demoClipsApi.update(clip.id, {
-              name: clip.name,
-              start_time_ms: clip.start_time_ms,
-              duration_ms: clip.duration_ms,
-              in_point_ms: clip.in_point_ms,
-              out_point_ms: clip.out_point_ms,
-              position_x: clip.position_x,
-              position_y: clip.position_y,
-              scale: clip.scale,
-              opacity: clip.opacity,
-              speed: clip.speed,
-              corner_radius: clip.corner_radius,
-              shadow_enabled: clip.shadow_enabled,
-              shadow_blur: clip.shadow_blur,
-              shadow_opacity: clip.shadow_opacity,
-              shadow_offset_x: clip.shadow_offset_x,
-              shadow_offset_y: clip.shadow_offset_y,
-              crop_top: clip.crop_top,
-              crop_bottom: clip.crop_bottom,
-              crop_left: clip.crop_left,
-              crop_right: clip.crop_right,
-              // Freeze frame
-              freeze_frame: clip.freeze_frame,
-              freeze_frame_time_ms: clip.freeze_frame_time_ms,
-              // Transitions
-              transition_in_type: clip.transition_in_type,
-              transition_in_duration_ms: clip.transition_in_duration_ms,
-              transition_out_type: clip.transition_out_type,
-              transition_out_duration_ms: clip.transition_out_duration_ms,
-              // Audio fade
-              audio_fade_in_ms: clip.audio_fade_in_ms,
-              audio_fade_out_ms: clip.audio_fade_out_ms,
-              // Don't set linked_clip_id here - will be set in second pass
-              muted: clip.muted,
-            });
-          } catch {
-            // Clip might not exist yet, try to create it (without linked_clip_id)
-            await demoClipsApi.create({
-              id: clip.id,  // Use client-provided ID for consistency
-              track_id: clip.track_id,
-              name: clip.name,
-              source_path: clip.source_path,
-              source_type: clip.source_type,
-              start_time_ms: clip.start_time_ms,
-              duration_ms: clip.duration_ms,
-              in_point_ms: clip.in_point_ms,
-              position_x: clip.position_x,
-              position_y: clip.position_y,
-              scale: clip.scale,
-              speed: clip.speed,
-              has_audio: clip.has_audio,
-              // Don't set linked_clip_id here - will be set in second pass
-              muted: clip.muted,
-            });
-          }
-        }
-
-        // Second pass: update linked_clip_id for clips that have links
-        for (const { id, linked_clip_id } of clipsWithLinks) {
-          try {
-            await demoClipsApi.update(id, { linked_clip_id });
-          } catch (err) {
-            console.warn('Failed to set linked_clip_id for clip:', id, err);
-          }
-        }
-
-        // Save zoom clips
-        for (const zoomClip of currentDemo.zoomClips) {
-          try {
-            await demoZoomClipsApi.update(zoomClip.id, {
-              name: zoomClip.name,
-              start_time_ms: zoomClip.start_time_ms,
-              duration_ms: zoomClip.duration_ms,
-              zoom_scale: zoomClip.zoom_scale,
-              zoom_center_x: zoomClip.zoom_center_x,
-              zoom_center_y: zoomClip.zoom_center_y,
-              ease_in_duration_ms: zoomClip.ease_in_duration_ms,
-              ease_out_duration_ms: zoomClip.ease_out_duration_ms,
-            });
-          } catch {
-            // Zoom clip might not exist yet, try to create it
-            await demoZoomClipsApi.create({
-              id: zoomClip.id, // Use client-provided ID for consistency
-              track_id: zoomClip.track_id,
-              name: zoomClip.name,
-              start_time_ms: zoomClip.start_time_ms,
-              duration_ms: zoomClip.duration_ms,
-              zoom_scale: zoomClip.zoom_scale,
-              zoom_center_x: zoomClip.zoom_center_x,
-              zoom_center_y: zoomClip.zoom_center_y,
-              ease_in_duration_ms: zoomClip.ease_in_duration_ms,
-              ease_out_duration_ms: zoomClip.ease_out_duration_ms,
-            });
-          }
-        }
-
-        // Save blur clips
-        for (const blurClip of currentDemo.blurClips) {
-          try {
-            await demoBlurClipsApi.update(blurClip.id, {
-              name: blurClip.name,
-              start_time_ms: blurClip.start_time_ms,
-              duration_ms: blurClip.duration_ms,
-              blur_intensity: blurClip.blur_intensity,
-              region_x: blurClip.region_x,
-              region_y: blurClip.region_y,
-              region_width: blurClip.region_width,
-              region_height: blurClip.region_height,
-              corner_radius: blurClip.corner_radius,
-              blur_inside: blurClip.blur_inside,
-              ease_in_duration_ms: blurClip.ease_in_duration_ms,
-              ease_out_duration_ms: blurClip.ease_out_duration_ms,
-            });
-          } catch {
-            // Blur clip might not exist yet, try to create it
-            await demoBlurClipsApi.create({
-              id: blurClip.id, // Use client-provided ID for consistency
-              track_id: blurClip.track_id,
-              name: blurClip.name,
-              start_time_ms: blurClip.start_time_ms,
-              duration_ms: blurClip.duration_ms,
-              blur_intensity: blurClip.blur_intensity,
-              region_x: blurClip.region_x,
-              region_y: blurClip.region_y,
-              region_width: blurClip.region_width,
-              region_height: blurClip.region_height,
-              corner_radius: blurClip.corner_radius,
-              blur_inside: blurClip.blur_inside,
-              ease_in_duration_ms: blurClip.ease_in_duration_ms,
-              ease_out_duration_ms: blurClip.ease_out_duration_ms,
-            });
-          }
-        }
-
-        // Save pan clips
-        for (const panClip of currentDemo.panClips) {
-          try {
-            await demoPanClipsApi.update(panClip.id, {
-              name: panClip.name,
-              start_time_ms: panClip.start_time_ms,
-              duration_ms: panClip.duration_ms,
-              start_x: panClip.start_x,
-              start_y: panClip.start_y,
-              end_x: panClip.end_x,
-              end_y: panClip.end_y,
-              ease_in_duration_ms: panClip.ease_in_duration_ms,
-              ease_out_duration_ms: panClip.ease_out_duration_ms,
-            });
-          } catch {
-            // Pan clip might not exist yet, try to create it
-            await demoPanClipsApi.create({
-              id: panClip.id, // Use client-provided ID for consistency
-              track_id: panClip.track_id,
-              name: panClip.name,
-              start_time_ms: panClip.start_time_ms,
-              duration_ms: panClip.duration_ms,
-              start_x: panClip.start_x,
-              start_y: panClip.start_y,
-              end_x: panClip.end_x,
-              end_y: panClip.end_y,
-              ease_in_duration_ms: panClip.ease_in_duration_ms,
-              ease_out_duration_ms: panClip.ease_out_duration_ms,
-            });
-          }
-        }
-
-        // Save assets
-        for (const asset of currentDemo.assets) {
-          try {
-            await demoAssetsApi.update(asset.id, {
-              name: asset.name,
-              thumbnail_path: asset.thumbnail_path,
-            });
-          } catch {
-            // Asset might not exist yet, try to create it
-            await demoAssetsApi.create({
-              id: asset.id, // Use client-provided ID for consistency
-              demo_id: currentDemo.demo.id,
-              name: asset.name,
-              file_path: asset.file_path,
-              asset_type: asset.asset_type,
-              duration_ms: asset.duration_ms,
-              width: asset.width,
-              height: asset.height,
-              thumbnail_path: asset.thumbnail_path,
-              file_size: asset.file_size,
-              has_audio: asset.has_audio,
-            });
-          }
-        }
-
-        console.log('Demo saved successfully');
+        console.log(isEditingVideo ? 'Video saved successfully' : 'Demo saved successfully');
       } catch (error) {
-        console.error('Failed to save demo:', error);
+        console.error('Failed to save:', error);
         set((state) => {
-          state.error = error instanceof Error ? error.message : 'Failed to save demo';
+          state.error = error instanceof Error ? error.message : 'Failed to save';
         });
         throw error;
       }

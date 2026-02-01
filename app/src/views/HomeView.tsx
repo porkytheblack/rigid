@@ -2,25 +2,34 @@
 
 import { useEffect, useState, useRef } from "react";
 import { Plus, Search, FolderOpen, Settings, MoreHorizontal, Trash2, Pencil, X, Command, Loader2 } from "lucide-react";
-import { useAppsStore, useRouterStore, useAnimationFeedback } from "@/lib/stores";
+import { useAppsStore, useRouterStore } from "@/lib/stores";
 import type { NewApp } from "@/lib/tauri/types";
 import { RigidLogo } from "@/components/ui/rigid-logo";
-import { RigidCharacter, RigidCharacterMini } from "@/components/ui/rigid-character";
+import { RigidCharacterMini } from "@/components/ui/rigid-character";
+import { Editor, type Block, createBlock, blocksToPlainText, parseMarkdownToBlocks } from "@/components/editor";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { CardSkeleton } from "@/components/ui/loading-state";
 
 export function HomeView() {
-  const { items: apps, loading, load, create, delete: deleteApp } = useAppsStore();
+  const { items: apps, loading, load, create, update: updateApp, delete: deleteApp } = useAppsStore();
   const { navigate } = useRouterStore();
   const { addToast } = useToast();
+  const showConfirmDialog = useConfirm();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingApp, setEditingApp] = useState<{ id: string; name: string; description: string | null } | null>(null);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [newAppData, setNewAppData] = useState<NewApp>({ name: "" });
   const [contextMenuApp, setContextMenuApp] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Block editor state for description
+  const [createDescBlocks, setCreateDescBlocks] = useState<Block[]>([createBlock('paragraph', '')]);
+  const [editDescBlocks, setEditDescBlocks] = useState<Block[]>([createBlock('paragraph', '')]);
 
   useEffect(() => {
     load();
@@ -65,7 +74,9 @@ export function HomeView() {
     setFormError(false);
 
     try {
-      const app = await create(newAppData);
+      // Convert blocks to plain text for storage
+      const descriptionText = blocksToPlainText(createDescBlocks).trim() || undefined;
+      const app = await create({ ...newAppData, description: descriptionText });
       addToast({
         type: "success",
         title: "App created!",
@@ -73,6 +84,7 @@ export function HomeView() {
       });
       setShowCreateModal(false);
       setNewAppData({ name: "" });
+      setCreateDescBlocks([createBlock('paragraph', '')]);
       navigate({ name: "app", appId: app.id });
     } catch (err) {
       console.error("Failed to create app:", err);
@@ -89,13 +101,83 @@ export function HomeView() {
   };
 
   const handleDeleteApp = async (id: string) => {
-    if (confirm("Are you sure you want to delete this app? All explorations and data will be lost.")) {
+    const confirmed = await showConfirmDialog({
+      title: "Delete App",
+      description: "Are you sure you want to delete this app? All explorations and data will be lost.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+
+    if (confirmed) {
       try {
         await deleteApp(id);
         setContextMenuApp(null);
+        addToast({
+          type: "success",
+          title: "App deleted",
+          description: "The app and all its data have been removed.",
+        });
       } catch (err) {
         console.error("Failed to delete app:", err);
+        addToast({
+          type: "error",
+          title: "Failed to delete app",
+          description: err instanceof Error ? err.message : "Something went wrong",
+        });
       }
+    }
+  };
+
+  const handleEditApp = (app: { id: string; name: string; description: string | null }) => {
+    setEditingApp({ id: app.id, name: app.name, description: app.description });
+    // Parse existing description into blocks for editor
+    if (app.description) {
+      setEditDescBlocks(parseMarkdownToBlocks(app.description));
+    } else {
+      setEditDescBlocks([createBlock('paragraph', '')]);
+    }
+    setShowEditModal(true);
+    setContextMenuApp(null);
+  };
+
+  const handleUpdateApp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingApp || !editingApp.name.trim()) {
+      setFormError(true);
+      setTimeout(() => setFormError(false), 500);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(false);
+
+    try {
+      // Convert blocks to plain text for storage
+      const descriptionText = blocksToPlainText(editDescBlocks).trim() || null;
+      await updateApp(editingApp.id, {
+        name: editingApp.name,
+        description: descriptionText,
+      });
+      addToast({
+        type: "success",
+        title: "App updated!",
+        description: `${editingApp.name} has been updated.`,
+      });
+      setShowEditModal(false);
+      setEditingApp(null);
+      setEditDescBlocks([createBlock('paragraph', '')]);
+    } catch (err) {
+      console.error("Failed to update app:", err);
+      addToast({
+        type: "error",
+        title: "Failed to update app",
+        description: err instanceof Error ? err.message : "Something went wrong",
+      });
+      setFormError(true);
+      setTimeout(() => setFormError(false), 500);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -118,6 +200,9 @@ export function HomeView() {
 
   return (
     <div className="h-screen bg-[var(--surface-primary)] flex flex-col overflow-hidden">
+      {/* Context menu backdrop - must be first so it's behind everything */}
+      {contextMenuApp && <div className="fixed inset-0 z-[5]" onClick={() => setContextMenuApp(null)} />}
+
       {/* Header - Clean navigation bar */}
       <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center justify-between px-8 flex-shrink-0">
         <div className="flex items-center gap-4">
@@ -140,7 +225,7 @@ export function HomeView() {
             Your Apps
           </h1>
           <p className="text-[var(--text-body-lg)] text-[var(--text-secondary)] mb-16 max-w-2xl">
-            Manage your QA explorations, capture screenshots and recordings, and track bugs across all your applications.
+            Manage your QA explorations, capture screenshots and recordings, and track features and bugs across all your applications.
           </p>
 
           {loading && apps.length === 0 ? (
@@ -156,7 +241,7 @@ export function HomeView() {
                 <div
                   key={app.id}
                   onClick={() => navigate({ name: "app", appId: app.id })}
-                  className="group relative bg-[var(--surface-secondary)] border border-[var(--border-default)] p-6 hover:border-[var(--border-strong)] cursor-pointer card-animated card-stagger-enter"
+                  className={`group relative bg-[var(--surface-secondary)] border border-[var(--border-default)] p-6 hover:border-[var(--border-strong)] cursor-pointer card-animated card-stagger-enter ${contextMenuApp === app.id ? 'z-[10]' : ''}`}
                   style={{ animationDelay: `${index * 50}ms` }}
                 >
                   {/* App Initial */}
@@ -191,8 +276,8 @@ export function HomeView() {
 
                   {/* Context Menu Dropdown */}
                   {contextMenuApp === app.id && (
-                    <div className="absolute top-12 right-4 w-44 bg-[var(--surface-elevated)] border border-[var(--border-default)] shadow-lg py-1 z-10" onClick={(e) => e.stopPropagation()}>
-                      <button className="w-full px-4 py-2.5 text-left text-[var(--text-body-sm)] text-[var(--text-primary)] hover:bg-[var(--surface-hover)] flex items-center gap-3" onClick={() => setContextMenuApp(null)}>
+                    <div className="absolute top-12 right-4 w-44 bg-[var(--surface-elevated)] border border-[var(--border-default)] shadow-lg py-1 z-[10]" onClick={(e) => e.stopPropagation()}>
+                      <button className="w-full px-4 py-2.5 text-left text-[var(--text-body-sm)] text-[var(--text-primary)] hover:bg-[var(--surface-hover)] flex items-center gap-3" onClick={() => handleEditApp(app)}>
                         <Pencil className="w-4 h-4" />Edit
                       </button>
                       <button className="w-full px-4 py-2.5 text-left text-[var(--text-body-sm)] text-[var(--accent-error)] hover:bg-[var(--surface-hover)] flex items-center gap-3" onClick={() => handleDeleteApp(app.id)}>
@@ -316,8 +401,8 @@ export function HomeView() {
 
       {/* Create App Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8 modal-backdrop-animated" onClick={() => !isSubmitting && setShowCreateModal(false)}>
-          <div className="w-full max-w-lg bg-[var(--surface-secondary)] border border-[var(--border-default)] shadow-xl modal-content-animated" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8 modal-backdrop-animated" onClick={() => { if (!isSubmitting) { setShowCreateModal(false); setCreateDescBlocks([createBlock('paragraph', '')]); } }}>
+          <div className="w-full max-w-2xl bg-[var(--surface-secondary)] border border-[var(--border-default)] shadow-xl modal-content-animated" onClick={(e) => e.stopPropagation()}>
             {/* Modal Header with Character */}
             <div className="px-6 py-5 border-b border-[var(--border-default)] flex items-center justify-between">
               <h2 className="text-[var(--text-heading-md)] font-bold text-[var(--text-primary)] tracking-tight">Create New App</h2>
@@ -347,21 +432,23 @@ export function HomeView() {
                 <label className="block text-[var(--text-caption)] font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-2">
                   Description <span className="text-[var(--text-tertiary)] normal-case">(optional)</span>
                 </label>
-                <textarea
-                  value={newAppData.description || ""}
-                  onChange={(e) => setNewAppData({ ...newAppData, description: e.target.value })}
-                  placeholder="Brief description of your app..."
-                  rows={3}
-                  disabled={isSubmitting}
-                  className="w-full px-4 py-3 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-[var(--text-primary)] focus:border-2 transition-all input-animated"
-                />
+                <div className="bg-[var(--surface-primary)] border border-[var(--border-default)] min-h-[200px] max-h-[300px] overflow-y-auto p-3">
+                  <Editor
+                    initialBlocks={createDescBlocks}
+                    onChange={setCreateDescBlocks}
+                    placeholder="Brief description of your app..."
+                    readOnly={isSubmitting}
+                    autoFocus={false}
+                    compact={true}
+                  />
+                </div>
               </div>
 
               {/* Modal Footer */}
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowCreateModal(false)}
+                  onClick={() => { setShowCreateModal(false); setCreateDescBlocks([createBlock('paragraph', '')]); }}
                   disabled={isSubmitting}
                   className="flex-1 h-12 border border-[var(--border-strong)] text-[var(--text-primary)] font-semibold hover:bg-[var(--surface-hover)] transition-all btn-animated disabled:opacity-50"
                 >
@@ -387,7 +474,80 @@ export function HomeView() {
         </div>
       )}
 
-      {contextMenuApp && <div className="fixed inset-0 z-0" onClick={() => setContextMenuApp(null)} />}
+      {/* Edit App Modal */}
+      {showEditModal && editingApp && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-8 modal-backdrop-animated" onClick={() => { if (!isSubmitting) { setShowEditModal(false); setEditingApp(null); setEditDescBlocks([createBlock('paragraph', '')]); } }}>
+          <div className="w-full max-w-2xl bg-[var(--surface-secondary)] border border-[var(--border-default)] shadow-xl modal-content-animated" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header with Character */}
+            <div className="px-6 py-5 border-b border-[var(--border-default)] flex items-center justify-between">
+              <h2 className="text-[var(--text-heading-md)] font-bold text-[var(--text-primary)] tracking-tight">Edit App</h2>
+              <RigidCharacterMini
+                animation={isSubmitting ? "work" : formError ? "shake" : "idle"}
+                size={28}
+              />
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleUpdateApp} className="p-6 space-y-6">
+              <div>
+                <label className="block text-[var(--text-caption)] font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-2">
+                  App Name
+                </label>
+                <input
+                  type="text"
+                  value={editingApp.name}
+                  onChange={(e) => setEditingApp({ ...editingApp, name: e.target.value })}
+                  placeholder="My Awesome App"
+                  autoFocus
+                  disabled={isSubmitting}
+                  className={`w-full h-12 px-4 bg-[var(--surface-primary)] border text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--text-primary)] focus:border-2 transition-all input-animated ${formError && !editingApp.name.trim() ? 'input-error-shake border-[var(--status-error)]' : 'border-[var(--border-default)]'}`}
+                />
+              </div>
+              <div>
+                <label className="block text-[var(--text-caption)] font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-2">
+                  Description <span className="text-[var(--text-tertiary)] normal-case">(optional)</span>
+                </label>
+                <div className="bg-[var(--surface-primary)] border border-[var(--border-default)] min-h-[200px] max-h-[300px] overflow-y-auto p-3">
+                  <Editor
+                    initialBlocks={editDescBlocks}
+                    onChange={setEditDescBlocks}
+                    placeholder="Brief description of your app..."
+                    readOnly={isSubmitting}
+                    autoFocus={false}
+                    compact={true}
+                  />
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => { setShowEditModal(false); setEditingApp(null); setEditDescBlocks([createBlock('paragraph', '')]); }}
+                  disabled={isSubmitting}
+                  className="flex-1 h-12 border border-[var(--border-strong)] text-[var(--text-primary)] font-semibold hover:bg-[var(--surface-hover)] transition-all btn-animated disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!editingApp.name.trim() || isSubmitting}
+                  className="flex-1 h-12 bg-[var(--text-primary)] text-[var(--text-inverse)] font-semibold hover:bg-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-all btn-animated flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

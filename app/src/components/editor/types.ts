@@ -108,6 +108,8 @@ export interface EditorProps {
   screenshots?: EditorScreenshot[];
   /** Show copy as markdown button */
   showCopyButton?: boolean;
+  /** Compact mode - removes max-width and centering for use in modals/sidebars */
+  compact?: boolean;
 }
 
 export interface BlockProps {

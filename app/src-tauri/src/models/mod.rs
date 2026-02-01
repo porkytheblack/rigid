@@ -10,6 +10,7 @@ pub mod document;
 pub mod diagram;
 pub mod architecture_doc;
 pub mod demo;
+pub mod feature;
 
 pub use app::*;
 pub use test::*;
@@ -23,3 +24,4 @@ pub use document::*;
 pub use diagram::*;
 pub use architecture_doc::*;
 pub use demo::*;
+pub use feature::*;

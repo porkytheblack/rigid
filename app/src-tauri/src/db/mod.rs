@@ -6,7 +6,7 @@ use crate::error::RigidError;
 pub type DbPool = SqlitePool;
 
 const SCHEMA: &str = include_str!("schema.sql");
-const CURRENT_VERSION: i32 = 15;
+const CURRENT_VERSION: i32 = 19;
 
 /// Initialize the database connection and run migrations
 pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, RigidError> {
@@ -133,8 +133,25 @@ async fn run_migrations(pool: &DbPool) -> Result<(), RigidError> {
             run_v13_to_v14_migration(pool).await?;
             run_v14_to_v15_migration(pool).await?;
         } else if current_version == 14 {
-            // Run v14 to v15 migration only (add transitions and fade fields)
+            // Run v14 to v15, then v15 to v16, then v16 to v17 migration
             run_v14_to_v15_migration(pool).await?;
+            run_v15_to_v16_migration(pool).await?;
+            run_v16_to_v17_migration(pool).await?;
+        } else if current_version == 15 {
+            // Run v15 to v16, then v16 to v17 migration
+            run_v15_to_v16_migration(pool).await?;
+            run_v16_to_v17_migration(pool).await?;
+        } else if current_version == 16 {
+            // Run v16 to v17, then v17 to v18 migration
+            run_v16_to_v17_migration(pool).await?;
+            run_v17_to_v18_migration(pool).await?;
+        } else if current_version == 17 {
+            // Run v17 to v18 migration only (video editor tables)
+            run_v17_to_v18_migration(pool).await?;
+            run_v18_to_v19_migration(pool).await?;
+        } else if current_version == 18 {
+            // Run v18 to v19 migration (fix missing video_clips columns)
+            run_v18_to_v19_migration(pool).await?;
         } else {
             // Fresh install or from v1 - apply full schema
             for statement in SCHEMA.split(';') {
@@ -931,6 +948,333 @@ async fn run_v14_to_v15_migration(pool: &DbPool) -> Result<(), RigidError> {
         .await
         .ok();
     sqlx::query("ALTER TABLE demo_clips ADD COLUMN audio_fade_out_ms INTEGER")
+        .execute(pool)
+        .await
+        .ok();
+
+    Ok(())
+}
+
+/// Migration from v15 to v16: Add features table, editor_demo_id to demo_videos, feature_id to annotations
+/// This allows features as app-wide primitives and isolated video editor states
+async fn run_v15_to_v16_migration(pool: &DbPool) -> Result<(), RigidError> {
+    // Create features table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS features (
+            id TEXT PRIMARY KEY,
+            app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'planned',
+            priority TEXT NOT NULL DEFAULT 'medium',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Create index for features
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_features_app ON features(app_id)")
+        .execute(pool)
+        .await?;
+
+    // Add editor_demo_id column to demo_videos table
+    sqlx::query("ALTER TABLE demo_videos ADD COLUMN editor_demo_id TEXT REFERENCES demos(id) ON DELETE SET NULL")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    // Add feature_id column to annotations table
+    sqlx::query("ALTER TABLE annotations ADD COLUMN feature_id TEXT REFERENCES features(id) ON DELETE SET NULL")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    Ok(())
+}
+
+/// Migration from v16 to v17: Add feature_id to screenshot_markers
+/// This allows linking screenshot markers/annotations to features
+async fn run_v16_to_v17_migration(pool: &DbPool) -> Result<(), RigidError> {
+    // Add feature_id column to screenshot_markers table
+    sqlx::query("ALTER TABLE screenshot_markers ADD COLUMN feature_id TEXT REFERENCES features(id) ON DELETE SET NULL")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    Ok(())
+}
+
+/// Migration from v17 to v18: Add video editor tables and frame_rate to demo_videos
+/// This allows videos to have their own isolated editor state separate from demos
+async fn run_v17_to_v18_migration(pool: &DbPool) -> Result<(), RigidError> {
+    // Add frame_rate column to demo_videos table
+    sqlx::query("ALTER TABLE demo_videos ADD COLUMN frame_rate INTEGER NOT NULL DEFAULT 60")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    // Video backgrounds table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS video_backgrounds (
+            id TEXT PRIMARY KEY,
+            video_id TEXT NOT NULL REFERENCES demo_videos(id) ON DELETE CASCADE,
+            background_type TEXT NOT NULL DEFAULT 'solid',
+            color TEXT,
+            gradient_stops TEXT,
+            gradient_direction TEXT,
+            gradient_angle REAL,
+            pattern_type TEXT,
+            pattern_color TEXT,
+            pattern_scale REAL,
+            media_path TEXT,
+            media_scale REAL,
+            media_position_x REAL,
+            media_position_y REAL,
+            image_url TEXT,
+            image_attribution TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Video tracks table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS video_tracks (
+            id TEXT PRIMARY KEY,
+            video_id TEXT NOT NULL REFERENCES demo_videos(id) ON DELETE CASCADE,
+            track_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            locked INTEGER NOT NULL DEFAULT 0,
+            visible INTEGER NOT NULL DEFAULT 1,
+            muted INTEGER NOT NULL DEFAULT 0,
+            volume REAL NOT NULL DEFAULT 1.0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            target_track_id TEXT REFERENCES video_tracks(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Video clips table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS video_clips (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL REFERENCES video_tracks(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_duration_ms INTEGER,
+            start_time_ms INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL,
+            in_point_ms INTEGER NOT NULL DEFAULT 0,
+            out_point_ms INTEGER,
+            position_x REAL,
+            position_y REAL,
+            scale REAL,
+            rotation REAL,
+            crop_top REAL,
+            crop_bottom REAL,
+            crop_left REAL,
+            crop_right REAL,
+            corner_radius REAL,
+            opacity REAL,
+            shadow_enabled INTEGER NOT NULL DEFAULT 0,
+            shadow_blur REAL,
+            shadow_offset_x REAL,
+            shadow_offset_y REAL,
+            shadow_color TEXT,
+            shadow_opacity REAL,
+            border_enabled INTEGER NOT NULL DEFAULT 0,
+            border_width REAL,
+            border_color TEXT,
+            volume REAL NOT NULL DEFAULT 1.0,
+            muted INTEGER NOT NULL DEFAULT 0,
+            speed REAL NOT NULL DEFAULT 1.0,
+            freeze_frame INTEGER NOT NULL DEFAULT 0,
+            freeze_frame_time_ms INTEGER,
+            transition_in_type TEXT,
+            transition_in_duration_ms INTEGER,
+            transition_out_type TEXT,
+            transition_out_duration_ms INTEGER,
+            audio_fade_in_ms INTEGER,
+            audio_fade_out_ms INTEGER,
+            linked_clip_id TEXT REFERENCES video_clips(id) ON DELETE SET NULL,
+            has_audio INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Video zoom clips table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS video_zoom_clips (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL REFERENCES video_tracks(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            start_time_ms INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL,
+            zoom_scale REAL NOT NULL DEFAULT 1.5,
+            zoom_center_x REAL NOT NULL DEFAULT 50.0,
+            zoom_center_y REAL NOT NULL DEFAULT 50.0,
+            ease_in_duration_ms INTEGER NOT NULL DEFAULT 300,
+            ease_out_duration_ms INTEGER NOT NULL DEFAULT 300,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Video blur clips table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS video_blur_clips (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL REFERENCES video_tracks(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            start_time_ms INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL,
+            blur_intensity REAL NOT NULL DEFAULT 20.0,
+            region_x REAL NOT NULL DEFAULT 50.0,
+            region_y REAL NOT NULL DEFAULT 50.0,
+            region_width REAL NOT NULL DEFAULT 30.0,
+            region_height REAL NOT NULL DEFAULT 30.0,
+            corner_radius REAL NOT NULL DEFAULT 0.0,
+            blur_inside INTEGER NOT NULL DEFAULT 1,
+            ease_in_duration_ms INTEGER NOT NULL DEFAULT 0,
+            ease_out_duration_ms INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Video pan clips table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS video_pan_clips (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL REFERENCES video_tracks(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            start_time_ms INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL,
+            start_x REAL NOT NULL DEFAULT 50.0,
+            start_y REAL NOT NULL DEFAULT 50.0,
+            end_x REAL NOT NULL DEFAULT 50.0,
+            end_y REAL NOT NULL DEFAULT 50.0,
+            ease_in_duration_ms INTEGER NOT NULL DEFAULT 300,
+            ease_out_duration_ms INTEGER NOT NULL DEFAULT 300,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Video assets table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS video_assets (
+            id TEXT PRIMARY KEY,
+            video_id TEXT NOT NULL REFERENCES demo_videos(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            asset_type TEXT NOT NULL,
+            duration_ms INTEGER,
+            width INTEGER,
+            height INTEGER,
+            thumbnail_path TEXT,
+            file_size INTEGER,
+            has_audio INTEGER,
+            created_at TEXT NOT NULL
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Add missing columns to video_clips for existing databases
+    // These columns may not exist if the table was created in an earlier version of the migration
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN shadow_opacity REAL")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN border_enabled INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN border_width REAL")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN border_color TEXT")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN has_audio INTEGER")
+        .execute(pool)
+        .await
+        .ok();
+
+    // Create indexes for video editor tables
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_backgrounds_video ON video_backgrounds(video_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_tracks_video ON video_tracks(video_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_tracks_sort ON video_tracks(sort_order)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_clips_track ON video_clips(track_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_clips_start ON video_clips(start_time_ms)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_zoom_clips_track ON video_zoom_clips(track_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_blur_clips_track ON video_blur_clips(track_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_pan_clips_track ON video_pan_clips(track_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_assets_video ON video_assets(video_id)")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+/// Migration from v18 to v19: Fix missing columns in video_clips table
+/// Some v18 databases were created before all columns were added to the CREATE TABLE
+async fn run_v18_to_v19_migration(pool: &DbPool) -> Result<(), RigidError> {
+    // Add missing columns to video_clips for existing databases
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN shadow_opacity REAL")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN border_enabled INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN border_width REAL")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN border_color TEXT")
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query("ALTER TABLE video_clips ADD COLUMN has_audio INTEGER")
         .execute(pool)
         .await
         .ok();

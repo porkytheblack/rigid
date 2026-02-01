@@ -114,6 +114,7 @@ export interface Annotation {
   description: string | null;
   severity: AnnotationSeverity;
   issue_id: string | null;
+  feature_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -125,6 +126,7 @@ export interface NewAnnotation {
   description?: string | null;
   severity?: AnnotationSeverity;
   issue_id?: string | null;
+  feature_id?: string | null;
 }
 
 export interface UpdateAnnotation {
@@ -132,6 +134,7 @@ export interface UpdateAnnotation {
   description?: string | null;
   severity?: AnnotationSeverity | null;
   issue_id?: string | null;
+  feature_id?: string | null;
 }
 
 // Issue types
@@ -290,6 +293,7 @@ export interface ScreenshotMarker {
   position_x: number;
   position_y: number;
   issue_id: string | null;
+  feature_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -302,6 +306,7 @@ export interface NewScreenshotMarker {
   position_x: number;
   position_y: number;
   issue_id?: string | null;
+  feature_id?: string | null;
 }
 
 export interface UpdateScreenshotMarker {
@@ -311,6 +316,7 @@ export interface UpdateScreenshotMarker {
   position_x?: number | null;
   position_y?: number | null;
   issue_id?: string | null;
+  feature_id?: string | null;
 }
 
 // Tag types
@@ -1306,7 +1312,8 @@ export interface NewDemoScreenshot {
   sort_order?: number | null;
 }
 
-// Demo Video (exported video output for a demo)
+// Demo Video (video project with its own isolated editor state)
+// Videos are independent entities under demos - each has its own tracks, clips, assets, etc.
 export interface DemoVideo {
   id: string;
   demo_id: string;
@@ -1316,6 +1323,7 @@ export interface DemoVideo {
   duration_ms: number;
   width: number;
   height: number;
+  frame_rate: number;
   file_size: number | null;
   format: string;
   created_at: string;
@@ -1325,11 +1333,12 @@ export interface DemoVideo {
 export interface NewDemoVideo {
   demo_id: string;
   name: string;
-  file_path: string;
+  file_path?: string | null;
   thumbnail_path?: string | null;
-  duration_ms: number;
-  width: number;
-  height: number;
+  duration_ms?: number | null;
+  width?: number | null;
+  height?: number | null;
+  frame_rate?: number | null;
   file_size?: number | null;
   format?: string | null;
 }
@@ -1339,6 +1348,9 @@ export interface UpdateDemoVideo {
   file_path?: string | null;
   thumbnail_path?: string | null;
   duration_ms?: number | null;
+  width?: number | null;
+  height?: number | null;
+  frame_rate?: number | null;
 }
 
 /** Export quality preset */
@@ -1367,4 +1379,440 @@ export interface DemoWithData {
   blurClips: DemoBlurClip[];
   panClips: DemoPanClip[];
   assets: DemoAsset[];
+}
+
+// Feature types
+export type FeatureStatus = 'planned' | 'in_progress' | 'completed' | 'deprecated';
+export type FeaturePriority = 'low' | 'medium' | 'high' | 'critical';
+
+export interface Feature {
+  id: string;
+  app_id: string;
+  name: string;
+  description: string | null;
+  status: FeatureStatus;
+  priority: FeaturePriority;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewFeature {
+  app_id: string;
+  name: string;
+  description?: string | null;
+  status?: FeatureStatus | null;
+  priority?: FeaturePriority | null;
+}
+
+export interface UpdateFeature {
+  name?: string | null;
+  description?: string | null;
+  status?: FeatureStatus | null;
+  priority?: FeaturePriority | null;
+  sort_order?: number | null;
+}
+
+export interface FeatureFilter {
+  app_id?: string | null;
+  status?: FeatureStatus | null;
+}
+
+// ============ Video Editor State Types ============
+
+export interface VideoWithData {
+  video: DemoVideo;
+  background: VideoBackground | null;
+  tracks: VideoTrack[];
+  clips: VideoClip[];
+  zoomClips: VideoZoomClip[];
+  blurClips: VideoBlurClip[];
+  panClips: VideoPanClip[];
+  assets: VideoAsset[];
+}
+
+export interface VideoBackground {
+  id: string;
+  video_id: string;
+  background_type: string;
+  color: string | null;
+  gradient_stops: string | null;
+  gradient_direction: string | null;
+  gradient_angle: number | null;
+  pattern_type: string | null;
+  pattern_color: string | null;
+  pattern_scale: number | null;
+  media_path: string | null;
+  media_scale: number | null;
+  media_position_x: number | null;
+  media_position_y: number | null;
+  image_url: string | null;
+  image_attribution: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewVideoBackground {
+  video_id: string;
+  background_type: string;
+  color?: string | null;
+  gradient_stops?: string | null;
+  gradient_direction?: string | null;
+  gradient_angle?: number | null;
+  pattern_type?: string | null;
+  pattern_color?: string | null;
+  pattern_scale?: number | null;
+  media_path?: string | null;
+  media_scale?: number | null;
+  media_position_x?: number | null;
+  media_position_y?: number | null;
+  image_url?: string | null;
+  image_attribution?: string | null;
+}
+
+export interface UpdateVideoBackground {
+  background_type?: string | null;
+  color?: string | null;
+  gradient_stops?: string | null;
+  gradient_direction?: string | null;
+  gradient_angle?: number | null;
+  pattern_type?: string | null;
+  pattern_color?: string | null;
+  pattern_scale?: number | null;
+  media_path?: string | null;
+  media_scale?: number | null;
+  media_position_x?: number | null;
+  media_position_y?: number | null;
+  image_url?: string | null;
+  image_attribution?: string | null;
+}
+
+export interface VideoTrack {
+  id: string;
+  video_id: string;
+  track_type: string;
+  name: string;
+  locked: boolean;
+  visible: boolean;
+  muted: boolean;
+  volume: number;
+  sort_order: number;
+  target_track_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewVideoTrack {
+  video_id: string;
+  track_type: string;
+  name: string;
+  locked?: boolean | null;
+  visible?: boolean | null;
+  muted?: boolean | null;
+  volume?: number | null;
+  sort_order?: number | null;
+  target_track_id?: string | null;
+}
+
+export interface UpdateVideoTrack {
+  name?: string | null;
+  locked?: boolean | null;
+  visible?: boolean | null;
+  muted?: boolean | null;
+  volume?: number | null;
+  sort_order?: number | null;
+  target_track_id?: string | null;
+}
+
+export interface VideoClip {
+  id: string;
+  track_id: string;
+  name: string;
+  source_path: string;
+  source_type: string;
+  source_duration_ms: number | null;
+  start_time_ms: number;
+  duration_ms: number;
+  in_point_ms: number;
+  out_point_ms: number | null;
+  position_x: number | null;
+  position_y: number | null;
+  scale: number | null;
+  rotation: number | null;
+  crop_top: number | null;
+  crop_bottom: number | null;
+  crop_left: number | null;
+  crop_right: number | null;
+  corner_radius: number | null;
+  opacity: number | null;
+  shadow_enabled: boolean;
+  shadow_blur: number | null;
+  shadow_offset_x: number | null;
+  shadow_offset_y: number | null;
+  shadow_color: string | null;
+  shadow_opacity: number | null;
+  border_enabled: boolean;
+  border_width: number | null;
+  border_color: string | null;
+  volume: number;
+  muted: boolean;
+  speed: number;
+  freeze_frame: boolean;
+  freeze_frame_time_ms: number | null;
+  transition_in_type: string | null;
+  transition_in_duration_ms: number | null;
+  transition_out_type: string | null;
+  transition_out_duration_ms: number | null;
+  audio_fade_in_ms: number | null;
+  audio_fade_out_ms: number | null;
+  linked_clip_id: string | null;
+  has_audio: boolean | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewVideoClip {
+  track_id: string;
+  name: string;
+  source_path: string;
+  source_type: string;
+  duration_ms: number;
+  source_duration_ms?: number | null;
+  start_time_ms?: number | null;
+  in_point_ms?: number | null;
+  out_point_ms?: number | null;
+  position_x?: number | null;
+  position_y?: number | null;
+  scale?: number | null;
+  rotation?: number | null;
+  crop_top?: number | null;
+  crop_bottom?: number | null;
+  crop_left?: number | null;
+  crop_right?: number | null;
+  corner_radius?: number | null;
+  opacity?: number | null;
+  shadow_enabled?: boolean | null;
+  shadow_blur?: number | null;
+  shadow_offset_x?: number | null;
+  shadow_offset_y?: number | null;
+  shadow_color?: string | null;
+  shadow_opacity?: number | null;
+  border_enabled?: boolean | null;
+  border_width?: number | null;
+  border_color?: string | null;
+  volume?: number | null;
+  muted?: boolean | null;
+  speed?: number | null;
+  freeze_frame?: boolean | null;
+  freeze_frame_time_ms?: number | null;
+  transition_in_type?: string | null;
+  transition_in_duration_ms?: number | null;
+  transition_out_type?: string | null;
+  transition_out_duration_ms?: number | null;
+  audio_fade_in_ms?: number | null;
+  audio_fade_out_ms?: number | null;
+  linked_clip_id?: string | null;
+  has_audio?: boolean | null;
+}
+
+export interface UpdateVideoClip {
+  track_id?: string | null;
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  in_point_ms?: number | null;
+  out_point_ms?: number | null;
+  position_x?: number | null;
+  position_y?: number | null;
+  scale?: number | null;
+  rotation?: number | null;
+  crop_top?: number | null;
+  crop_bottom?: number | null;
+  crop_left?: number | null;
+  crop_right?: number | null;
+  corner_radius?: number | null;
+  opacity?: number | null;
+  shadow_enabled?: boolean | null;
+  shadow_blur?: number | null;
+  shadow_offset_x?: number | null;
+  shadow_offset_y?: number | null;
+  shadow_color?: string | null;
+  shadow_opacity?: number | null;
+  border_enabled?: boolean | null;
+  border_width?: number | null;
+  border_color?: string | null;
+  volume?: number | null;
+  muted?: boolean | null;
+  speed?: number | null;
+  freeze_frame?: boolean | null;
+  freeze_frame_time_ms?: number | null;
+  transition_in_type?: string | null;
+  transition_in_duration_ms?: number | null;
+  transition_out_type?: string | null;
+  transition_out_duration_ms?: number | null;
+  audio_fade_in_ms?: number | null;
+  audio_fade_out_ms?: number | null;
+  linked_clip_id?: string | null;
+}
+
+export interface VideoZoomClip {
+  id: string;
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  zoom_scale: number;
+  zoom_center_x: number;
+  zoom_center_y: number;
+  ease_in_duration_ms: number;
+  ease_out_duration_ms: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewVideoZoomClip {
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  zoom_scale?: number | null;
+  zoom_center_x?: number | null;
+  zoom_center_y?: number | null;
+  ease_in_duration_ms?: number | null;
+  ease_out_duration_ms?: number | null;
+}
+
+export interface UpdateVideoZoomClip {
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  zoom_scale?: number | null;
+  zoom_center_x?: number | null;
+  zoom_center_y?: number | null;
+  ease_in_duration_ms?: number | null;
+  ease_out_duration_ms?: number | null;
+}
+
+export interface VideoBlurClip {
+  id: string;
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  blur_intensity: number;
+  region_x: number;
+  region_y: number;
+  region_width: number;
+  region_height: number;
+  corner_radius: number;
+  blur_inside: boolean;
+  ease_in_duration_ms: number;
+  ease_out_duration_ms: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewVideoBlurClip {
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  blur_intensity?: number | null;
+  region_x?: number | null;
+  region_y?: number | null;
+  region_width?: number | null;
+  region_height?: number | null;
+  corner_radius?: number | null;
+  blur_inside?: boolean | null;
+  ease_in_duration_ms?: number | null;
+  ease_out_duration_ms?: number | null;
+}
+
+export interface UpdateVideoBlurClip {
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  blur_intensity?: number | null;
+  region_x?: number | null;
+  region_y?: number | null;
+  region_width?: number | null;
+  region_height?: number | null;
+  corner_radius?: number | null;
+  blur_inside?: boolean | null;
+  ease_in_duration_ms?: number | null;
+  ease_out_duration_ms?: number | null;
+}
+
+export interface VideoPanClip {
+  id: string;
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  start_x: number;
+  start_y: number;
+  end_x: number;
+  end_y: number;
+  ease_in_duration_ms: number;
+  ease_out_duration_ms: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewVideoPanClip {
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  start_x?: number | null;
+  start_y?: number | null;
+  end_x?: number | null;
+  end_y?: number | null;
+  ease_in_duration_ms?: number | null;
+  ease_out_duration_ms?: number | null;
+}
+
+export interface UpdateVideoPanClip {
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  start_x?: number | null;
+  start_y?: number | null;
+  end_x?: number | null;
+  end_y?: number | null;
+  ease_in_duration_ms?: number | null;
+  ease_out_duration_ms?: number | null;
+}
+
+export interface VideoAsset {
+  id: string;
+  video_id: string;
+  name: string;
+  file_path: string;
+  asset_type: string;
+  duration_ms: number | null;
+  width: number | null;
+  height: number | null;
+  thumbnail_path: string | null;
+  file_size: number | null;
+  has_audio: boolean | null;
+  created_at: string;
+}
+
+export interface NewVideoAsset {
+  video_id: string;
+  name: string;
+  file_path: string;
+  asset_type: string;
+  duration_ms?: number | null;
+  width?: number | null;
+  height?: number | null;
+  thumbnail_path?: string | null;
+  file_size?: number | null;
+  has_audio?: boolean | null;
+}
+
+export interface UpdateVideoAsset {
+  name?: string | null;
+  thumbnail_path?: string | null;
 }
