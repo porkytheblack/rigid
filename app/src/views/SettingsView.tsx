@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   Settings,
+  Bot,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useRouterStore, useSettingsStore } from "@/lib/stores";
 import { RigidLogo } from "@/components/ui/rigid-logo";
+import { AIProviderConfig } from "@/components/ai/ai-provider-config";
 
 export function SettingsView() {
   const { navigate, goBack, canGoBack } = useRouterStore();
@@ -16,6 +20,7 @@ export function SettingsView() {
     load: loadSettings,
     set: setSetting,
   } = useSettingsStore();
+  const [aiSectionExpanded, setAiSectionExpanded] = useState(true);
 
   useEffect(() => {
     loadSettings();
@@ -190,6 +195,34 @@ export function SettingsView() {
               <span className="text-[var(--text-body-sm)] text-[var(--text-primary)] font-medium">Open Settings →</span>
             </button>
           </div>
+        </section>
+
+        {/* AI Settings */}
+        <section className="mb-8">
+          <button
+            onClick={() => setAiSectionExpanded(!aiSectionExpanded)}
+            className="w-full flex items-center justify-between mb-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center bg-[var(--text-primary)]">
+                <Bot size={16} className="text-[var(--text-inverse)]" />
+              </div>
+              <h2 className="text-[var(--text-heading-sm)] font-semibold text-[var(--text-primary)]">
+                AI Providers
+              </h2>
+            </div>
+            {aiSectionExpanded ? (
+              <ChevronUp size={20} className="text-[var(--text-secondary)]" />
+            ) : (
+              <ChevronDown size={20} className="text-[var(--text-secondary)]" />
+            )}
+          </button>
+
+          {aiSectionExpanded && (
+            <div className="border border-[var(--border-default)] bg-[var(--surface-secondary)] overflow-hidden">
+              <AIProviderConfig />
+            </div>
+          )}
         </section>
 
         {/* About */}

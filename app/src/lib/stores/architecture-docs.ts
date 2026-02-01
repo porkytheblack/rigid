@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
+import { deepClone } from '@/lib/utils';
 import type {
   ArchitectureDoc,
   NewArchitectureDoc,
@@ -61,8 +62,9 @@ export const useArchitectureDocsStore = create<ArchitectureDocsStore>()(
 
       try {
         const items = await archDocCommands.list(appId);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -81,12 +83,14 @@ export const useArchitectureDocsStore = create<ArchitectureDocsStore>()(
 
       try {
         const docWithBlocks = await archDocCommands.getWithBlocks(id);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedDocWithBlocks = deepClone(docWithBlocks);
         set((state) => {
-          state.currentDoc = docWithBlocks;
+          state.currentDoc = clonedDocWithBlocks;
           state.selectedId = id;
           state.loading = false;
         });
-        return docWithBlocks;
+        return clonedDocWithBlocks;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -110,11 +114,13 @@ export const useArchitectureDocsStore = create<ArchitectureDocsStore>()(
 
       try {
         const doc = await archDocCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedDoc = deepClone(doc);
         set((state) => {
-          state.items.push(doc);
+          state.items.push(clonedDoc);
           state.loading = false;
         });
-        return doc;
+        return clonedDoc;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -140,16 +146,18 @@ export const useArchitectureDocsStore = create<ArchitectureDocsStore>()(
 
       try {
         const doc = await archDocCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedDoc = deepClone(doc);
         set((state) => {
           const index = state.items.findIndex((item) => item.id === id);
           if (index !== -1) {
-            state.items[index] = doc;
+            state.items[index] = clonedDoc;
           }
           if (state.currentDoc?.doc.id === id) {
-            state.currentDoc.doc = doc;
+            state.currentDoc.doc = clonedDoc;
           }
         });
-        return doc;
+        return clonedDoc;
       } catch (error) {
         // Rollback
         set((state) => {
@@ -234,12 +242,14 @@ export const useArchitectureDocsStore = create<ArchitectureDocsStore>()(
     createBlock: async (block) => {
       try {
         const newBlock = await archDocCommands.createBlock(block);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedBlock = deepClone(newBlock);
         set((state) => {
           if (state.currentDoc && state.currentDoc.doc.id === block.doc_id) {
-            state.currentDoc.blocks.push(newBlock);
+            state.currentDoc.blocks.push(clonedBlock);
           }
         });
-        return newBlock;
+        return clonedBlock;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -251,15 +261,17 @@ export const useArchitectureDocsStore = create<ArchitectureDocsStore>()(
     updateBlock: async (id, updates) => {
       try {
         const updatedBlock = await archDocCommands.updateBlock(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedBlock = deepClone(updatedBlock);
         set((state) => {
           if (state.currentDoc) {
             const index = state.currentDoc.blocks.findIndex((b) => b.id === id);
             if (index !== -1) {
-              state.currentDoc.blocks[index] = updatedBlock;
+              state.currentDoc.blocks[index] = clonedBlock;
             }
           }
         });
-        return updatedBlock;
+        return clonedBlock;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -287,12 +299,14 @@ export const useArchitectureDocsStore = create<ArchitectureDocsStore>()(
     bulkReplaceBlocks: async (docId, blocks) => {
       try {
         const newBlocks = await archDocCommands.bulkReplaceBlocks(docId, blocks);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedBlocks = deepClone(newBlocks);
         set((state) => {
           if (state.currentDoc && state.currentDoc.doc.id === docId) {
-            state.currentDoc.blocks = newBlocks;
+            state.currentDoc.blocks = clonedBlocks;
           }
         });
-        return newBlocks;
+        return clonedBlocks;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);

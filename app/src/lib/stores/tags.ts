@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import type { Tag, NewTag, UpdateTag, TaggableType } from '@/lib/tauri/types';
 import { tags as tagCommands } from '@/lib/tauri/commands';
+import { deepClone } from '@/lib/utils';
 
 interface TagsState {
   items: Tag[];
@@ -38,8 +39,9 @@ export const useTagsStore = create<TagsStore>()(
 
       try {
         const items = await tagCommands.list();
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -58,12 +60,14 @@ export const useTagsStore = create<TagsStore>()(
 
       try {
         const tag = await tagCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedTag = deepClone(tag);
         set((state) => {
-          state.items.push(tag);
+          state.items.push(clonedTag);
           state.items.sort((a: Tag, b: Tag) => a.name.localeCompare(b.name));
           state.loading = false;
         });
-        return tag;
+        return clonedTag;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -86,14 +90,16 @@ export const useTagsStore = create<TagsStore>()(
 
       try {
         const tag = await tagCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedTag = deepClone(tag);
         set((state) => {
           const index = state.items.findIndex((item: Tag) => item.id === id);
           if (index !== -1) {
-            state.items[index] = tag;
+            state.items[index] = clonedTag;
           }
           state.items.sort((a: Tag, b: Tag) => a.name.localeCompare(b.name));
         });
-        return tag;
+        return clonedTag;
       } catch (error) {
         // Rollback
         set((state) => {

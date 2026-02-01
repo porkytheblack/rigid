@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
+import { deepClone } from '@/lib/utils';
 import type {
   Demo,
   NewDemo,
@@ -726,7 +727,7 @@ export const useDemosStore = create<DemosStore>()(
       try {
         const demos = await demosApi.list({ app_id: appId });
         set((state) => {
-          state.items = demos;
+          state.items = deepClone(demos);
           state.loading = false;
         });
       } catch (err) {
@@ -760,7 +761,7 @@ export const useDemosStore = create<DemosStore>()(
         const demoWithData = await demosApi.getWithData(id);
 
         set((state) => {
-          state.currentDemo = demoWithData;
+          state.currentDemo = deepClone(demoWithData);
           state.selectedDemoId = id;
           state.playback.durationMs = demoWithData.demo.duration_ms || 60000;
           state.loading = false;
@@ -1025,7 +1026,7 @@ export const useDemosStore = create<DemosStore>()(
       try {
         // Create the demo in the database
         // Note: No default tracks are created - user must explicitly add tracks
-        const newDemo = await demosApi.create(data);
+        const newDemo = deepClone(await demosApi.create(data));
 
         // Create DemoWithData for immediate use (no default tracks)
         const demoWithData: DemoWithData = {
@@ -1065,7 +1066,7 @@ export const useDemosStore = create<DemosStore>()(
     update: async (id, updates) => {
       try {
         // Update in the database
-        const updatedDemo = await demosApi.update(id, updates);
+        const updatedDemo = deepClone(await demosApi.update(id, updates));
 
         // Update local state
         set((state) => {

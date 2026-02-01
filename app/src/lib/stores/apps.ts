@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import type { App, AppFilter, NewApp, UpdateApp } from '@/lib/tauri/types';
 import { apps as appCommands } from '@/lib/tauri/commands';
+import { deepClone } from '@/lib/utils';
 
 interface AppsState {
   items: App[];
@@ -42,8 +43,9 @@ export const useAppsStore = create<AppsStore>()(
 
       try {
         const items = await appCommands.list(get().filter);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -75,11 +77,13 @@ export const useAppsStore = create<AppsStore>()(
 
       try {
         const app = await appCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedApp = deepClone(app);
         set((state) => {
-          state.items.unshift(app);
+          state.items.unshift(clonedApp);
           state.loading = false;
         });
-        return app;
+        return clonedApp;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -102,13 +106,15 @@ export const useAppsStore = create<AppsStore>()(
 
       try {
         const app = await appCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedApp = deepClone(app);
         set((state) => {
           const index = state.items.findIndex((item) => item.id === id);
           if (index !== -1) {
-            state.items[index] = app;
+            state.items[index] = clonedApp;
           }
         });
-        return app;
+        return clonedApp;
       } catch (error) {
         // Rollback
         set((state) => {

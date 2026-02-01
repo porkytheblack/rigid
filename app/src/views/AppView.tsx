@@ -3,6 +3,9 @@
 import { useEffect, useState, useRef } from "react";
 import { ArrowLeft, Plus, Search, Settings, MoreHorizontal, Trash2, Pencil, FileText, CheckCircle, Clock, AlertCircle, X, Command, Compass, BookOpen, Video, Flag, ChevronDown } from "lucide-react";
 import { useAppsStore, useExplorationsStore, useRouterStore, useArchitectureDocsStore, useDemosStore, useFeaturesStore } from "@/lib/stores";
+import { useAIChatStore } from "@/lib/stores/ai-chat";
+import { RigidCharacter } from "@/components/ui/rigid-character";
+import { cn } from "@/lib/utils";
 import type { NewExploration, NewArchitectureDoc } from "@/lib/tauri/types";
 import { NewDemoDialog } from "@/components/demos/NewDemoDialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -28,6 +31,8 @@ export function AppView({ appId }: AppViewProps) {
   const { items: archDocs, loading: archDocsLoading, loadByApp: loadArchDocs, create: createArchDoc, delete: deleteArchDoc } = useArchitectureDocsStore();
   const { items: demos, loading: demosLoading, loadByApp: loadDemos, create: createDemo, delete: deleteDemo } = useDemosStore();
   const { items: features, loadByApp: loadFeatures } = useFeaturesStore();
+  const openAI = useAIChatStore((state) => state.open);
+  const isAIOpen = useAIChatStore((state) => state.isOpen);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -231,8 +236,8 @@ export function AppView({ appId }: AppViewProps) {
   return (
     <div className="h-screen bg-[var(--surface-primary)] flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center justify-between px-8 flex-shrink-0">
-        <div className="flex items-center gap-5">
+      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center px-8 flex-shrink-0">
+        <div className="flex items-center gap-5 flex-1">
           <button onClick={() => navigate({ name: "home" })} className="p-2 -ml-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]">
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -243,9 +248,30 @@ export function AppView({ appId }: AppViewProps) {
             <span className="font-semibold text-[var(--text-primary)] text-[var(--text-body-md)]">{app?.name || "Loading..."}</span>
           </div>
         </div>
-        <button onClick={() => navigate({ name: "settings" })} className="p-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]">
-          <Settings className="w-5 h-5" />
+
+        {/* Center - Rigid AI Button */}
+        <button
+          onClick={() => openAI()}
+          className={cn(
+            "flex items-center justify-center p-1.5 rounded-lg transition-all duration-200",
+            "hover:bg-[var(--bg-hover)] hover:scale-110",
+            "active:scale-95",
+            isAIOpen && "bg-[var(--accent-muted)] ring-2 ring-[var(--accent)]"
+          )}
+          title="Open Rigid AI"
+        >
+          <RigidCharacter
+            size={28}
+            animation={isAIOpen ? "pulse" : "idle"}
+            trackMouse={!isAIOpen}
+          />
         </button>
+
+        <div className="flex items-center justify-end flex-1">
+          <button onClick={() => navigate({ name: "settings" })} className="p-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]">
+            <Settings className="w-5 h-5" />
+          </button>
+        </div>
       </header>
 
       {/* Main Content */}

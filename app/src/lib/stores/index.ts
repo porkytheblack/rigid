@@ -7,6 +7,7 @@ export { useScreenshotsStore } from './screenshots';
 export { useTagsStore } from './tags';
 export { useSettingsStore } from './settings';
 export { useAIStore } from './ai';
+export { useAIChatStore, selectCurrentConversation, selectCurrentMessages, selectConversationsByMode } from './ai-chat';
 export { useRouterStore } from './router';
 export { useDiagramsStore } from './diagrams';
 export { useArchitectureDocsStore } from './architecture-docs';

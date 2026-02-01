@@ -71,6 +71,7 @@ export default function App() {
         <DemoView
           appId={route.appId}
           demoId={route.demoId}
+          initialTab={route.tab}
         />
       );
     case "demo-editor":

@@ -1,3 +1,10 @@
 export { AIStatusIndicator } from './ai-status-indicator';
 export { ProviderSelector } from './provider-selector';
 export { APIKeyInput } from './api-key-input';
+export { AIPanel } from './ai-panel';
+export { AIChat } from './ai-chat';
+export { AIModeSelector } from './ai-mode-selector';
+export { AISettings } from './ai-settings';
+export { AIContextIndicator } from './ai-context-indicator';
+export { AIConversationList } from './ai-conversation-list';
+export { AIProviderConfig } from './ai-provider-config';

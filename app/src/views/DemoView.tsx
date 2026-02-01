@@ -53,7 +53,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { copyFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
-import type { Demo, DemoFormat, DemoVideo, Recording, Screenshot } from "@/lib/tauri/types";
+import type { DemoFormat, DemoVideo, Recording, Screenshot } from "@/lib/tauri/types";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { EditDemoDialog } from "@/components/demos/EditDemoDialog";
@@ -65,9 +65,10 @@ type PickerMode = "screenshot" | "recording";
 interface DemoViewProps {
   appId: string;
   demoId: string;
+  initialTab?: 'recordings' | 'screenshots' | 'videos';
 }
 
-export function DemoView({ appId, demoId }: DemoViewProps) {
+export function DemoView({ appId, demoId, initialTab }: DemoViewProps) {
   const { navigate } = useRouterStore();
   const confirm = useConfirm();
   const { addToast } = useToast();
@@ -86,14 +87,12 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
     stopRecording,
     cancelRecording,
     checkRecordingStatus,
-    delete: deleteRecording,
     update: updateRecording,
   } = useRecordingsStore();
   const {
     items: allScreenshots,
     loading: screenshotsLoading,
     loadByApp: loadScreenshots,
-    delete: deleteScreenshot,
   } = useScreenshotsStore();
   const {
     loadByApp: loadDemos,
@@ -106,11 +105,11 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
   const [demoRecordings, setDemoRecordings] = useState<Recording[]>([]);
   const [demoScreenshots, setDemoScreenshots] = useState<Screenshot[]>([]);
   const [demoVideosList, setDemoVideosList] = useState<DemoVideo[]>([]);
-  const [loadingDemoMedia, setLoadingDemoMedia] = useState(false);
+  const [_loadingDemoMedia, setLoadingDemoMedia] = useState(false);
 
   // Available recordings/screenshots for this app (to add to demo)
-  const appRecordings = allRecordings.filter((r) => r.app_id === appId);
-  const appScreenshots = allScreenshots.filter((s) => s.app_id === appId);
+  const _appRecordings = allRecordings.filter((r) => r.app_id === appId);
+  const _appScreenshots = allScreenshots.filter((s) => s.app_id === appId);
 
   // Get the current demo
   const demo = getDemoById(demoId);
@@ -127,7 +126,15 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
   // Screenshot viewer state
   const [viewingScreenshot, setViewingScreenshot] = useState<Screenshot | null>(null);
 
-  const [activeTab, setActiveTab] = useState<Tab>("recordings");
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab || "recordings");
+
+  // Sync activeTab with initialTab when navigating back with a specific tab
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [showWindowPicker, setShowWindowPicker] = useState(false);
@@ -808,7 +815,7 @@ export function DemoView({ appId, demoId }: DemoViewProps) {
   };
 
   // Start editing demo name
-  const handleStartEditingDemoName = () => {
+  const _handleStartEditingDemoName = () => {
     if (demo) {
       setDemoNameInput(demo.name);
       setEditingDemoName(true);

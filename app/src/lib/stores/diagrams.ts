@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
+import { deepClone } from '@/lib/utils';
 import type {
   Diagram,
   DiagramFilter,
@@ -78,8 +79,9 @@ export const useDiagramsStore = create<DiagramsStore>()(
 
       try {
         const items = await diagramCommands.list(get().filter);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -99,8 +101,9 @@ export const useDiagramsStore = create<DiagramsStore>()(
 
       try {
         const items = await diagramCommands.listByTest(explorationId);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -120,8 +123,9 @@ export const useDiagramsStore = create<DiagramsStore>()(
 
       try {
         const items = await diagramCommands.listByArchitectureDoc(docId);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -140,12 +144,14 @@ export const useDiagramsStore = create<DiagramsStore>()(
 
       try {
         const diagramWithData = await diagramCommands.getWithData(id);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedDiagram = deepClone(diagramWithData);
         set((state) => {
-          state.currentDiagram = diagramWithData;
+          state.currentDiagram = clonedDiagram;
           state.selectedId = id;
           state.loading = false;
         });
-        return diagramWithData;
+        return clonedDiagram;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -176,11 +182,13 @@ export const useDiagramsStore = create<DiagramsStore>()(
 
       try {
         const diagram = await diagramCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedDiagram = deepClone(diagram);
         set((state) => {
-          state.items.unshift(diagram);
+          state.items.unshift(clonedDiagram);
           state.loading = false;
         });
-        return diagram;
+        return clonedDiagram;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -206,16 +214,18 @@ export const useDiagramsStore = create<DiagramsStore>()(
 
       try {
         const diagram = await diagramCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedDiagram = deepClone(diagram);
         set((state) => {
           const index = state.items.findIndex((item) => item.id === id);
           if (index !== -1) {
-            state.items[index] = diagram;
+            state.items[index] = clonedDiagram;
           }
           if (state.currentDiagram?.diagram.id === id) {
-            state.currentDiagram.diagram = diagram;
+            state.currentDiagram.diagram = clonedDiagram;
           }
         });
-        return diagram;
+        return clonedDiagram;
       } catch (error) {
         // Rollback
         set((state) => {
@@ -273,12 +283,14 @@ export const useDiagramsStore = create<DiagramsStore>()(
     addNode: async (node) => {
       try {
         const newNode = await diagramCommands.createNode(node);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedNode = deepClone(newNode);
         set((state) => {
           if (state.currentDiagram && state.currentDiagram.diagram.id === node.diagram_id) {
-            state.currentDiagram.nodes.push(newNode);
+            state.currentDiagram.nodes.push(clonedNode);
           }
         });
-        return newNode;
+        return clonedNode;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -290,15 +302,17 @@ export const useDiagramsStore = create<DiagramsStore>()(
     updateNode: async (id, updates) => {
       try {
         const updatedNode = await diagramCommands.updateNode(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedNode = deepClone(updatedNode);
         set((state) => {
           if (state.currentDiagram) {
             const index = state.currentDiagram.nodes.findIndex((n) => n.id === id);
             if (index !== -1) {
-              state.currentDiagram.nodes[index] = updatedNode;
+              state.currentDiagram.nodes[index] = clonedNode;
             }
           }
         });
-        return updatedNode;
+        return clonedNode;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -347,12 +361,14 @@ export const useDiagramsStore = create<DiagramsStore>()(
     addEdge: async (edge) => {
       try {
         const newEdge = await diagramCommands.createEdge(edge);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedEdge = deepClone(newEdge);
         set((state) => {
           if (state.currentDiagram && state.currentDiagram.diagram.id === edge.diagram_id) {
-            state.currentDiagram.edges.push(newEdge);
+            state.currentDiagram.edges.push(clonedEdge);
           }
         });
-        return newEdge;
+        return clonedEdge;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -364,15 +380,17 @@ export const useDiagramsStore = create<DiagramsStore>()(
     updateEdge: async (id, updates) => {
       try {
         const updatedEdge = await diagramCommands.updateEdge(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedEdge = deepClone(updatedEdge);
         set((state) => {
           if (state.currentDiagram) {
             const index = state.currentDiagram.edges.findIndex((e) => e.id === id);
             if (index !== -1) {
-              state.currentDiagram.edges[index] = updatedEdge;
+              state.currentDiagram.edges[index] = clonedEdge;
             }
           }
         });
-        return updatedEdge;
+        return clonedEdge;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);

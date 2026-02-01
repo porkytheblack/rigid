@@ -3,7 +3,10 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { ArrowLeft, Camera, Video, Square, Image as ImageIcon, Settings, Clock, FileText, CheckCircle, AlertCircle, Trash2, Play, Monitor, X, Loader2, RefreshCw, Download, Mic, MicOff, MousePointer2, Bug, MessageSquare, ChevronLeft, ChevronRight, CheckSquare, Film, Upload, GitBranch, Plus } from "lucide-react";
 import { useAppsStore, useExplorationsStore, useRecordingsStore, useScreenshotsStore, useRouterStore, useSettingsStore, useDiagramsStore } from "@/lib/stores";
+import { useAIChatStore } from "@/lib/stores/ai-chat";
 import { capture as captureCommands, nativeCapture, screenshots as screenshotsApi, recordings as recordingsApi, documentBlocks as documentBlocksApi, explorationTodos as explorationTodosApi, annotations as annotationsApi, type AudioDevice, type NativeWindowInfo, type NativeDisplayInfo } from "@/lib/tauri/commands";
+import { RigidCharacter } from "@/components/ui/rigid-character";
+import { cn } from "@/lib/utils";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { copyFile } from "@tauri-apps/plugin-fs";
@@ -45,6 +48,8 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
   const { navigate } = useRouterStore();
   const confirm = useConfirm();
   const { addToast } = useToast();
+  const openAI = useAIChatStore((state) => state.open);
+  const isAIOpen = useAIChatStore((state) => state.isOpen);
 
   // Navigate back to app grid view
   const goBackToApp = useCallback(() => {
@@ -101,6 +106,14 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
   const { items: settings, load: loadSettings } = useSettingsStore();
 
   const [activeTab, setActiveTab] = useState<Tab>(initialTab || "doc");
+
+  // Sync activeTab with initialTab when navigating back with a specific tab
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [showWindowPicker, setShowWindowPicker] = useState(false);
@@ -778,8 +791,8 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
   return (
     <div className="h-screen bg-[var(--surface-primary)] flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0 bg-[var(--surface-primary)]">
-        <div className="flex items-center gap-3">
+      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center px-4 flex-shrink-0 bg-[var(--surface-primary)]">
+        <div className="flex items-center gap-3 flex-1">
           <button onClick={goBackToApp} className="p-2 -ml-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]">
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -794,7 +807,26 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Center - Rigid AI Button */}
+        <button
+          onClick={() => openAI()}
+          className={cn(
+            "flex items-center justify-center p-1.5 rounded-lg transition-all duration-200",
+            "hover:bg-[var(--bg-hover)] hover:scale-110",
+            "active:scale-95",
+            isAIOpen && "bg-[var(--accent-muted)] ring-2 ring-[var(--accent)]"
+          )}
+          title="Open Rigid AI"
+        >
+          <RigidCharacter
+            size={28}
+            animation={isAIOpen ? "pulse" : "idle"}
+            trackMouse={!isAIOpen}
+          />
+        </button>
+
+        <div className="flex items-center gap-2 flex-1 justify-end">
           <div className="relative">
             <select value={exploration?.status || "draft"} onChange={(e) => handleStatusChange(e.target.value as ExplorationStatus)} className="appearance-none h-8 pl-8 pr-6 text-[var(--text-caption)] font-medium uppercase tracking-wide border border-[var(--border-default)] bg-[var(--surface-secondary)] cursor-pointer focus:outline-none focus:border-[var(--border-strong)]" style={{ color: status.color }}>
               <option value="draft">Draft</option>

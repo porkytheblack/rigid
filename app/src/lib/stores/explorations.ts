@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import type { Exploration, ExplorationFilter, NewExploration, UpdateExploration } from '@/lib/tauri/types';
 import { tests as explorationCommands } from '@/lib/tauri/commands';
+import { deepClone } from '@/lib/utils';
 
 interface ExplorationsState {
   items: Exploration[];
@@ -43,8 +44,9 @@ export const useExplorationsStore = create<ExplorationsStore>()(
 
       try {
         const items = await explorationCommands.list(get().filter);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -64,8 +66,9 @@ export const useExplorationsStore = create<ExplorationsStore>()(
 
       try {
         const items = await explorationCommands.listByApp(appId);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -97,11 +100,13 @@ export const useExplorationsStore = create<ExplorationsStore>()(
 
       try {
         const exploration = await explorationCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedExploration = deepClone(exploration);
         set((state) => {
-          state.items.unshift(exploration);
+          state.items.unshift(clonedExploration);
           state.loading = false;
         });
-        return exploration;
+        return clonedExploration;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -124,13 +129,15 @@ export const useExplorationsStore = create<ExplorationsStore>()(
 
       try {
         const exploration = await explorationCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedExploration = deepClone(exploration);
         set((state) => {
           const index = state.items.findIndex((item) => item.id === id);
           if (index !== -1) {
-            state.items[index] = exploration;
+            state.items[index] = clonedExploration;
           }
         });
-        return exploration;
+        return clonedExploration;
       } catch (error) {
         // Rollback
         set((state) => {

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import type { Feature, FeatureFilter, NewFeature, UpdateFeature } from '@/lib/tauri/types';
+import type { Feature, NewFeature, UpdateFeature } from '@/lib/tauri/types';
 import { features as featureCommands } from '@/lib/tauri/commands';
+import { deepClone } from '@/lib/utils';
 
 interface FeaturesState {
   items: Feature[];
@@ -44,8 +45,9 @@ export const useFeaturesStore = create<FeaturesStore>()(
 
       try {
         const items = await featureCommands.listByApp(appId);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -70,11 +72,13 @@ export const useFeaturesStore = create<FeaturesStore>()(
 
       try {
         const feature = await featureCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedFeature = deepClone(feature);
         set((state) => {
-          state.items.push(feature);
+          state.items.push(clonedFeature);
           state.loading = false;
         });
-        return feature;
+        return clonedFeature;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -97,13 +101,15 @@ export const useFeaturesStore = create<FeaturesStore>()(
 
       try {
         const feature = await featureCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedFeature = deepClone(feature);
         set((state) => {
           const index = state.items.findIndex((item) => item.id === id);
           if (index !== -1) {
-            state.items[index] = feature;
+            state.items[index] = clonedFeature;
           }
         });
-        return feature;
+        return clonedFeature;
       } catch (error) {
         // Rollback
         set((state) => {

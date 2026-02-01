@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import type { Issue, IssueFilter, NewIssue, UpdateIssue } from '@/lib/tauri/types';
 import { issues as issueCommands } from '@/lib/tauri/commands';
+import { deepClone } from '@/lib/utils';
 
 interface IssuesState {
   items: Issue[];
@@ -48,8 +49,9 @@ export const useIssuesStore = create<IssuesStore>()(
 
       try {
         const items = await issueCommands.list(filter || get().filter);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -81,11 +83,13 @@ export const useIssuesStore = create<IssuesStore>()(
 
       try {
         const issue = await issueCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedIssue = deepClone(issue);
         set((state) => {
-          state.items.unshift(issue);
+          state.items.unshift(clonedIssue);
           state.loading = false;
         });
-        return issue;
+        return clonedIssue;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -108,13 +112,15 @@ export const useIssuesStore = create<IssuesStore>()(
 
       try {
         const issue = await issueCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedIssue = deepClone(issue);
         set((state) => {
           const index = state.items.findIndex((item: Issue) => item.id === id);
           if (index !== -1) {
-            state.items[index] = issue;
+            state.items[index] = clonedIssue;
           }
         });
-        return issue;
+        return clonedIssue;
       } catch (error) {
         // Rollback
         set((state) => {

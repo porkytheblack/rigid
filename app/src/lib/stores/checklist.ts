@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import type { ChecklistItem, ChecklistFilter, NewChecklistItem, UpdateChecklistItem } from '@/lib/tauri/types';
 import { checklist as checklistCommands } from '@/lib/tauri/commands';
+import { deepClone } from '@/lib/utils';
 
 interface ChecklistState {
   items: ChecklistItem[];
@@ -45,8 +46,9 @@ export const useChecklistStore = create<ChecklistStore>()(
 
       try {
         const items = await checklistCommands.list(get().filter);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -78,12 +80,14 @@ export const useChecklistStore = create<ChecklistStore>()(
 
       try {
         const item = await checklistCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedItem = deepClone(item);
         set((state) => {
-          state.items.push(item);
+          state.items.push(clonedItem);
           state.loading = false;
         });
         get().loadCounts();
-        return item;
+        return clonedItem;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -106,14 +110,16 @@ export const useChecklistStore = create<ChecklistStore>()(
 
       try {
         const item = await checklistCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedItem = deepClone(item);
         set((state) => {
           const index = state.items.findIndex((item: ChecklistItem) => item.id === id);
           if (index !== -1) {
-            state.items[index] = item;
+            state.items[index] = clonedItem;
           }
         });
         get().loadCounts();
-        return item;
+        return clonedItem;
       } catch (error) {
         // Rollback
         set((state) => {

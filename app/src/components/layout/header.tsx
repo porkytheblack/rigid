@@ -6,6 +6,8 @@ import { ChevronRight, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { RecordingIndicator } from "./recording-indicator";
+import { RigidCharacter } from "@/components/ui/rigid-character";
+import { useAIChatStore } from "@/lib/stores/ai-chat";
 
 interface HeaderProps {
   title?: string;
@@ -26,6 +28,8 @@ const pageTitles: Record<string, string> = {
 
 export function Header({ title, description, actions }: HeaderProps) {
   const pathname = usePathname();
+  const openAI = useAIChatStore((state) => state.open);
+  const isAIOpen = useAIChatStore((state) => state.isOpen);
 
   // Build breadcrumbs from pathname
   const pathSegments = pathname.split("/").filter(Boolean);
@@ -39,9 +43,9 @@ export function Header({ title, description, actions }: HeaderProps) {
   const pageTitle = title || pageTitles[pathname] || "Rigid";
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between gap-4 h-14 px-6 bg-[var(--bg-base)] border-b border-[var(--border-subtle)]">
+    <header className="sticky top-0 z-30 flex items-center gap-4 h-14 px-6 bg-[var(--bg-base)] border-b border-[var(--border-subtle)]">
       {/* Left side - Title and Breadcrumbs */}
-      <div className="flex flex-col justify-center min-w-0">
+      <div className="flex flex-col justify-center min-w-0 flex-1">
         {/* Breadcrumbs */}
         {breadcrumbs.length > 0 && (
           <nav className="flex items-center gap-1 text-[var(--text-xs)] text-[var(--text-tertiary)]">
@@ -78,8 +82,26 @@ export function Header({ title, description, actions }: HeaderProps) {
         )}
       </div>
 
+      {/* Center - Rigid AI Button */}
+      <button
+        onClick={() => openAI()}
+        className={cn(
+          "flex items-center justify-center p-1.5 rounded-lg transition-all duration-200",
+          "hover:bg-[var(--bg-hover)] hover:scale-110",
+          "active:scale-95",
+          isAIOpen && "bg-[var(--accent-muted)] ring-2 ring-[var(--accent)]"
+        )}
+        title="Open Rigid AI"
+      >
+        <RigidCharacter
+          size={28}
+          animation={isAIOpen ? "pulse" : "idle"}
+          trackMouse={!isAIOpen}
+        />
+      </button>
+
       {/* Right side - Search and Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-1 justify-end">
         {/* Recording Indicator */}
         <RecordingIndicator />
 

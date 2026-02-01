@@ -9,6 +9,7 @@ import type {
   AIResponse,
 } from '@/lib/tauri/types';
 import { ai as aiCommands } from '@/lib/tauri/commands';
+import { deepClone } from '@/lib/utils';
 
 interface AIState {
   configured: boolean;
@@ -55,8 +56,9 @@ export const useAIStore = create<AIStore>()(
 
       try {
         const statuses = await aiCommands.checkAvailability();
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.providerStatuses = statuses;
+          state.providerStatuses = deepClone(statuses);
           state.loading = false;
         });
       } catch (error) {
@@ -70,10 +72,11 @@ export const useAIStore = create<AIStore>()(
     refreshStatus: async () => {
       try {
         const status = await aiCommands.getStatus();
+        // Deep clone capabilities to avoid frozen Tauri objects in Immer state
         set((state) => {
           state.configured = status.configured;
           state.currentProvider = status.provider as AIProvider | null;
-          state.capabilities = status.capabilities;
+          state.capabilities = status.capabilities ? deepClone(status.capabilities) : null;
         });
       } catch (error) {
         set((state) => {
@@ -182,8 +185,9 @@ export const useAIStore = create<AIStore>()(
     loadModels: async () => {
       try {
         const models = await aiCommands.listModels();
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.models = models;
+          state.models = deepClone(models);
         });
       } catch (error) {
         // Non-critical, just log

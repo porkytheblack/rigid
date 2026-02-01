@@ -46,7 +46,7 @@ import {
 import { useRouterStore, useDemosStore, useExportsStore } from "@/lib/stores";
 import { demoRecordings, demoScreenshots, demoVideos } from "@/lib/tauri/commands";
 import type { DemoTrackType, DemoClip, DemoTrack, DemoAsset, DemoBackground, DemoZoomClip, DemoBlurClip, DemoPanClip, Recording, Screenshot, DemoFormat, DemoVideo } from "@/lib/tauri/types";
-import { DEMO_FORMAT_DIMENSIONS } from "@/lib/tauri/types";
+// DEMO_FORMAT_DIMENSIONS available from "@/lib/tauri/types" if needed
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -236,7 +236,7 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
   // If parentDemoId is set, navigate to that (the parent demo that contains this video)
   // Otherwise navigate to the current demo's view
   const goBack = useCallback(() => {
-    navigate({ name: "demo-view", appId, demoId: parentDemoId || demoId });
+    navigate({ name: "demo-view", appId, demoId: parentDemoId || demoId, tab: "videos" });
   }, [navigate, appId, demoId, parentDemoId]);
 
   // Load demo or video on mount

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import type { Screenshot, ScreenshotFilter, NewScreenshot, UpdateScreenshot } from '@/lib/tauri/types';
 import { screenshots as screenshotCommands, capture as captureCommands } from '@/lib/tauri/commands';
+import { deepClone } from '@/lib/utils';
 
 interface ScreenshotsState {
   items: Screenshot[];
@@ -50,8 +51,9 @@ export const useScreenshotsStore = create<ScreenshotsStore>()(
 
       try {
         const items = await screenshotCommands.list(filter || get().filter);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -71,8 +73,9 @@ export const useScreenshotsStore = create<ScreenshotsStore>()(
 
       try {
         const items = await screenshotCommands.list({ app_id: appId });
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -104,11 +107,13 @@ export const useScreenshotsStore = create<ScreenshotsStore>()(
 
       try {
         const screenshot = await screenshotCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedScreenshot = deepClone(screenshot);
         set((state) => {
-          state.items.unshift(screenshot);
+          state.items.unshift(clonedScreenshot);
           state.loading = false;
         });
-        return screenshot;
+        return clonedScreenshot;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -131,13 +136,15 @@ export const useScreenshotsStore = create<ScreenshotsStore>()(
 
       try {
         const screenshot = await screenshotCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedScreenshot = deepClone(screenshot);
         set((state) => {
           const index = state.items.findIndex((item: Screenshot) => item.id === id);
           if (index !== -1) {
-            state.items[index] = screenshot;
+            state.items[index] = clonedScreenshot;
           }
         });
-        return screenshot;
+        return clonedScreenshot;
       } catch (error) {
         // Rollback
         set((state) => {
@@ -179,11 +186,13 @@ export const useScreenshotsStore = create<ScreenshotsStore>()(
 
       try {
         const screenshot = await captureCommands.screenshot(testId, title);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedScreenshot = deepClone(screenshot);
         set((state) => {
-          state.items.unshift(screenshot);
+          state.items.unshift(clonedScreenshot);
           state.loading = false;
         });
-        return screenshot;
+        return clonedScreenshot;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);

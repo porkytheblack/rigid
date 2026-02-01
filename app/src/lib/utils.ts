@@ -83,3 +83,21 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
     timeoutId = setTimeout(() => fn(...args), delay);
   };
 }
+
+/**
+ * Deep clone an object to ensure it's mutable.
+ * This is essential for objects returned from Tauri commands which are frozen
+ * and cannot be stored directly in Zustand stores that use Immer middleware.
+ *
+ * Note: This uses JSON serialization, so it will:
+ * - Convert undefined to null
+ * - Lose functions, symbols, and other non-JSON types
+ * - Convert Maps and Sets to empty objects/arrays
+ * - Convert Date objects to ISO strings
+ */
+export function deepClone<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  return JSON.parse(JSON.stringify(obj));
+}

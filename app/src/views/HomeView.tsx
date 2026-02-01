@@ -3,9 +3,11 @@
 import { useEffect, useState, useRef } from "react";
 import { Plus, Search, FolderOpen, Settings, MoreHorizontal, Trash2, Pencil, X, Command, Loader2 } from "lucide-react";
 import { useAppsStore, useRouterStore } from "@/lib/stores";
+import { useAIChatStore } from "@/lib/stores/ai-chat";
 import type { NewApp } from "@/lib/tauri/types";
 import { RigidLogo } from "@/components/ui/rigid-logo";
-import { RigidCharacterMini } from "@/components/ui/rigid-character";
+import { RigidCharacter, RigidCharacterMini } from "@/components/ui/rigid-character";
+import { cn } from "@/lib/utils";
 import { Editor, type Block, createBlock, blocksToPlainText, parseMarkdownToBlocks } from "@/components/editor";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -16,6 +18,8 @@ export function HomeView() {
   const { navigate } = useRouterStore();
   const { addToast } = useToast();
   const showConfirmDialog = useConfirm();
+  const openAI = useAIChatStore((state) => state.open);
+  const isAIOpen = useAIChatStore((state) => state.isOpen);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -204,17 +208,38 @@ export function HomeView() {
       {contextMenuApp && <div className="fixed inset-0 z-[5]" onClick={() => setContextMenuApp(null)} />}
 
       {/* Header - Clean navigation bar */}
-      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center justify-between px-8 flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <RigidLogo size={32} />
+      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center px-8 flex-shrink-0">
+        <div className="flex items-center gap-4 flex-1">
+          {/* <RigidLogo size={32} /> */}
           <span className="font-bold text-[var(--text-primary)] text-lg tracking-tight">Rigid</span>
         </div>
+
+        {/* Center - Rigid AI Button */}
         <button
-          onClick={() => navigate({ name: "settings" })}
-          className="p-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]"
+          onClick={() => openAI()}
+          className={cn(
+            "flex items-center justify-center p-1.5 rounded-lg transition-all duration-200",
+            "hover:bg-[var(--bg-hover)] hover:scale-110",
+            "active:scale-95",
+            isAIOpen && "bg-[var(--accent-muted)] ring-2 ring-[var(--accent)]"
+          )}
+          title="Open Rigid AI"
         >
-          <Settings className="w-5 h-5" />
+          <RigidCharacter
+            size={28}
+            animation={isAIOpen ? "pulse" : "idle"}
+            trackMouse={!isAIOpen}
+          />
         </button>
+
+        <div className="flex items-center justify-end flex-1">
+          <button
+            onClick={() => navigate({ name: "settings" })}
+            className="p-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+        </div>
       </header>
 
       {/* Main Content */}

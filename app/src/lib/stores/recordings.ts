@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import type { Recording, RecordingFilter, NewRecording, UpdateRecording } from '@/lib/tauri/types';
 import { recordings as recordingCommands, capture, type RecordingOptions } from '@/lib/tauri/commands';
+import { deepClone } from '@/lib/utils';
 
 interface RecordingsState {
   items: Recording[];
@@ -54,8 +55,9 @@ export const useRecordingsStore = create<RecordingsStore>()(
 
       try {
         const items = await recordingCommands.list(get().filter);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -75,8 +77,9 @@ export const useRecordingsStore = create<RecordingsStore>()(
 
       try {
         const items = await recordingCommands.listByTest(explorationId);
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -96,8 +99,9 @@ export const useRecordingsStore = create<RecordingsStore>()(
 
       try {
         const items = await recordingCommands.list({ app_id: appId });
+        // Deep clone to avoid frozen Tauri objects in Immer state
         set((state) => {
-          state.items = items;
+          state.items = deepClone(items);
           state.loading = false;
         });
       } catch (error) {
@@ -134,11 +138,13 @@ export const useRecordingsStore = create<RecordingsStore>()(
 
       try {
         const recording = await recordingCommands.create(data);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedRecording = deepClone(recording);
         set((state) => {
-          state.items.unshift(recording);
+          state.items.unshift(clonedRecording);
           state.loading = false;
         });
-        return recording;
+        return clonedRecording;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -161,13 +167,15 @@ export const useRecordingsStore = create<RecordingsStore>()(
 
       try {
         const recording = await recordingCommands.update(id, updates);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedRecording = deepClone(recording);
         set((state) => {
           const index = state.items.findIndex((item) => item.id === id);
           if (index !== -1) {
-            state.items[index] = recording;
+            state.items[index] = clonedRecording;
           }
         });
-        return recording;
+        return clonedRecording;
       } catch (error) {
         // Rollback
         set((state) => {
@@ -209,13 +217,15 @@ export const useRecordingsStore = create<RecordingsStore>()(
 
       try {
         const recording = await capture.startRecording(options);
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedRecording = deepClone(recording);
         set((state) => {
-          state.items.unshift(recording);
+          state.items.unshift(clonedRecording);
           state.isRecording = true;
-          state.currentRecordingId = recording.id;
+          state.currentRecordingId = clonedRecording.id;
           state.loading = false;
         });
-        return recording;
+        return clonedRecording;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
@@ -233,16 +243,18 @@ export const useRecordingsStore = create<RecordingsStore>()(
 
       try {
         const recording = await capture.stopRecording();
+        // Deep clone to avoid frozen Tauri objects in Immer state
+        const clonedRecording = deepClone(recording);
         set((state) => {
-          const index = state.items.findIndex((item) => item.id === recording.id);
+          const index = state.items.findIndex((item) => item.id === clonedRecording.id);
           if (index !== -1) {
-            state.items[index] = recording;
+            state.items[index] = clonedRecording;
           }
           state.isRecording = false;
           state.currentRecordingId = null;
           state.loading = false;
         });
-        return recording;
+        return clonedRecording;
       } catch (error) {
         set((state) => {
           state.error = error instanceof Error ? error.message : String(error);
