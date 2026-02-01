@@ -105,7 +105,14 @@ export function AppView({ appId }: AppViewProps) {
   };
 
   const handleDeleteExploration = async (id: string) => {
-    if (confirm("Delete this exploration?")) {
+    const confirmed = await confirm({
+      title: "Delete Exploration",
+      description: "Are you sure you want to delete this exploration? This action cannot be undone.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+    if (confirmed) {
       try {
         await deleteExploration(id);
         setContextMenuExploration(null);
