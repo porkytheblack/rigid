@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback, KeyboardEvent } from "react";
-import { Block, BlockType, getBlockPlaceholder } from "../types";
+import { Block, BlockType, getBlockPlaceholder, getBlockText, LegacyBlockMeta } from "../types";
 import { Check } from "lucide-react";
 
 interface TodoBlockProps {
@@ -32,14 +32,16 @@ export function TodoBlock({
   isFocused,
 }: TodoBlockProps) {
   const contentRef = useRef<HTMLDivElement>(null);
-  const checked = block.meta?.checked || false;
-  const indent = block.meta?.indent || 0;
+  const meta = block.meta as LegacyBlockMeta | undefined;
+  const checked = meta?.checked || false;
+  const indent = meta?.indent || 0;
+  const text = getBlockText(block);
 
   useEffect(() => {
-    if (contentRef.current && contentRef.current.textContent !== block.content) {
-      contentRef.current.textContent = block.content;
+    if (contentRef.current && contentRef.current.textContent !== text) {
+      contentRef.current.textContent = text;
     }
-  }, [block.content]);
+  }, [text]);
 
   // Focus handling - use requestAnimationFrame for smoother transitions
   useEffect(() => {
@@ -83,7 +85,7 @@ export function TodoBlock({
   const handleToggle = () => {
     onUpdate({
       ...block,
-      meta: { ...block.meta, checked: !checked },
+      meta: { ...meta, checked: !checked },
     });
   };
 

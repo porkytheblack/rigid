@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback, KeyboardEvent, useState } from "react";
-import { Block, BlockType } from "../types";
+import { Block, BlockType, getBlockText } from "../types";
 import { GitBranch, Code, Eye, AlertCircle } from "lucide-react";
 import mermaid from "mermaid";
 
@@ -47,7 +47,8 @@ export function MermaidBlock({
   const [renderError, setRenderError] = useState<string | null>(null);
   const [renderedSvg, setRenderedSvg] = useState<string>("");
 
-  const mermaidCode = block.content || DEFAULT_DIAGRAM;
+  const text = getBlockText(block);
+  const mermaidCode = text || DEFAULT_DIAGRAM;
 
   // Focus textarea when editing
   useEffect(() => {
@@ -62,7 +63,7 @@ export function MermaidBlock({
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
     }
-  }, [block.content, isEditing]);
+  }, [text, isEditing]);
 
   // Render mermaid diagram
   useEffect(() => {
@@ -109,7 +110,7 @@ export function MermaidBlock({
 
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
-        const content = block.content || "";
+        const content = text || "";
         const newContent = content.substring(0, start) + "    " + content.substring(end);
 
         onUpdate({ ...block, content: newContent });
@@ -135,20 +136,20 @@ export function MermaidBlock({
       }
 
       // Arrow down at the end of content
-      if (e.key === "ArrowDown" && textareaRef.current?.selectionEnd === (block.content || "").length) {
+      if (e.key === "ArrowDown" && textareaRef.current?.selectionEnd === (text || "").length) {
         e.preventDefault();
         onFocusNext?.();
         return;
       }
 
       // Backspace at start of empty block
-      if (e.key === "Backspace" && !block.content && textareaRef.current?.selectionStart === 0) {
+      if (e.key === "Backspace" && !text && textareaRef.current?.selectionStart === 0) {
         e.preventDefault();
         onDelete();
         return;
       }
     },
-    [block, onUpdate, onDelete, onFocusPrevious, onFocusNext]
+    [block, text, onUpdate, onDelete, onFocusPrevious, onFocusNext]
   );
 
   const toggleEditMode = () => {
@@ -190,7 +191,7 @@ export function MermaidBlock({
         {isEditing ? (
           <textarea
             ref={textareaRef}
-            value={block.content || DEFAULT_DIAGRAM}
+            value={text || DEFAULT_DIAGRAM}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             onFocus={onFocus}

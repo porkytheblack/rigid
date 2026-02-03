@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback, KeyboardEvent } from "react";
-import { Block, BlockType, getBlockPlaceholder } from "../types";
+import { Block, BlockType, getBlockPlaceholder, getBlockText } from "../types";
 import { parseMarkdownShortcut } from "../utils";
 
 interface TextBlockProps {
@@ -41,15 +41,16 @@ export function TextBlock({
   isSlashMenuOpen = false,
 }: TextBlockProps) {
   const contentRef = useRef<HTMLDivElement>(null);
-  const lastContentRef = useRef(block.content);
+  const text = getBlockText(block);
+  const lastContentRef = useRef(text);
 
   // Sync content with block
   useEffect(() => {
-    if (contentRef.current && contentRef.current.textContent !== block.content) {
-      contentRef.current.textContent = block.content;
+    if (contentRef.current && contentRef.current.textContent !== text) {
+      contentRef.current.textContent = text;
     }
-    lastContentRef.current = block.content;
-  }, [block.content]);
+    lastContentRef.current = text;
+  }, [text]);
 
   // Focus handling - use requestAnimationFrame for smoother transitions
   useEffect(() => {
