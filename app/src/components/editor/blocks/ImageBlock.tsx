@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback } from "react";
-import { Block, BlockType, EditorScreenshot } from "../types";
+import { Block, BlockType, EditorScreenshot, LegacyBlockMeta } from "../types";
 import { Image as ImageIcon, Upload, Link, Trash2, Camera } from "lucide-react";
 
 interface ImageBlockProps {
@@ -34,8 +34,9 @@ export function ImageBlock({
   const [urlValue, setUrlValue] = useState('');
   const [isHovered, setIsHovered] = useState(false);
 
-  const hasImage = !!block.meta?.src;
-  const width = block.meta?.width || 'full';
+  const meta = block.meta as LegacyBlockMeta | undefined;
+  const hasImage = !!meta?.src;
+  const width = meta?.width || 'full';
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

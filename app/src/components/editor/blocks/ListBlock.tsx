@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback, KeyboardEvent } from "react";
-import { Block, BlockType, getBlockPlaceholder } from "../types";
+import { Block, BlockType, getBlockPlaceholder, getBlockText, LegacyBlockMeta } from "../types";
 
 interface ListBlockProps {
   block: Block;
@@ -37,13 +37,15 @@ export function ListBlock({
   isFocused,
 }: ListBlockProps) {
   const contentRef = useRef<HTMLDivElement>(null);
-  const indent = block.meta?.indent || 0;
+  const meta = block.meta as LegacyBlockMeta | undefined;
+  const indent = meta?.indent || 0;
+  const text = getBlockText(block);
 
   useEffect(() => {
-    if (contentRef.current && contentRef.current.textContent !== block.content) {
-      contentRef.current.textContent = block.content;
+    if (contentRef.current && contentRef.current.textContent !== text) {
+      contentRef.current.textContent = text;
     }
-  }, [block.content]);
+  }, [text]);
 
   // Focus handling - use requestAnimationFrame for smoother transitions
   useEffect(() => {

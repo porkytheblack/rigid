@@ -433,7 +433,7 @@ export type DocumentBlockType =
   | 'callout'
   | 'toggle';
 
-export type DocumentCalloutType = 'info' | 'warning' | 'success' | 'error';
+export type DocumentCalloutType = 'info' | 'warning' | 'success' | 'error' | 'tip' | 'note';
 
 export interface DocumentBlock {
   id: string;

@@ -1,8 +1,13 @@
 "use client";
 
-import { useRef, useEffect, useCallback, KeyboardEvent, useState } from "react";
-import { Block, BlockType } from "../types";
+import { useRef, useEffect, useCallback, KeyboardEvent, useState, useMemo } from "react";
+import { Block, BlockType, getBlockText, LegacyBlockMeta } from "../types";
 import { Copy, Check } from "lucide-react";
+import { createLowlight, common } from "lowlight";
+import { toHtml } from "hast-util-to-html";
+
+// Create lowlight instance with common languages
+const lowlight = createLowlight(common);
 
 interface CodeBlockProps {
   block: Block;
@@ -41,6 +46,33 @@ const LANGUAGES = [
   'shell',
 ];
 
+// Map our language names to lowlight language names
+const LANGUAGE_MAP: Record<string, string> = {
+  'plaintext': 'plaintext',
+  'javascript': 'javascript',
+  'typescript': 'typescript',
+  'python': 'python',
+  'rust': 'rust',
+  'go': 'go',
+  'java': 'java',
+  'c': 'c',
+  'cpp': 'cpp',
+  'csharp': 'csharp',
+  'php': 'php',
+  'ruby': 'ruby',
+  'swift': 'swift',
+  'kotlin': 'kotlin',
+  'html': 'xml',
+  'css': 'css',
+  'scss': 'scss',
+  'json': 'json',
+  'yaml': 'yaml',
+  'markdown': 'markdown',
+  'sql': 'sql',
+  'bash': 'bash',
+  'shell': 'bash',
+};
+
 export function CodeBlock({
   block,
   onUpdate,
@@ -55,7 +87,32 @@ export function CodeBlock({
   const [copied, setCopied] = useState(false);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
 
-  const language = block.meta?.language || 'plaintext';
+  const meta = block.meta as LegacyBlockMeta | undefined;
+  const language = meta?.language || 'plaintext';
+  const text = getBlockText(block);
+
+  // Generate highlighted HTML
+  const highlightedHtml = useMemo(() => {
+    if (!text || language === 'plaintext') {
+      // Escape HTML entities for plain text
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    try {
+      const lowlightLang = LANGUAGE_MAP[language] || language;
+      const result = lowlight.highlight(lowlightLang, text);
+      return toHtml(result);
+    } catch {
+      // If highlighting fails, return escaped plain text
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+  }, [text, language]);
 
   useEffect(() => {
     if (isFocused && textareaRef.current) {
@@ -69,7 +126,7 @@ export function CodeBlock({
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
     }
-  }, [block.content]);
+  }, [text]);
 
   const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const content = e.target.value;
@@ -141,15 +198,15 @@ export function CodeBlock({
     }
 
     // Delete empty code block
-    if (e.key === 'Backspace' && block.content === '') {
+    if (e.key === 'Backspace' && text === '') {
       e.preventDefault();
       onDelete();
       return;
     }
-  }, [block, onDelete, onInsertAfter, onUpdate, onFocusPrevious, onFocusNext]);
+  }, [text, onDelete, onInsertAfter, onUpdate, onFocusPrevious, onFocusNext, block]);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(block.content);
+    await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -157,14 +214,14 @@ export function CodeBlock({
   const handleLanguageChange = (lang: string) => {
     onUpdate({
       ...block,
-      meta: { ...block.meta, language: lang },
+      meta: { ...meta, language: lang },
     });
     setShowLanguageMenu(false);
   };
 
   // Generate line numbers
-  const lines = block.content.split('\n');
-  const lineNumbers = lines.map((_, i) => i + 1);
+  const lines = text.split('\n');
+  const lineNumbers = lines.map((_: string, i: number) => i + 1);
 
   return (
     <div className="relative w-full border border-[var(--border-default)] bg-[var(--surface-secondary)]">
@@ -219,7 +276,7 @@ export function CodeBlock({
       <div className="flex p-4">
         {/* Line numbers */}
         <div className="flex-shrink-0 pr-4 select-none">
-          {lineNumbers.map((num) => (
+          {lineNumbers.map((num: number) => (
             <div
               key={num}
               className="text-[var(--text-mono)] text-[var(--text-tertiary)] text-right leading-[1.7] h-[1.7em]"
@@ -229,18 +286,33 @@ export function CodeBlock({
           ))}
         </div>
 
-        {/* Code textarea */}
-        <textarea
-          ref={textareaRef}
-          value={block.content}
-          onChange={handleInput}
-          onKeyDown={handleKeyDown}
-          onFocus={onFocus}
-          className="flex-1 bg-transparent text-[var(--text-mono)] text-[var(--text-primary)] font-mono leading-[1.7] resize-none outline-none placeholder:text-[var(--text-tertiary)]"
-          placeholder="Write code..."
-          spellCheck={false}
-          rows={1}
-        />
+        {/* Code area with overlay for syntax highlighting */}
+        <div className="flex-1 relative font-mono text-[var(--text-mono)] leading-[1.7]">
+          {/* Highlighted code overlay (read-only display) */}
+          <pre
+            className="absolute inset-0 overflow-hidden pointer-events-none whitespace-pre-wrap break-words m-0 p-0 bg-transparent"
+            aria-hidden="true"
+          >
+            <code
+              className="hljs"
+              dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+            />
+          </pre>
+
+          {/* Transparent textarea for editing */}
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            onFocus={onFocus}
+            className="relative w-full bg-transparent text-transparent caret-[var(--text-primary)] font-mono leading-[1.7] resize-none outline-none placeholder:text-[var(--text-tertiary)]"
+            placeholder="Write code..."
+            spellCheck={false}
+            rows={1}
+            style={{ caretColor: 'var(--text-primary)' }}
+          />
+        </div>
       </div>
     </div>
   );

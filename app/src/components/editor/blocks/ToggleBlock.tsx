@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useCallback, KeyboardEvent, useState } from "react";
-import { Block, BlockType, getBlockPlaceholder, createBlock } from "../types";
+import { Block, BlockType, getBlockPlaceholder, createBlock, getBlockText, LegacyBlockMeta } from "../types";
 import { ChevronRight } from "lucide-react";
 
 interface ToggleBlockProps {
@@ -29,14 +29,16 @@ export function ToggleBlock({
 }: ToggleBlockProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [focusedChildIndex, setFocusedChildIndex] = useState<number | null>(null);
-  const expanded = block.meta?.expanded !== false; // Default to expanded
+  const meta = block.meta as LegacyBlockMeta | undefined;
+  const expanded = meta?.expanded !== false; // Default to expanded
   const children = block.children || [];
+  const text = getBlockText(block);
 
   useEffect(() => {
-    if (contentRef.current && contentRef.current.textContent !== block.content) {
-      contentRef.current.textContent = block.content;
+    if (contentRef.current && contentRef.current.textContent !== text) {
+      contentRef.current.textContent = text;
     }
-  }, [block.content]);
+  }, [text]);
 
   useEffect(() => {
     if (isFocused && contentRef.current && focusedChildIndex === null) {
@@ -52,7 +54,7 @@ export function ToggleBlock({
   const handleToggle = () => {
     onUpdate({
       ...block,
-      meta: { ...block.meta, expanded: !expanded },
+      meta: { ...meta, expanded: !expanded },
     });
   };
 
@@ -69,7 +71,7 @@ export function ToggleBlock({
       if (children.length === 0) {
         onUpdate({
           ...block,
-          meta: { ...block.meta, expanded: true },
+          meta: { ...meta, expanded: true },
           children: [newChild],
         });
         // Focus the new child
@@ -78,7 +80,7 @@ export function ToggleBlock({
         // Insert at beginning and focus
         onUpdate({
           ...block,
-          meta: { ...block.meta, expanded: true },
+          meta: { ...meta, expanded: true },
           children: [newChild, ...children],
         });
         setFocusedChildIndex(0);
@@ -262,12 +264,13 @@ interface NestedBlockProps {
 
 function NestedBlock({ block, onUpdate, onDelete, onInsertAfter, onFocus, onExit, onMoveUp, isFocused, isLastChild }: NestedBlockProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const text = getBlockText(block);
 
   useEffect(() => {
-    if (contentRef.current && contentRef.current.textContent !== block.content) {
-      contentRef.current.textContent = block.content;
+    if (contentRef.current && contentRef.current.textContent !== text) {
+      contentRef.current.textContent = text;
     }
-  }, [block.content]);
+  }, [text]);
 
   // Focus handling with requestAnimationFrame
   useEffect(() => {

@@ -2,6 +2,12 @@
 @import "tailwindcss";
 @import "./tokens.css";
 
+/* KaTeX styles for math rendering */
+@import "katex/dist/katex.min.css";
+
+/* Syntax highlighting for code blocks */
+@import "highlight.js/styles/github-dark.css";
+
 /* Tailwind v4 theme configuration */
 @theme {
   /* Colors */

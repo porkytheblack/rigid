@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { ArrowLeft, Settings, Pencil, Check, X, GitBranch, Plus, Trash2, MoreHorizontal, FileText } from "lucide-react";
 import { useArchitectureDocsStore, useRouterStore, useDiagramsStore, useScreenshotsStore } from "@/lib/stores";
-import { Editor as BlockEditor, type Block } from "@/components/editor";
+import { Editor as BlockEditor, type Block, getBlockText } from "@/components/editor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -171,7 +171,7 @@ export function ArchitectureDocView({ appId, docId }: ArchitectureDocViewProps) 
           .map((b, i) => ({
             doc_id: docId,
             block_type: b.type as "paragraph" | "heading1" | "heading2" | "heading3" | "quote" | "bulletList" | "numberedList" | "todo" | "code" | "divider" | "callout" | "mermaid" | "toggle" | "image",
-            content: b.content || "",
+            content: getBlockText(b) || "",
             checked: b.meta?.checked ? true : undefined,
             language: b.meta?.language || undefined,
             callout_type: b.meta?.calloutType || undefined,

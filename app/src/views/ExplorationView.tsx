@@ -12,7 +12,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { copyFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import type { UpdateExploration, ScreenshotMarker, Annotation } from "@/lib/tauri/types";
-import { Editor as BlockEditor, type Block } from "@/components/editor";
+import { Editor as BlockEditor, type Block, getBlockText } from "@/components/editor";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { ExplorationCommandPalette, useExplorationCommandPalette } from "@/components/explorations";
@@ -288,7 +288,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
           .map((b, i) => ({
             test_id: explorationId,
             block_type: b.type as 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'quote' | 'bulletList' | 'numberedList' | 'todo' | 'code' | 'image' | 'divider' | 'callout' | 'toggle',
-            content: b.content || '',
+            content: getBlockText(b) || '',
             checked: b.meta?.checked ? true : undefined,
             language: b.meta?.language || undefined,
             callout_type: b.meta?.calloutType || undefined,
@@ -303,7 +303,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
         // Save checklist todos to database
         const dbTodos = checklistBlocks.map((t, i) => ({
           test_id: explorationId,
-          content: t.content || '',
+          content: getBlockText(t) || '',
           checked: t.meta?.checked ? true : undefined,
           sort_order: i,
         }));
@@ -941,7 +941,7 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
                         )}
                       </button>
                       <textarea
-                        value={block.content}
+                        value={getBlockText(block)}
                         onChange={(e) => {
                           const newBlocks = [...checklistBlocks];
                           newBlocks[index] = { ...block, content: e.target.value };

@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useEffect, useCallback, KeyboardEvent, useState } from "react";
-import { Block, BlockType, CalloutType, getBlockPlaceholder } from "../types";
-import { Info, AlertTriangle, AlertCircle, CheckCircle } from "lucide-react";
+import { Block, BlockType, CalloutType, getBlockText, getBlockPlaceholder, LegacyBlockMeta } from "../types";
+import { Info, AlertTriangle, AlertCircle, CheckCircle, Lightbulb, FileText } from "lucide-react";
 
 interface CalloutBlockProps {
   block: Block;
@@ -20,6 +20,8 @@ const calloutConfig: Record<CalloutType, { icon: typeof Info; bgColor: string; i
   warning: { icon: AlertTriangle, bgColor: 'var(--status-warning-bg)', iconColor: 'var(--accent-warning)' },
   error: { icon: AlertCircle, bgColor: 'var(--status-error-bg)', iconColor: 'var(--accent-error)' },
   success: { icon: CheckCircle, bgColor: 'var(--status-success-bg)', iconColor: 'var(--accent-success)' },
+  tip: { icon: Lightbulb, bgColor: 'var(--status-success-bg)', iconColor: 'var(--accent-success)' },
+  note: { icon: FileText, bgColor: 'var(--status-info-bg)', iconColor: 'var(--accent-info)' },
 };
 
 export function CalloutBlock({
@@ -35,15 +37,17 @@ export function CalloutBlock({
   const contentRef = useRef<HTMLDivElement>(null);
   const [showTypePicker, setShowTypePicker] = useState(false);
 
-  const calloutType = block.meta?.calloutType || 'info';
+  const meta = block.meta as LegacyBlockMeta | undefined;
+  const calloutType = meta?.calloutType || 'info';
   const config = calloutConfig[calloutType];
   const Icon = config.icon;
+  const text = getBlockText(block);
 
   useEffect(() => {
-    if (contentRef.current && contentRef.current.textContent !== block.content) {
-      contentRef.current.textContent = block.content;
+    if (contentRef.current && contentRef.current.textContent !== text) {
+      contentRef.current.textContent = text;
     }
-  }, [block.content]);
+  }, [text]);
 
   useEffect(() => {
     if (isFocused && contentRef.current) {
@@ -95,7 +99,7 @@ export function CalloutBlock({
   const handleTypeChange = (type: CalloutType) => {
     onUpdate({
       ...block,
-      meta: { ...block.meta, calloutType: type },
+      meta: { ...meta, calloutType: type },
     });
     setShowTypePicker(false);
   };

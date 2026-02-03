@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Copy, Check } from "lucide-react";
-import { Block, BlockType, EditorProps, createBlock } from "./types";
+import { Editor as TipTapEditor } from "@tiptap/react";
+import { Block, BlockType, EditorProps, createBlock, getBlockText, LegacyBlockMeta } from "./types";
 import { useEditorState } from "./hooks/useEditorState";
 import { parseMarkdownToBlocks, blocksToMarkdown } from "./utils";
 import { BlockHandle } from "./ui/BlockHandle";
@@ -11,6 +12,7 @@ import { SelectionMenu } from "./ui/SelectionMenu";
 import { SlashCommandMenu } from "./ui/SlashCommandMenu";
 import { FormattingToolbar } from "./ui/FormattingToolbar";
 import { TextBlock } from "./blocks/TextBlock";
+import { RichTextBlock } from "./blocks/RichTextBlock";
 import { CalloutBlock } from "./blocks/CalloutBlock";
 import { ListBlock } from "./blocks/ListBlock";
 import { TodoBlock } from "./blocks/TodoBlock";
@@ -19,9 +21,13 @@ import { CodeBlock } from "./blocks/CodeBlock";
 import { MermaidBlock } from "./blocks/MermaidBlock";
 import { ImageBlock } from "./blocks/ImageBlock";
 import { DividerBlock } from "./blocks/DividerBlock";
+import { TableBlock } from "./blocks/TableBlock";
+import { MathBlock } from "./blocks/MathBlock";
+import { ContainerBlock } from "./blocks/ContainerBlock";
 
 export function Editor({
   initialBlocks,
+  initialMarkdown,
   onChange,
   onSave,
   placeholder = "Press Enter to start writing, or / for commands",
@@ -34,6 +40,11 @@ export function Editor({
   showCopyButton = false,
   compact = false,
 }: EditorProps) {
+  // Parse initialMarkdown if provided
+  const effectiveInitialBlocks = initialMarkdown
+    ? parseMarkdownToBlocks(initialMarkdown)
+    : initialBlocks;
+
   const {
     blocks,
     focusedBlockId,
@@ -58,7 +69,7 @@ export function Editor({
     clearSelection,
     undo,
     redo,
-  } = useEditorState({ initialBlocks, onChange, onSave });
+  } = useEditorState({ initialBlocks: effectiveInitialBlocks, onChange, onSave });
 
   const editorRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -80,7 +91,8 @@ export function Editor({
 
   // Formatting toolbar state
   const [formattingToolbarOpen, setFormattingToolbarOpen] = useState(false);
-  const [formattingToolbarPosition] = useState({ x: 0, y: 0 });
+  const [formattingToolbarPosition, setFormattingToolbarPosition] = useState({ x: 0, y: 0 });
+  const [formattingToolbarEditor, setFormattingToolbarEditor] = useState<TipTapEditor | null>(null);
 
   // Copy state
   const [copied, setCopied] = useState(false);
@@ -100,59 +112,129 @@ export function Editor({
   // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey;
+
       // Delete selected blocks with Backspace or Delete
       if ((e.key === 'Backspace' || e.key === 'Delete') && selectedBlockIds.size > 0) {
         e.preventDefault();
-        // Delete all selected blocks (single undo entry)
         deleteBlocks(Array.from(selectedBlockIds));
         clearSelection();
         return;
       }
 
       // Cut selected blocks with Cmd+X
-      if ((e.metaKey || e.ctrlKey) && e.key === 'x' && selectedBlockIds.size > 0) {
+      if (isMod && e.key === 'x' && selectedBlockIds.size > 0) {
         e.preventDefault();
         const selectedBlocks = blocks.filter(b => selectedBlockIds.has(b.id));
         const markdown = blocksToMarkdown(selectedBlocks);
         navigator.clipboard.writeText(markdown);
-        // Delete all selected blocks (single undo entry)
         deleteBlocks(Array.from(selectedBlockIds));
         clearSelection();
         return;
       }
 
       // Undo
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+      if (isMod && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
         return;
       }
 
       // Redo
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+      if (isMod && e.key === 'z' && e.shiftKey) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+
+      // Redo with Cmd+Y
+      if (isMod && e.key === 'y') {
         e.preventDefault();
         redo();
         return;
       }
 
       // Duplicate block
-      if ((e.metaKey || e.ctrlKey) && e.key === 'd' && focusedBlockId) {
+      if (isMod && e.key === 'd' && focusedBlockId) {
         e.preventDefault();
         duplicateBlock(focusedBlockId);
         return;
       }
 
-      // Escape clears selection
-      if (e.key === 'Escape' && selectedBlockIds.size > 0) {
-        e.preventDefault();
-        clearSelection();
-        return;
+      // Block type shortcuts (only when a block is focused)
+      if (focusedBlockId && isMod && !e.shiftKey) {
+        // Ctrl/Cmd + 1/2/3 for headings
+        if (e.key === '1') {
+          e.preventDefault();
+          turnBlockInto(focusedBlockId, 'heading1');
+          return;
+        }
+        if (e.key === '2') {
+          e.preventDefault();
+          turnBlockInto(focusedBlockId, 'heading2');
+          return;
+        }
+        if (e.key === '3') {
+          e.preventDefault();
+          turnBlockInto(focusedBlockId, 'heading3');
+          return;
+        }
+        // Ctrl/Cmd + 0 for paragraph (clear heading)
+        if (e.key === '0') {
+          e.preventDefault();
+          turnBlockInto(focusedBlockId, 'paragraph');
+          return;
+        }
+      }
+
+      // List shortcuts with Ctrl/Cmd + Shift
+      if (focusedBlockId && isMod && e.shiftKey) {
+        // Ctrl/Cmd + Shift + 7 for numbered list
+        if (e.key === '7' || e.code === 'Digit7') {
+          e.preventDefault();
+          turnBlockInto(focusedBlockId, 'numberedList');
+          return;
+        }
+        // Ctrl/Cmd + Shift + 8 for bullet list
+        if (e.key === '8' || e.code === 'Digit8') {
+          e.preventDefault();
+          turnBlockInto(focusedBlockId, 'bulletList');
+          return;
+        }
+        // Ctrl/Cmd + Shift + 9 for task list
+        if (e.key === '9' || e.code === 'Digit9') {
+          e.preventDefault();
+          turnBlockInto(focusedBlockId, 'todo');
+          return;
+        }
+        // Ctrl/Cmd + Shift + E for math block
+        if (e.key === 'e' || e.key === 'E') {
+          e.preventDefault();
+          turnBlockInto(focusedBlockId, 'mathBlock');
+          return;
+        }
+      }
+
+      // Escape clears selection or closes menus
+      if (e.key === 'Escape') {
+        if (slashMenuOpen) {
+          e.preventDefault();
+          setSlashMenuOpen(false);
+          setSlashQuery("");
+          setSlashBlockId(null);
+          return;
+        }
+        if (selectedBlockIds.size > 0) {
+          e.preventDefault();
+          clearSelection();
+          return;
+        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [focusedBlockId, selectedBlockIds, blocks, undo, redo, duplicateBlock, deleteBlocks, clearSelection]);
+  }, [focusedBlockId, selectedBlockIds, blocks, undo, redo, duplicateBlock, deleteBlocks, clearSelection, slashMenuOpen, turnBlockInto]);
 
   // Handle paste events (markdown and images)
   const handlePaste = useCallback(async (e: ClipboardEvent) => {
@@ -171,7 +253,6 @@ export function Editor({
         const file = item.getAsFile();
         if (!file) continue;
 
-        // Convert to base64 data URL
         const reader = new FileReader();
         reader.onload = () => {
           const dataUrl = reader.result as string;
@@ -195,8 +276,10 @@ export function Editor({
     if (!text) return;
 
     // Detect if text looks like markdown
-    const looksLikeMarkdown = /^(#{1,3}\s|[-*]\s|\d+\.\s|```|>|\[.*\]\(.*\)|!\[.*\]\(.*\))/.test(text) ||
-      text.includes('\n');
+    const looksLikeMarkdown = /^(#{1,6}\s|[-*]\s|\d+\.\s|```|>|\[.*\]\(.*\)|!\[.*\]\(.*\)|[-*]\s*\[[ xX]\])/.test(text) ||
+      text.includes('\n') ||
+      text.includes('|') ||
+      text.includes('$$');
 
     if (looksLikeMarkdown) {
       e.preventDefault();
@@ -204,10 +287,9 @@ export function Editor({
       const newBlocks = parseMarkdownToBlocks(text);
 
       if (focusedBlockId) {
-        // Check if current block is empty - replace it
         const currentBlock = blocks.find(b => b.id === focusedBlockId);
-        if (currentBlock && !currentBlock.content.trim()) {
-          // Replace current empty block with first parsed block, then insert rest after
+        const currentContent = currentBlock ? getBlockText(currentBlock) : '';
+        if (currentBlock && !currentContent.trim()) {
           if (newBlocks.length > 0) {
             updateBlock(focusedBlockId, { type: newBlocks[0].type, content: newBlocks[0].content, meta: newBlocks[0].meta });
             if (newBlocks.length > 1) {
@@ -217,8 +299,7 @@ export function Editor({
         } else {
           insertBlocksAfter(focusedBlockId, newBlocks);
         }
-      } else if (blocks.length === 1 && !blocks[0].content.trim()) {
-        // Replace single empty block with pasted content
+      } else if (blocks.length === 1 && !getBlockText(blocks[0]).trim()) {
         replaceAllBlocks(newBlocks);
       } else if (blocks.length > 0) {
         insertBlocksAfter(blocks[blocks.length - 1].id, newBlocks);
@@ -226,19 +307,16 @@ export function Editor({
         replaceAllBlocks(newBlocks);
       }
     }
-    // If it doesn't look like markdown, let the default paste behavior happen
   }, [readOnly, focusedBlockId, blocks, insertBlocksAfter, replaceAllBlocks, updateBlock]);
 
   // Handle copy events (copy as markdown)
   const handleCopy = useCallback((e: ClipboardEvent) => {
-    // First check if we have block-level selection
     if (selectedBlockIds.size > 0) {
       e.preventDefault();
       const selectedBlocks = blocks.filter(b => selectedBlockIds.has(b.id));
       const markdown = blocksToMarkdown(selectedBlocks);
       e.clipboardData?.setData('text/plain', markdown);
       e.clipboardData?.setData('text/markdown', markdown);
-      // Clear selection after copy
       clearSelection();
       return;
     }
@@ -246,40 +324,34 @@ export function Editor({
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
 
-    // Check if we're copying from within the editor
     const range = selection.getRangeAt(0);
     if (!editorRef.current?.contains(range.commonAncestorContainer)) return;
 
     const selectedText = selection.toString();
     if (!selectedText) return;
 
-    // Find which blocks are involved in the selection by checking if the range intersects each block
     const intersectedBlocks: Block[] = [];
     for (const block of blocks) {
       const blockElement = editorRef.current?.querySelector(`[data-block-id="${block.id}"]`);
       if (!blockElement) continue;
 
-      // Check if this block intersects with the selection range
       try {
         if (range.intersectsNode(blockElement)) {
           intersectedBlocks.push(block);
         }
       } catch {
-        // Fallback: check if selection contains the node
         if (selection.containsNode(blockElement, true)) {
           intersectedBlocks.push(block);
         }
       }
     }
 
-    // If multiple blocks are selected, convert to markdown
     if (intersectedBlocks.length > 1) {
       e.preventDefault();
       const markdown = blocksToMarkdown(intersectedBlocks);
       e.clipboardData?.setData('text/plain', markdown);
       e.clipboardData?.setData('text/markdown', markdown);
     }
-    // For single block or no blocks detected, let default behavior happen (copies plain text)
   }, [blocks, selectedBlockIds, clearSelection]);
 
   // Copy all content as markdown
@@ -304,7 +376,7 @@ export function Editor({
     };
   }, [handlePaste, handleCopy]);
 
-  // Get block ID from an element (walks up the DOM tree)
+  // Get block ID from an element
   const getBlockIdFromElement = useCallback((element: Element | null): string | null => {
     while (element && element !== editorRef.current) {
       if (element.hasAttribute('data-block-id')) {
@@ -320,18 +392,16 @@ export function Editor({
     const blockId = getBlockIdFromElement(e.target as Element);
     if (blockId) {
       dragStartBlockRef.current = blockId;
-      // Don't set isDragging yet - wait for mousemove to cross block boundary
     }
   }, [getBlockIdFromElement]);
 
   // Handle mouse move for drag selection
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!dragStartBlockRef.current) return;
-    if (e.buttons !== 1) return; // Only left mouse button
+    if (e.buttons !== 1) return;
 
     const currentBlockId = getBlockIdFromElement(e.target as Element);
     if (currentBlockId && currentBlockId !== dragStartBlockRef.current) {
-      // We've crossed into a different block - start block selection
       setIsDragging(true);
       selectBlockRange(dragStartBlockRef.current, currentBlockId);
     }
@@ -340,11 +410,8 @@ export function Editor({
   // Handle mouse up to end drag selection
   const handleMouseUp = useCallback(() => {
     if (isDragging) {
-      // Keep the selection active, but end the drag
       setIsDragging(false);
-      // Mark that we just finished dragging so click handler doesn't clear selection
       justFinishedDraggingRef.current = true;
-      // Reset the flag after a short delay (after click event fires)
       setTimeout(() => {
         justFinishedDraggingRef.current = false;
       }, 0);
@@ -352,24 +419,20 @@ export function Editor({
     dragStartBlockRef.current = null;
   }, [isDragging]);
 
-  // Clear selection on click outside selected blocks (but not right after dragging)
+  // Clear selection on click outside selected blocks
   const handleEditorClick = useCallback((e: React.MouseEvent) => {
-    // Don't clear selection if we just finished a drag selection
     if (justFinishedDraggingRef.current) {
       return;
     }
 
-    // Close selection menu if open
     if (selectionMenuOpen) {
       setSelectionMenuOpen(false);
     }
 
     const blockId = getBlockIdFromElement(e.target as Element);
-    // If clicking anywhere, clear the block selection
     if (selectedBlockIds.size > 0) {
       clearSelection();
     }
-    // Focus last block if clicking on empty area
     if (!focusedBlockId && blocks.length > 0 && !blockId) {
       setFocusedBlockId(blocks[blocks.length - 1].id);
     }
@@ -377,10 +440,8 @@ export function Editor({
 
   // Handle right-click context menu for selected blocks
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    // Only show custom menu if we have selected blocks
     if (selectedBlockIds.size > 0) {
       const blockId = getBlockIdFromElement(e.target as Element);
-      // Check if right-clicking on a selected block
       if (blockId && selectedBlockIds.has(blockId)) {
         e.preventDefault();
         setSelectionMenuPosition({ x: e.clientX, y: e.clientY });
@@ -401,28 +462,61 @@ export function Editor({
     const selectedBlocks = blocks.filter(b => selectedBlockIds.has(b.id));
     const markdown = blocksToMarkdown(selectedBlocks);
     navigator.clipboard.writeText(markdown);
-    // Delete all selected blocks (single undo entry)
     deleteBlocks(Array.from(selectedBlockIds));
     clearSelection();
   }, [blocks, selectedBlockIds, deleteBlocks, clearSelection]);
 
   const handleSelectionDelete = useCallback(() => {
-    // Delete all selected blocks (single undo entry)
     deleteBlocks(Array.from(selectedBlockIds));
     clearSelection();
   }, [selectedBlockIds, deleteBlocks, clearSelection]);
 
   // Handle slash command selection
-  const handleSlashSelect = useCallback((type: BlockType) => {
+  const handleSlashSelect = useCallback((type: BlockType, extraMeta?: Record<string, unknown>) => {
     if (slashBlockId) {
-      // Clear the slash command text and transform block
-      turnBlockInto(slashBlockId, type);
-      updateBlock(slashBlockId, { content: '' });
+      const block = blocks.find(b => b.id === slashBlockId);
+      if (block) {
+        const content = getBlockText(block);
+        const slashIndex = content.lastIndexOf('/');
+        const newContent = slashIndex === -1 ? '' : content.slice(0, slashIndex);
+
+        if (type === 'table') {
+          updateBlock(slashBlockId, {
+            type: 'table',
+            content: '',
+            meta: {
+              columnAligns: [null, null, null],
+              rows: [
+                [{ content: { text: '', marks: [] } }, { content: { text: '', marks: [] } }, { content: { text: '', marks: [] } }],
+                [{ content: { text: '', marks: [] } }, { content: { text: '', marks: [] } }, { content: { text: '', marks: [] } }],
+              ],
+            } as LegacyBlockMeta,
+          });
+        } else if (type === 'container') {
+          updateBlock(slashBlockId, {
+            type: 'container',
+            content: newContent,
+            meta: {
+              containerType: extraMeta?.containerType || 'note',
+            } as LegacyBlockMeta,
+          });
+        } else if (type === 'divider') {
+          updateBlock(slashBlockId, {
+            type: 'divider',
+            content: '',
+            meta: {},
+          });
+          insertBlockAfter(slashBlockId, 'paragraph');
+        } else {
+          turnBlockInto(slashBlockId, type);
+          updateBlock(slashBlockId, { content: newContent });
+        }
+      }
     }
     setSlashMenuOpen(false);
     setSlashQuery("");
     setSlashBlockId(null);
-  }, [slashBlockId, turnBlockInto, updateBlock]);
+  }, [slashBlockId, blocks, turnBlockInto, updateBlock, insertBlockAfter]);
 
   // Handle opening slash menu
   const handleOpenSlashMenu = useCallback((blockId: string, position: { x: number; y: number }) => {
@@ -432,25 +526,28 @@ export function Editor({
     setSlashQuery("");
   }, []);
 
+  // Handle opening formatting toolbar
+  const handleOpenFormattingToolbar = useCallback((position: { x: number; y: number }, editor: TipTapEditor) => {
+    setFormattingToolbarPosition(position);
+    setFormattingToolbarEditor(editor);
+    setFormattingToolbarOpen(true);
+  }, []);
+
   // Update search query from block content when slash menu is open
   useEffect(() => {
     if (slashMenuOpen && slashBlockId) {
       const block = blocks.find(b => b.id === slashBlockId);
       if (block) {
-        const content = block.content;
-        // Extract text after the last /
+        const content = getBlockText(block);
         const slashIndex = content.lastIndexOf('/');
         if (slashIndex !== -1) {
           const query = content.slice(slashIndex + 1);
           setSlashQuery(query);
         } else if (content.length > 0) {
-          // Only close if there's content but no slash (user deleted it)
-          // Don't close if content is empty (slash not yet typed)
           setSlashMenuOpen(false);
           setSlashQuery("");
           setSlashBlockId(null);
         }
-        // If content is empty, keep menu open - slash will appear on next input
       }
     }
   }, [slashMenuOpen, slashBlockId, blocks]);
@@ -469,19 +566,18 @@ export function Editor({
     const block = blocks[blockIndex];
     if (block.type !== 'numberedList') return 1;
 
-    const indent = block.meta?.indent || 0;
+    const meta = block.meta as LegacyBlockMeta | undefined;
+    const indent = meta?.indent || 0;
 
-    // Count backwards to find position in this list sequence
     for (let i = blockIndex - 1; i >= 0; i--) {
       const prev = blocks[i];
-      const prevIndent = prev.meta?.indent || 0;
+      const prevMeta = prev.meta as LegacyBlockMeta | undefined;
+      const prevIndent = prevMeta?.indent || 0;
 
-      // If we hit a different block type or lower indent, stop
       if (prev.type !== 'numberedList' || prevIndent < indent) {
         break;
       }
 
-      // Only count items at the same indent level
       if (prevIndent === indent) {
         count++;
       }
@@ -503,7 +599,6 @@ export function Editor({
       onInsertAfter: (type?: BlockType) => insertBlockAfter(block.id, type),
       onFocus: () => setFocusedBlockId(block.id),
       onFocusPrevious: index > 0 ? () => setFocusedBlockId(blocks[index - 1].id) : undefined,
-      // When on last block, arrow down creates a new paragraph
       onFocusNext: index < blocks.length - 1
         ? () => setFocusedBlockId(blocks[index + 1].id)
         : () => insertBlockAfter(block.id, 'paragraph'),
@@ -515,9 +610,13 @@ export function Editor({
       case 'heading1':
       case 'heading2':
       case 'heading3':
+      case 'heading4':
+      case 'heading5':
+      case 'heading6':
       case 'quote':
+      case 'blockquote':
         BlockComponent = (
-          <TextBlock
+          <RichTextBlock
             {...commonProps}
             onInsertBefore={(type?: BlockType) => insertBlockBefore(block.id, type)}
             onMoveUp={() => moveBlockUp(block.id)}
@@ -527,6 +626,8 @@ export function Editor({
             onTurnInto={(type) => turnBlockInto(block.id, type)}
             onOpenSlashMenu={(pos) => handleOpenSlashMenu(block.id, pos)}
             isSlashMenuOpen={slashMenuOpen && slashBlockId === block.id}
+            onOpenFormattingToolbar={handleOpenFormattingToolbar}
+            onCloseFormattingToolbar={() => setFormattingToolbarOpen(false)}
           />
         );
         break;
@@ -534,6 +635,14 @@ export function Editor({
       case 'callout':
         BlockComponent = (
           <CalloutBlock
+            {...commonProps}
+          />
+        );
+        break;
+
+      case 'container':
+        BlockComponent = (
+          <ContainerBlock
             {...commonProps}
           />
         );
@@ -555,6 +664,7 @@ export function Editor({
         break;
 
       case 'todo':
+      case 'taskList':
         BlockComponent = (
           <TodoBlock
             {...commonProps}
@@ -575,6 +685,7 @@ export function Editor({
         break;
 
       case 'code':
+      case 'codeBlock':
         BlockComponent = (
           <CodeBlock
             {...commonProps}
@@ -585,6 +696,22 @@ export function Editor({
       case 'mermaid':
         BlockComponent = (
           <MermaidBlock
+            {...commonProps}
+          />
+        );
+        break;
+
+      case 'table':
+        BlockComponent = (
+          <TableBlock
+            {...commonProps}
+          />
+        );
+        break;
+
+      case 'mathBlock':
+        BlockComponent = (
+          <MathBlock
             {...commonProps}
           />
         );
@@ -609,7 +736,7 @@ export function Editor({
 
       default:
         BlockComponent = (
-          <TextBlock
+          <RichTextBlock
             {...commonProps}
             onInsertBefore={(type?: BlockType) => insertBlockBefore(block.id, type)}
             onMoveUp={() => moveBlockUp(block.id)}
@@ -619,6 +746,7 @@ export function Editor({
             onTurnInto={(type) => turnBlockInto(block.id, type)}
             onOpenSlashMenu={(pos) => handleOpenSlashMenu(block.id, pos)}
             isSlashMenuOpen={slashMenuOpen && slashBlockId === block.id}
+            onOpenFormattingToolbar={handleOpenFormattingToolbar}
           />
         );
     }
@@ -683,18 +811,17 @@ export function Editor({
         </div>
 
         {/* Empty state / placeholder */}
-        {blocks.length === 1 && !blocks[0].content && (
+        {blocks.length === 1 && !getBlockText(blocks[0]) && (
           <div className="absolute top-0 left-0 pointer-events-none opacity-0">
             <p className="text-[var(--text-tertiary)] italic">{placeholder}</p>
           </div>
         )}
       </div>
 
-      {/* Bottom toolbar - positioned relative to the editor content, not fixed */}
+      {/* Bottom toolbar */}
       {(showCopyButton || isSaving !== undefined) && (
         <div className="sticky bottom-4 flex justify-end px-24 pointer-events-none">
           <div className="flex items-center gap-3 pointer-events-auto">
-            {/* Copy as Markdown button */}
             {showCopyButton && (
               <button
                 onClick={handleCopyAll}
@@ -715,7 +842,6 @@ export function Editor({
               </button>
             )}
 
-            {/* Saving indicator */}
             {isSaving !== undefined && (
               <span className="text-[var(--text-caption)] text-[var(--text-tertiary)]">
                 {isSaving ? 'Saving...' : lastSaved ? `Saved ${formatTime(lastSaved)}` : ''}
@@ -765,11 +891,7 @@ export function Editor({
       <FormattingToolbar
         isOpen={formattingToolbarOpen}
         position={formattingToolbarPosition}
-        activeFormats={[]}
-        onFormat={(format) => {
-          console.log('Format:', format);
-          setFormattingToolbarOpen(false);
-        }}
+        editor={formattingToolbarEditor}
         onClose={() => setFormattingToolbarOpen(false)}
       />
     </div>

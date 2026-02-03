@@ -1,6 +1,12 @@
 // Editor utility functions
 
-import { Block, BlockType, createBlock } from '../types';
+import { Block, BlockType, createBlock, getBlockText, LegacyBlockMeta } from '../types';
+import { parseMarkdownToBlocks as parserParseMarkdownToBlocks } from '../parser';
+import { blocksToMarkdown as serializerBlocksToMarkdown } from '../serializer';
+
+// Re-export from parser and serializer
+export { parseMarkdown, parseMarkdownToBlocks } from '../parser';
+export { serializeBlocks, blocksToMarkdown, serializeInline } from '../serializer';
 
 /**
  * Parse markdown shortcuts at the start of a line
@@ -8,7 +14,16 @@ import { Block, BlockType, createBlock } from '../types';
 export function parseMarkdownShortcut(text: string): { type: BlockType; content: string } | null {
   const trimmed = text.trimStart();
 
-  // Headings
+  // Headings (check longer patterns first)
+  if (trimmed.startsWith('###### ')) {
+    return { type: 'heading6', content: trimmed.slice(7) };
+  }
+  if (trimmed.startsWith('##### ')) {
+    return { type: 'heading5', content: trimmed.slice(6) };
+  }
+  if (trimmed.startsWith('#### ')) {
+    return { type: 'heading4', content: trimmed.slice(5) };
+  }
   if (trimmed.startsWith('### ')) {
     return { type: 'heading3', content: trimmed.slice(4) };
   }
@@ -17,6 +32,13 @@ export function parseMarkdownShortcut(text: string): { type: BlockType; content:
   }
   if (trimmed.startsWith('# ')) {
     return { type: 'heading1', content: trimmed.slice(2) };
+  }
+
+  // Task lists / Todos (check before regular lists)
+  if (trimmed.match(/^[-*]\s*\[[ xX]\]\s/)) {
+    const isChecked = !!trimmed.match(/\[[xX]\]/);
+    const content = trimmed.replace(/^[-*]\s*\[[ xX]\]\s*/, '');
+    return { type: 'todo', content };
   }
 
   // Lists
@@ -28,18 +50,12 @@ export function parseMarkdownShortcut(text: string): { type: BlockType; content:
     return { type: 'numberedList', content: match ? match[1] : '' };
   }
 
-  // Todo
-  if (trimmed.startsWith('[] ') || trimmed.startsWith('[ ] ')) {
-    const content = trimmed.startsWith('[] ') ? trimmed.slice(3) : trimmed.slice(4);
-    return { type: 'todo', content };
-  }
-
-  // Toggle
+  // Toggle (using > for backward compatibility)
   if (trimmed.startsWith('> ')) {
-    return { type: 'toggle', content: trimmed.slice(2) };
+    return { type: 'quote', content: trimmed.slice(2) };
   }
 
-  // Quote
+  // Quote (using " or ")
   if (trimmed.startsWith('" ') || trimmed.startsWith('" ')) {
     return { type: 'quote', content: trimmed.slice(2) };
   }
@@ -55,6 +71,11 @@ export function parseMarkdownShortcut(text: string): { type: BlockType; content:
     return { type: 'code', content: language };
   }
 
+  // Math block
+  if (trimmed.startsWith('$$')) {
+    return { type: 'mathBlock', content: '' };
+  }
+
   return null;
 }
 
@@ -67,19 +88,29 @@ export function getBlockTypeName(type: BlockType): string {
     heading1: 'Heading 1',
     heading2: 'Heading 2',
     heading3: 'Heading 3',
+    heading4: 'Heading 4',
+    heading5: 'Heading 5',
+    heading6: 'Heading 6',
     bulletList: 'Bulleted List',
     numberedList: 'Numbered List',
+    taskList: 'Task List',
     todo: 'To-do',
     toggle: 'Toggle',
     quote: 'Quote',
+    blockquote: 'Block Quote',
     callout: 'Callout',
+    container: 'Container',
     code: 'Code',
+    codeBlock: 'Code Block',
+    mathBlock: 'Math Block',
     mermaid: 'Mermaid Diagram',
     image: 'Image',
     video: 'Video',
     file: 'File',
+    embed: 'Embed',
     divider: 'Divider',
     table: 'Table',
+    footnoteDefinition: 'Footnote',
   };
   return names[type] || type;
 }
@@ -93,12 +124,18 @@ export function isTextBlock(type: BlockType): boolean {
     'heading1',
     'heading2',
     'heading3',
+    'heading4',
+    'heading5',
+    'heading6',
     'bulletList',
     'numberedList',
+    'taskList',
     'todo',
     'toggle',
     'quote',
+    'blockquote',
     'callout',
+    'container',
   ].includes(type);
 }
 
@@ -106,14 +143,14 @@ export function isTextBlock(type: BlockType): boolean {
  * Check if a block type supports children
  */
 export function supportsChildren(type: BlockType): boolean {
-  return type === 'toggle';
+  return type === 'toggle' || type === 'blockquote' || type === 'quote' || type === 'container' || type === 'callout';
 }
 
 /**
  * Check if a block type is a list
  */
 export function isListBlock(type: BlockType): boolean {
-  return ['bulletList', 'numberedList', 'todo'].includes(type);
+  return ['bulletList', 'numberedList', 'taskList', 'todo'].includes(type);
 }
 
 /**
@@ -188,46 +225,11 @@ export function updateBlockById(blocks: Block[], id: string, updates: Partial<Bl
  */
 export function blocksToPlainText(blocks: Block[]): string {
   return blocks.map(block => {
-    let text = block.content;
+    let text = getBlockText(block);
     if (block.children) {
       text += '\n' + blocksToPlainText(block.children);
     }
     return text;
-  }).join('\n');
-}
-
-/**
- * Serialize blocks to HTML
- */
-export function blocksToHtml(blocks: Block[]): string {
-  return blocks.map(block => {
-    switch (block.type) {
-      case 'heading1':
-        return `<h1>${escapeHtml(block.content)}</h1>`;
-      case 'heading2':
-        return `<h2>${escapeHtml(block.content)}</h2>`;
-      case 'heading3':
-        return `<h3>${escapeHtml(block.content)}</h3>`;
-      case 'paragraph':
-        return `<p>${escapeHtml(block.content)}</p>`;
-      case 'quote':
-        return `<blockquote>${escapeHtml(block.content)}</blockquote>`;
-      case 'code':
-        return `<pre><code>${escapeHtml(block.content)}</code></pre>`;
-      case 'bulletList':
-        return `<ul><li>${escapeHtml(block.content)}</li></ul>`;
-      case 'numberedList':
-        return `<ol><li>${escapeHtml(block.content)}</li></ol>`;
-      case 'todo':
-        const checked = block.meta?.checked ? ' checked' : '';
-        return `<div><input type="checkbox"${checked}/> ${escapeHtml(block.content)}</div>`;
-      case 'divider':
-        return '<hr/>';
-      case 'image':
-        return `<img src="${escapeHtml(block.meta?.src || '')}" alt="${escapeHtml(block.meta?.alt || '')}"/>`;
-      default:
-        return `<p>${escapeHtml(block.content)}</p>`;
-    }
   }).join('\n');
 }
 
@@ -243,6 +245,83 @@ function escapeHtml(text: string): string {
     "'": '&#039;',
   };
   return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+/**
+ * Serialize blocks to HTML
+ */
+export function blocksToHtml(blocks: Block[]): string {
+  return blocks.map(block => {
+    const text = getBlockText(block);
+    const meta = block.meta as LegacyBlockMeta | undefined;
+
+    switch (block.type) {
+      case 'heading1':
+        return `<h1>${escapeHtml(text)}</h1>`;
+      case 'heading2':
+        return `<h2>${escapeHtml(text)}</h2>`;
+      case 'heading3':
+        return `<h3>${escapeHtml(text)}</h3>`;
+      case 'heading4':
+        return `<h4>${escapeHtml(text)}</h4>`;
+      case 'heading5':
+        return `<h5>${escapeHtml(text)}</h5>`;
+      case 'heading6':
+        return `<h6>${escapeHtml(text)}</h6>`;
+      case 'paragraph':
+        return `<p>${escapeHtml(text)}</p>`;
+      case 'quote':
+      case 'blockquote':
+        return `<blockquote>${escapeHtml(text)}</blockquote>`;
+      case 'code':
+      case 'codeBlock':
+        return `<pre><code class="language-${meta?.language || 'plaintext'}">${escapeHtml(text)}</code></pre>`;
+      case 'bulletList':
+        return `<ul><li>${escapeHtml(text)}</li></ul>`;
+      case 'numberedList':
+        return `<ol><li>${escapeHtml(text)}</li></ol>`;
+      case 'taskList':
+      case 'todo': {
+        const checked = meta?.checked ? ' checked' : '';
+        return `<div class="task-item"><input type="checkbox"${checked} disabled/> ${escapeHtml(text)}</div>`;
+      }
+      case 'divider':
+        return '<hr/>';
+      case 'image':
+        return `<img src="${escapeHtml(meta?.src || '')}" alt="${escapeHtml(meta?.alt || '')}"/>`;
+      case 'table': {
+        // Simple table rendering
+        const rows = meta?.rows as Array<Array<{ content: { text: string } } | string>> | undefined;
+        if (!rows || rows.length === 0) return '';
+
+        let html = '<table><tbody>';
+        for (const row of rows) {
+          html += '<tr>';
+          for (const cell of row) {
+            const cellText = typeof cell === 'string' ? cell : (cell.content?.text || '');
+            html += `<td>${escapeHtml(cellText)}</td>`;
+          }
+          html += '</tr>';
+        }
+        html += '</tbody></table>';
+        return html;
+      }
+      case 'mathBlock':
+        return `<div class="math-block">${escapeHtml(meta?.latex || text)}</div>`;
+      case 'mermaid':
+        return `<div class="mermaid">${escapeHtml(meta?.mermaidCode || text)}</div>`;
+      case 'callout': {
+        const calloutType = meta?.calloutType || 'info';
+        return `<div class="callout callout-${calloutType}">${escapeHtml(text)}</div>`;
+      }
+      case 'toggle': {
+        const childHtml = block.children ? blocksToHtml(block.children) : '';
+        return `<details><summary>${escapeHtml(text)}</summary>${childHtml}</details>`;
+      }
+      default:
+        return `<p>${escapeHtml(text)}</p>`;
+    }
+  }).join('\n');
 }
 
 /**
@@ -274,200 +353,93 @@ export function createDefaultBlocks(): Block[] {
 }
 
 /**
- * Calculate indentation level from leading spaces/tabs
+ * Calculate word count for blocks
  */
-function getIndentLevel(line: string): number {
-  const match = line.match(/^(\s*)/);
-  if (!match) return 0;
-  const spaces = match[1];
-  // Count tabs as 2 spaces, then divide by 2 for indent level
-  const spaceCount = spaces.replace(/\t/g, '  ').length;
-  return Math.floor(spaceCount / 2);
-}
-
-/**
- * Parse markdown text into blocks with support for nesting and mermaid
- */
-export function parseMarkdownToBlocks(markdown: string): Block[] {
-  const lines = markdown.split('\n');
-  const blocks: Block[] = [];
-  let inCodeBlock = false;
-  let codeBlockContent: string[] = [];
-  let codeBlockLanguage = '';
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmedLine = line.trimStart();
-    const indentLevel = getIndentLevel(line);
-
-    // Handle code blocks (including mermaid)
-    if (trimmedLine.startsWith('```')) {
-      if (!inCodeBlock) {
-        inCodeBlock = true;
-        codeBlockLanguage = trimmedLine.slice(3).trim() || 'plaintext';
-        codeBlockContent = [];
-      } else {
-        // End of code block - check if it's mermaid
-        if (codeBlockLanguage === 'mermaid') {
-          blocks.push(createBlock('mermaid', '', { mermaidCode: codeBlockContent.join('\n') }));
-        } else {
-          blocks.push(createBlock('code', codeBlockContent.join('\n'), { language: codeBlockLanguage }));
-        }
-        inCodeBlock = false;
-        codeBlockLanguage = '';
-        codeBlockContent = [];
-      }
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeBlockContent.push(line);
-      continue;
-    }
-
-    // Empty line - skip
-    if (trimmedLine === '') {
-      continue;
-    }
-
-    // Headings
-    if (trimmedLine.startsWith('### ')) {
-      blocks.push(createBlock('heading3', trimmedLine.slice(4)));
-      continue;
-    }
-    if (trimmedLine.startsWith('## ')) {
-      blocks.push(createBlock('heading2', trimmedLine.slice(3)));
-      continue;
-    }
-    if (trimmedLine.startsWith('# ')) {
-      blocks.push(createBlock('heading1', trimmedLine.slice(2)));
-      continue;
-    }
-
-    // Divider
-    if (trimmedLine.match(/^(-{3,}|\*{3,}|_{3,})$/)) {
-      blocks.push(createBlock('divider', ''));
-      continue;
-    }
-
-    // Checkbox / Todo items (with nesting support)
-    if (trimmedLine.match(/^[-*]\s*\[[ x]\]\s/i)) {
-      const isChecked = !!trimmedLine.match(/\[[xX]\]/);
-      const content = trimmedLine.replace(/^[-*]\s*\[[ xX]\]\s*/, '');
-      blocks.push(createBlock('todo', content, { checked: isChecked, indent: indentLevel }));
-      continue;
-    }
-
-    // Bullet list (with nesting support)
-    if (trimmedLine.match(/^[-*]\s/)) {
-      const content = trimmedLine.slice(2);
-      blocks.push(createBlock('bulletList', content, { indent: indentLevel }));
-      continue;
-    }
-
-    // Numbered list (with nesting support)
-    if (trimmedLine.match(/^\d+\.\s/)) {
-      const content = trimmedLine.replace(/^\d+\.\s/, '');
-      blocks.push(createBlock('numberedList', content, { indent: indentLevel }));
-      continue;
-    }
-
-    // Blockquote
-    if (trimmedLine.startsWith('> ')) {
-      blocks.push(createBlock('quote', trimmedLine.slice(2)));
-      continue;
-    }
-
-    // Image
-    const imgMatch = trimmedLine.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-    if (imgMatch) {
-      blocks.push(createBlock('image', '', { alt: imgMatch[1], src: imgMatch[2] }));
-      continue;
-    }
-
-    // Default: paragraph
-    blocks.push(createBlock('paragraph', trimmedLine));
-  }
-
-  // Handle unclosed code block
-  if (inCodeBlock && codeBlockContent.length > 0) {
-    if (codeBlockLanguage === 'mermaid') {
-      blocks.push(createBlock('mermaid', '', { mermaidCode: codeBlockContent.join('\n') }));
-    } else {
-      blocks.push(createBlock('code', codeBlockContent.join('\n'), { language: codeBlockLanguage }));
-    }
-  }
-
-  return blocks.length > 0 ? blocks : [createBlock('paragraph', '')];
-}
-
-/**
- * Convert blocks to markdown with proper indentation
- */
-export function blocksToMarkdown(blocks: Block[]): string {
-  let result: string[] = [];
-  let prevWasList = false;
-
+export function calculateWordCount(blocks: Block[]): number {
+  let count = 0;
   for (const block of blocks) {
-    const indent = '  '.repeat(block.meta?.indent || 0);
-    const isListItem = ['bulletList', 'numberedList', 'todo'].includes(block.type);
-
-    // Add blank line before non-list items, or when transitioning from list to non-list
-    if (result.length > 0 && (!isListItem || (prevWasList && !isListItem))) {
-      if (!prevWasList || !isListItem) {
-        result.push('');
-      }
+    const text = getBlockText(block);
+    const words = text.trim().split(/\s+/).filter(w => w.length > 0);
+    count += words.length;
+    if (block.children) {
+      count += calculateWordCount(block.children);
     }
+  }
+  return count;
+}
 
-    switch (block.type) {
-      case 'heading1':
-        result.push(`# ${block.content}`);
-        break;
-      case 'heading2':
-        result.push(`## ${block.content}`);
-        break;
-      case 'heading3':
-        result.push(`### ${block.content}`);
-        break;
-      case 'paragraph':
-        result.push(block.content);
-        break;
-      case 'quote':
-        result.push(`> ${block.content}`);
-        break;
-      case 'code':
-        result.push(`\`\`\`${block.meta?.language || ''}\n${block.content}\n\`\`\``);
-        break;
-      case 'bulletList':
-        result.push(`${indent}- ${block.content}`);
-        break;
-      case 'numberedList':
-        result.push(`${indent}1. ${block.content}`);
-        break;
-      case 'todo':
-        result.push(`${indent}- [${block.meta?.checked ? 'x' : ' '}] ${block.content}`);
-        break;
-      case 'divider':
-        result.push('---');
-        break;
-      case 'image':
-        result.push(`![${block.meta?.alt || ''}](${block.meta?.src || ''})`);
-        break;
-      case 'callout':
-        result.push(`> **${block.meta?.calloutType || 'info'}:** ${block.content}`);
-        break;
-      case 'toggle':
-        result.push(`<details>\n<summary>${block.content}</summary>\n${block.children ? blocksToMarkdown(block.children) : ''}\n</details>`);
-        break;
-      case 'mermaid':
-        result.push(`\`\`\`mermaid\n${block.meta?.mermaidCode || block.content}\n\`\`\``);
-        break;
-      default:
-        result.push(block.content);
+/**
+ * Calculate character count for blocks
+ */
+export function calculateCharacterCount(blocks: Block[]): number {
+  let count = 0;
+  for (const block of blocks) {
+    const text = getBlockText(block);
+    count += text.length;
+    if (block.children) {
+      count += calculateCharacterCount(block.children);
     }
+  }
+  return count;
+}
 
-    prevWasList = isListItem;
+/**
+ * Flatten nested blocks into a single array
+ */
+export function flattenBlocks(blocks: Block[]): Block[] {
+  const result: Block[] = [];
+  for (const block of blocks) {
+    result.push(block);
+    if (block.children) {
+      result.push(...flattenBlocks(block.children));
+    }
+  }
+  return result;
+}
+
+/**
+ * Get all block IDs in order
+ */
+export function getAllBlockIds(blocks: Block[]): string[] {
+  return flattenBlocks(blocks).map(b => b.id);
+}
+
+/**
+ * Check if a block is empty (no meaningful content)
+ */
+export function isBlockEmpty(block: Block): boolean {
+  const text = getBlockText(block);
+  if (text.trim().length > 0) return false;
+  if (block.children && block.children.length > 0) {
+    return block.children.every(isBlockEmpty);
+  }
+  return true;
+}
+
+/**
+ * Generate a slug from text for headings
+ */
+export function generateSlug(text: string, existingSlugs?: Set<string>): string {
+  let slug = text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .trim();
+
+  if (!slug) {
+    slug = 'heading';
   }
 
-  return result.join('\n');
+  if (existingSlugs) {
+    let finalSlug = slug;
+    let counter = 1;
+    while (existingSlugs.has(finalSlug)) {
+      finalSlug = `${slug}-${counter}`;
+      counter++;
+    }
+    return finalSlug;
+  }
+
+  return slug;
 }
