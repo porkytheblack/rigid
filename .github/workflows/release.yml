@@ -1,3 +1,35 @@
+# Tauri Release Workflow with Oasis Update Server Integration
+#
+# This workflow builds, signs, and releases the Tauri app for all platforms,
+# uploads artifacts to Cloudflare R2, and registers the release with Oasis.
+#
+# Required Secrets:
+# -----------------
+# Apple Code Signing (macOS only):
+#   - APPLE_CERTIFICATE: Base64-encoded .p12 certificate
+#   - APPLE_CERTIFICATE_PASSWORD: Password for the .p12 certificate
+#   - APPLE_SIGNING_IDENTITY: Certificate identity (e.g., "Developer ID Application: Your Name (TEAM_ID)")
+#
+# Apple Notarization (macOS only):
+#   - APPLE_ID: Apple ID email for notarization
+#   - APPLE_PASSWORD: App-specific password for notarization
+#   - APPLE_TEAM_ID: Apple Developer Team ID
+#
+# Tauri Update Signing:
+#   - TAURI_SIGNING_PRIVATE_KEY: Private key for signing update bundles
+#   - TAURI_SIGNING_PRIVATE_KEY_PASSWORD: Password for the signing key (if set)
+#
+# Cloudflare R2 Storage:
+#   - CLOUDFLARE_ACCOUNT_ID: Cloudflare account ID
+#   - CLOUDFLARE_R2_ACCESS_KEY_ID: R2 API access key ID
+#   - CLOUDFLARE_R2_SECRET_ACCESS_KEY: R2 API secret access key
+#   - R2_BUCKET_NAME: Name of the R2 bucket for uploads
+#   - R2_PUBLIC_URL: Public URL base for R2 bucket (e.g., https://releases.example.com)
+#
+# Oasis Update Server:
+#   - OASIS_SERVER_URL: Base URL of Oasis server (e.g., https://updates.example.com)
+#   - OASIS_CI_KEY: API key for Oasis CI endpoints
+
 name: Release
 
 on:
@@ -5,9 +37,22 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (skip uploads and registration)"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  APP_SLUG: rigid
+  CARGO_INCREMENTAL: 0
 
 jobs:
-  release:
+  # ===========================================================================
+  # Build job - builds for all platforms in parallel
+  # ===========================================================================
+  build:
     permissions:
       contents: write
     strategy:
@@ -15,54 +60,101 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target aarch64-apple-darwin
+            target: aarch64-apple-darwin
+            arch: aarch64
+            os: darwin
             ffmpeg_target: macos-arm64
+            bundle_targets: dmg
           - platform: macos-latest
-            args: --target x86_64-apple-darwin
+            target: x86_64-apple-darwin
+            arch: x86_64
+            os: darwin
             ffmpeg_target: macos-x64
+            bundle_targets: dmg
           - platform: ubuntu-22.04
-            args: ""
+            target: x86_64-unknown-linux-gnu
+            arch: x86_64
+            os: linux
             ffmpeg_target: linux-x64
+            bundle_targets: appimage,deb
           - platform: windows-latest
-            args: ""
+            target: x86_64-pc-windows-msvc
+            arch: x86_64
+            os: windows
             ffmpeg_target: windows
+            bundle_targets: nsis
 
     runs-on: ${{ matrix.platform }}
     defaults:
       run:
         working-directory: app
 
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies (Ubuntu only)
+      - name: Get version from tag
+        id: get_version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"  # Remove 'v' prefix
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      # -------------------------------------------------------------------------
+      # Platform-specific dependencies
+      # -------------------------------------------------------------------------
+      - name: Install dependencies (Ubuntu)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev
+
+      # -------------------------------------------------------------------------
+      # Setup build tools
+      # -------------------------------------------------------------------------
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
-          cache-dependency-path: app/package-lock.json
+          cache: "pnpm"
+          cache-dependency-path: app/pnpm-lock.yaml
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
-      - name: Rust cache
+      - name: Setup Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "app/src-tauri -> target"
+          shared-key: ${{ matrix.target }}
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
-      # Download FFmpeg binaries for bundling
+      # -------------------------------------------------------------------------
+      # Download FFmpeg binaries
+      # -------------------------------------------------------------------------
       - name: Download FFmpeg (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
@@ -72,15 +164,8 @@ jobs:
       - name: Download FFmpeg (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
-          mkdir -p src-tauri/binaries
-          # Download from johnvansickle.com static builds
-          curl -L "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" -o /tmp/ffmpeg-linux.tar.xz
-          tar -xf /tmp/ffmpeg-linux.tar.xz -C /tmp
-          mv /tmp/ffmpeg-*-amd64-static/ffmpeg src-tauri/binaries/ffmpeg-x86_64-unknown-linux-gnu
-          mv /tmp/ffmpeg-*-amd64-static/ffprobe src-tauri/binaries/ffprobe-x86_64-unknown-linux-gnu
-          chmod +x src-tauri/binaries/ffmpeg-x86_64-unknown-linux-gnu
-          chmod +x src-tauri/binaries/ffprobe-x86_64-unknown-linux-gnu
-          ls -la src-tauri/binaries/
+          chmod +x src-tauri/scripts/download-ffmpeg.sh
+          src-tauri/scripts/download-ffmpeg.sh ${{ matrix.ffmpeg_target }}
 
       - name: Download FFmpeg (Windows)
         if: matrix.platform == 'windows-latest'
@@ -94,26 +179,463 @@ jobs:
           Copy-Item "$($binDir.FullName)\bin\ffprobe.exe" -Destination "src-tauri/binaries/ffprobe-x86_64-pc-windows-msvc.exe"
           Get-ChildItem src-tauri/binaries/
 
-      # Optional but helps notarization sometimes (ensures Xcode CLT present)
-      - name: Select Xcode (macOS only)
+      # -------------------------------------------------------------------------
+      # macOS Code Signing Setup
+      # -------------------------------------------------------------------------
+      - name: Setup macOS code signing
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Create keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          echo "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          # Set key partition list for codesign access
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Add keychain to search list
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+
+          # Verify certificate
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Select Xcode (macOS)
         if: matrix.platform == 'macos-latest'
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
-      - name: Build the app
-        uses: tauri-apps/tauri-action@v0.5.25
+      # -------------------------------------------------------------------------
+      # Build Tauri App
+      # -------------------------------------------------------------------------
+      - name: Build Tauri app
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ---- macOS signing + notarization (only used on macOS runners) ----
+          # macOS signing and notarization
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Tauri update signing
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundle_targets }},updater
+
+      # -------------------------------------------------------------------------
+      # Collect and upload artifacts
+      # -------------------------------------------------------------------------
+      - name: Collect build artifacts (macOS)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          mkdir -p ../artifacts/installers
+          mkdir -p ../artifacts/updates
+
+          TARGET_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+
+          # DMG installer
+          if [ -f "$TARGET_DIR/dmg/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.arch }}.dmg" ]; then
+            cp "$TARGET_DIR/dmg/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.arch }}.dmg" ../artifacts/installers/
+          fi
+
+          # Update bundle (.tar.gz and .tar.gz.sig)
+          if [ -f "$TARGET_DIR/macos/Rigid.app.tar.gz" ]; then
+            cp "$TARGET_DIR/macos/Rigid.app.tar.gz" "../artifacts/updates/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
+          fi
+          if [ -f "$TARGET_DIR/macos/Rigid.app.tar.gz.sig" ]; then
+            cp "$TARGET_DIR/macos/Rigid.app.tar.gz.sig" "../artifacts/updates/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.os }}-${{ matrix.arch }}.tar.gz.sig"
+          fi
+
+          echo "=== Collected artifacts ==="
+          ls -la ../artifacts/installers/ || true
+          ls -la ../artifacts/updates/ || true
+
+      - name: Collect build artifacts (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          mkdir -p ../artifacts/installers
+          mkdir -p ../artifacts/updates
+
+          TARGET_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+
+          # AppImage installer
+          if ls $TARGET_DIR/appimage/*.AppImage 1> /dev/null 2>&1; then
+            cp $TARGET_DIR/appimage/*.AppImage ../artifacts/installers/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.arch }}.AppImage
+          fi
+
+          # Deb installer
+          if ls $TARGET_DIR/deb/*.deb 1> /dev/null 2>&1; then
+            cp $TARGET_DIR/deb/*.deb ../artifacts/installers/
+          fi
+
+          # Update bundle (.tar.gz and .tar.gz.sig)
+          if ls $TARGET_DIR/appimage/*.AppImage.tar.gz 1> /dev/null 2>&1; then
+            cp $TARGET_DIR/appimage/*.AppImage.tar.gz "../artifacts/updates/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.os }}-${{ matrix.arch }}.AppImage.tar.gz"
+          fi
+          if ls $TARGET_DIR/appimage/*.AppImage.tar.gz.sig 1> /dev/null 2>&1; then
+            cp $TARGET_DIR/appimage/*.AppImage.tar.gz.sig "../artifacts/updates/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.os }}-${{ matrix.arch }}.AppImage.tar.gz.sig"
+          fi
+
+          echo "=== Collected artifacts ==="
+          ls -la ../artifacts/installers/ || true
+          ls -la ../artifacts/updates/ || true
+
+      - name: Collect build artifacts (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ../artifacts/installers
+          New-Item -ItemType Directory -Force -Path ../artifacts/updates
+
+          $targetDir = "src-tauri/target/${{ matrix.target }}/release/bundle"
+          $version = "${{ steps.get_version.outputs.version }}"
+
+          # NSIS installer
+          $nsisPath = Get-ChildItem -Path "$targetDir/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($nsisPath) {
+            Copy-Item $nsisPath.FullName -Destination "../artifacts/installers/Rigid_${version}_${{ matrix.arch }}-setup.exe"
+          }
+
+          # Update bundle (.nsis.zip and .nsis.zip.sig)
+          $updateZip = Get-ChildItem -Path "$targetDir/nsis" -Filter "*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($updateZip) {
+            Copy-Item $updateZip.FullName -Destination "../artifacts/updates/Rigid_${version}_${{ matrix.os }}-${{ matrix.arch }}.nsis.zip"
+          }
+          $updateSig = Get-ChildItem -Path "$targetDir/nsis" -Filter "*.nsis.zip.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($updateSig) {
+            Copy-Item $updateSig.FullName -Destination "../artifacts/updates/Rigid_${version}_${{ matrix.os }}-${{ matrix.arch }}.nsis.zip.sig"
+          }
+
+          Write-Host "=== Collected artifacts ==="
+          Get-ChildItem ../artifacts/installers/ -ErrorAction SilentlyContinue
+          Get-ChildItem ../artifacts/updates/ -ErrorAction SilentlyContinue
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
         with:
-          projectPath: app
-          tagName: ${{ github.ref_name }}
-          releaseName: "Rigid Desktop App v__VERSION__"
-          releaseBody: "See the assets to download this version and install."
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+          name: installers-${{ matrix.target }}
+          path: artifacts/installers/*
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload update artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: updates-${{ matrix.target }}
+          path: artifacts/updates/*
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ===========================================================================
+  # Upload and Register - uploads to R2 and registers with Oasis
+  # ===========================================================================
+  upload-and-register:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag' && !inputs.dry_run
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: artifacts/installers
+          merge-multiple: true
+
+      - name: Download all update artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updates-*
+          path: artifacts/updates
+          merge-multiple: true
+
+      - name: Display downloaded artifacts
+        run: |
+          echo "=== Installers ==="
+          ls -la artifacts/installers/ || echo "No installers found"
+          echo ""
+          echo "=== Updates ==="
+          ls -la artifacts/updates/ || echo "No updates found"
+
+      # -------------------------------------------------------------------------
+      # Upload to Cloudflare R2
+      # -------------------------------------------------------------------------
+      - name: Setup rclone for R2
+        run: |
+          curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
+          sudo dpkg -i rclone-current-linux-amd64.deb
+
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          endpoint = https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          acl = private
+          no_check_bucket = true
+          EOF
+
+      - name: Upload installers to R2
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          BUCKET="${{ secrets.R2_BUCKET_NAME }}"
+
+          echo "Uploading installers to r2://$BUCKET/${{ env.APP_SLUG }}/installers/$VERSION/"
+
+          if [ -d "artifacts/installers" ] && [ "$(ls -A artifacts/installers 2>/dev/null)" ]; then
+            rclone copy artifacts/installers/ "r2:$BUCKET/${{ env.APP_SLUG }}/installers/$VERSION/" \
+              --progress \
+              --checksum \
+              --s3-upload-concurrency 4
+
+            echo "Installer upload complete"
+            rclone ls "r2:$BUCKET/${{ env.APP_SLUG }}/installers/$VERSION/"
+          else
+            echo "No installers to upload"
+          fi
+
+      - name: Upload updates to R2
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          BUCKET="${{ secrets.R2_BUCKET_NAME }}"
+
+          echo "Uploading updates to r2://$BUCKET/${{ env.APP_SLUG }}/releases/$VERSION/"
+
+          if [ -d "artifacts/updates" ] && [ "$(ls -A artifacts/updates 2>/dev/null)" ]; then
+            rclone copy artifacts/updates/ "r2:$BUCKET/${{ env.APP_SLUG }}/releases/$VERSION/" \
+              --progress \
+              --checksum \
+              --s3-upload-concurrency 4
+
+            echo "Update upload complete"
+            rclone ls "r2:$BUCKET/${{ env.APP_SLUG }}/releases/$VERSION/"
+          else
+            echo "No updates to upload"
+          fi
+
+      # -------------------------------------------------------------------------
+      # Register release with Oasis
+      # -------------------------------------------------------------------------
+      - name: Prepare Oasis release payload
+        id: prepare_payload
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          R2_URL="${{ secrets.R2_PUBLIC_URL }}"
+
+          # Build platform artifacts array
+          PLATFORMS="[]"
+
+          # Helper function to add platform
+          add_platform() {
+            local target="$1"
+            local update_file="$2"
+            local sig_file="$3"
+
+            if [ -f "artifacts/updates/$update_file" ] && [ -f "artifacts/updates/$sig_file" ]; then
+              local signature=$(cat "artifacts/updates/$sig_file")
+              PLATFORMS=$(echo "$PLATFORMS" | jq --arg target "$target" \
+                --arg url "$R2_URL/${{ env.APP_SLUG }}/releases/$VERSION/$update_file" \
+                --arg sig "$signature" \
+                '. + [{
+                  "target": $target,
+                  "url": $url,
+                  "signature": $sig
+                }]')
+              echo "Added platform: $target"
+            else
+              echo "Skipping platform $target - files not found"
+            fi
+          }
+
+          # Add each platform
+          add_platform "darwin-aarch64" "Rigid_${VERSION}_darwin-aarch64.tar.gz" "Rigid_${VERSION}_darwin-aarch64.tar.gz.sig"
+          add_platform "darwin-x86_64" "Rigid_${VERSION}_darwin-x86_64.tar.gz" "Rigid_${VERSION}_darwin-x86_64.tar.gz.sig"
+          add_platform "linux-x86_64" "Rigid_${VERSION}_linux-x86_64.AppImage.tar.gz" "Rigid_${VERSION}_linux-x86_64.AppImage.tar.gz.sig"
+          add_platform "windows-x86_64" "Rigid_${VERSION}_windows-x86_64.nsis.zip" "Rigid_${VERSION}_windows-x86_64.nsis.zip.sig"
+
+          # Build release notes from tag message or default
+          NOTES="Release v$VERSION"
+          if [ -n "${{ github.event.head_commit.message }}" ]; then
+            NOTES="${{ github.event.head_commit.message }}"
+          fi
+
+          # Create full payload
+          PAYLOAD=$(jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --argjson platforms "$PLATFORMS" \
+            '{
+              "version": $version,
+              "notes": $notes,
+              "pub_date": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+              "platforms": $platforms
+            }')
+
+          echo "Release payload:"
+          echo "$PAYLOAD" | jq .
+
+          # Save for next step
+          echo "$PAYLOAD" > release-payload.json
+
+      - name: Register release with Oasis
+        run: |
+          OASIS_URL="${{ secrets.OASIS_SERVER_URL }}"
+          API_KEY="${{ secrets.OASIS_CI_KEY }}"
+
+          echo "Registering release with Oasis at $OASIS_URL"
+
+          RESPONSE=$(curl -sS -w "\n%{http_code}" -X POST \
+            "$OASIS_URL/api/apps/${{ env.APP_SLUG }}/releases" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $API_KEY" \
+            -d @release-payload.json)
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Response code: $HTTP_CODE"
+          echo "Response body: $BODY"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Release registered successfully!"
+          else
+            echo "Failed to register release with Oasis"
+            exit 1
+          fi
+
+  # ===========================================================================
+  # Create GitHub Release
+  # ===========================================================================
+  github-release:
+    needs: [build, upload-and-register]
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          R2_URL="${{ secrets.R2_PUBLIC_URL }}"
+
+          cat > RELEASE_NOTES.md << 'EOF'
+          ## Downloads
+
+          ### macOS
+          - [Rigid_VERSION_aarch64.dmg](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_aarch64.dmg) - Apple Silicon (M1/M2/M3)
+          - [Rigid_VERSION_x86_64.dmg](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_x86_64.dmg) - Intel
+
+          ### Windows
+          - [Rigid_VERSION_x86_64-setup.exe](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_x86_64-setup.exe) - Windows 64-bit
+
+          ### Linux
+          - [Rigid_VERSION_x86_64.AppImage](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_x86_64.AppImage) - AppImage (Universal)
+          - [Rigid_VERSION_amd64.deb](R2_URL/APP_SLUG/installers/VERSION/rigid_VERSION_amd64.deb) - Debian/Ubuntu
+
+          ---
+
+          ## Auto-Updates
+
+          This release supports automatic updates. If you have a previous version installed, you will be prompted to update automatically.
+
+          ## Checksums
+
+          See the attached `checksums.txt` file for SHA256 checksums of all artifacts.
+          EOF
+
+          # Replace placeholders
+          sed -i "s/VERSION/$VERSION/g" RELEASE_NOTES.md
+          sed -i "s|R2_URL|$R2_URL|g" RELEASE_NOTES.md
+          sed -i "s/APP_SLUG/${{ env.APP_SLUG }}/g" RELEASE_NOTES.md
+
+          cat RELEASE_NOTES.md
+
+      - name: Generate checksums
+        run: |
+          cd release-assets
+          sha256sum * > checksums.txt || true
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Rigid v${{ steps.get_version.outputs.version }}"
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===========================================================================
+  # Cleanup on failure
+  # ===========================================================================
+  cleanup-on-failure:
+    needs: [build, upload-and-register, github-release]
+    runs-on: ubuntu-latest
+    if: failure() && github.ref_type == 'tag'
+
+    steps:
+      - name: Notify failure
+        run: |
+          echo "Release workflow failed for version ${{ github.ref_name }}"
+          echo "Please check the logs and retry if necessary."
+          # Add notification integration here (Slack, Discord, email, etc.)
+
+      - name: Cleanup partial R2 uploads (optional)
+        if: false  # Enable if you want automatic cleanup
+        run: |
+          # This step can be used to clean up partial uploads
+          # Be careful with this - you may want to keep partial uploads for debugging
+          echo "Cleanup disabled - manual intervention may be required"
