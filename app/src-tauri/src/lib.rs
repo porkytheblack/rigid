@@ -158,6 +158,7 @@ pub fn run() {
             commands::capture_screenshot,
             commands::capture_fullscreen_screenshot,
             commands::capture_window_screenshot,
+            commands::save_video_frame_screenshot,
             commands::list_windows,
             commands::list_displays,
             commands::list_audio_devices,

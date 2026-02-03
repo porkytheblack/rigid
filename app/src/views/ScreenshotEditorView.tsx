@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { ArrowLeft, Undo, Redo, Circle, Square, ArrowUpRight, Type, Pencil, ZoomIn, ZoomOut, RotateCcw, Plus, Trash2, Flag, MessageSquare, AlertTriangle, CheckCircle, Pencil as PencilIcon, X, Eraser, GripVertical } from "lucide-react";
+import { ArrowLeft, Undo, Redo, Circle, Square, ArrowUpRight, Type, Pencil, ZoomIn, ZoomOut, RotateCcw, Plus, Trash2, Flag, MessageSquare, AlertTriangle, CheckCircle, Lightbulb, Pencil as PencilIcon, X, Eraser, GripVertical, Copy, Check } from "lucide-react";
 import { useScreenshotsStore, useRouterStore, useFeaturesStore } from "@/lib/stores";
 import { screenshots as screenshotsApi } from "@/lib/tauri/commands";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { writeImage } from "@tauri-apps/plugin-clipboard-manager";
+import { Image as TauriImage } from "@tauri-apps/api/image";
 import type { MarkerSeverity, DrawingToolType } from "@/lib/tauri/types";
 
 type Tool = DrawingToolType;
 type AnnotationColor = "#EF4444" | "#F59E0B" | "#10B981" | "#3B82F6" | "#8B5CF6" | "#EC4899";
-type AnnotationSeverity = "info" | "warning" | "error" | "success";
+type AnnotationSeverity = "info" | "warning" | "error" | "success" | "eureka";
 
 interface Point {
   x: number;
@@ -33,6 +35,7 @@ interface MarkerAnnotation {
   title: string;
   description: string;
   severity: AnnotationSeverity;
+  is_fixed: boolean;
   position: Point; // Position on the image where marker is placed
   feature_id: string | null;
 }
@@ -50,6 +53,7 @@ const severityConfig: Record<AnnotationSeverity, { icon: typeof Flag; color: str
   warning: { icon: AlertTriangle, color: "#F59E0B", label: "Warning" },
   error: { icon: Flag, color: "#EF4444", label: "Bug" },
   success: { icon: CheckCircle, color: "#10B981", label: "Works" },
+  eureka: { icon: Lightbulb, color: "#A855F7", label: "Eureka" },
 };
 
 export function ScreenshotEditorView({ appId, explorationId, screenshotId }: ScreenshotEditorViewProps) {
@@ -102,8 +106,18 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
   const [editingMarker, setEditingMarker] = useState<MarkerAnnotation | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(288); // 18rem = 288px default
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [copied, setCopied] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; visible: boolean }>({ message: "", visible: false });
+
+  // Show toast helper
+  const showToast = useCallback((message: string) => {
+    setToast({ message, visible: true });
+    setTimeout(() => setToast({ message: "", visible: false }), 3000);
+  }, []);
 
   // Load existing annotations from database
   useEffect(() => {
@@ -131,6 +145,7 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
           title: m.title,
           description: m.description || '',
           severity: m.severity as AnnotationSeverity,
+          is_fixed: m.is_fixed || false,
           position: { x: m.position_x, y: m.position_y },
           feature_id: m.feature_id || null,
         }));
@@ -168,6 +183,8 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
   useEffect(() => {
     if (screenshot?.image_path) {
       const img = new Image();
+      // Set crossOrigin to allow getImageData() for clipboard copy
+      img.crossOrigin = "anonymous";
       img.onload = () => {
         setImageDimensions({ width: img.width, height: img.height });
         setImageLoaded(true);
@@ -293,7 +310,8 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
       const config = severityConfig[marker.severity];
       ctx.beginPath();
       ctx.arc(marker.position.x, marker.position.y, 16, 0, 2 * Math.PI);
-      ctx.fillStyle = config.color;
+      // Use green for fixed markers
+      ctx.fillStyle = marker.is_fixed ? "#10B981" : config.color;
       ctx.fill();
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 12px system-ui, sans-serif";
@@ -593,6 +611,7 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
       title: newMarker.title,
       description: newMarker.description || "",
       severity: newMarker.severity || "info",
+      is_fixed: false,
       position: pendingMarkerPosition,
       feature_id: newMarker.feature_id || null,
     };
@@ -610,6 +629,14 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
     }
   }, [selectedMarker]);
 
+  const handleToggleFixed = useCallback((id: string, currentFixed: boolean) => {
+    setMarkerAnnotations((prev) => prev.map((m) =>
+      m.id === id ? { ...m, is_fixed: !currentFixed } : m
+    ));
+    setHasUnsavedChanges(true);
+    showToast(!currentFixed ? "Marked as fixed" : "Marked as not fixed");
+  }, [showToast]);
+
   const resetView = useCallback(() => {
     if (containerRef.current && imageDimensions.width > 0) {
       const container = containerRef.current;
@@ -622,6 +649,38 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
       setZoom(Math.min(Math.min(scaleX, scaleY) * 0.9, 1));
     }
   }, [imageDimensions]);
+
+  // Copy screenshot to clipboard
+  const copyToClipboard = useCallback(async () => {
+    if (!canvasRef.current) return;
+
+    try {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        console.error("Failed to get canvas context");
+        return;
+      }
+
+      // Get raw RGBA pixel data for Tauri clipboard
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      // Convert Uint8ClampedArray to Uint8Array
+      const rgbaData = new Uint8Array(imageData.data.buffer);
+
+      // Create Tauri Image from RGBA data with dimensions
+      const tauriImage = await TauriImage.new(rgbaData, canvas.width, canvas.height);
+
+      // Use Tauri's clipboard plugin to write image
+      await writeImage(tauriImage);
+
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      showToast("Screenshot copied to clipboard");
+    } catch (err) {
+      console.error("Failed to copy to clipboard:", err);
+      showToast(`Failed to copy: ${err}`);
+    }
+  }, [showToast]);
 
   if (!screenshot) {
     return (
@@ -745,6 +804,17 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
           </button>
           <button onClick={resetView} className="w-10 h-10 flex items-center justify-center hover:bg-[var(--surface-hover)] text-[var(--text-secondary)]" title="Fit to Screen">
             <RotateCcw className="w-4 h-4" />
+          </button>
+
+          <div className="w-px h-6 bg-[var(--border-default)]" />
+
+          {/* Copy to Clipboard */}
+          <button
+            onClick={copyToClipboard}
+            className="w-10 h-10 flex items-center justify-center hover:bg-[var(--surface-hover)] text-[var(--text-secondary)]"
+            title="Copy to Clipboard"
+          >
+            {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
           </button>
         </aside>
 
@@ -879,18 +949,32 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
                       <div className="flex items-start gap-3">
                         <div
                           className="w-6 h-6 flex items-center justify-center text-white text-[var(--text-caption)] font-bold flex-shrink-0"
-                          style={{ backgroundColor: config.color }}
+                          style={{ backgroundColor: marker.is_fixed ? "#10B981" : config.color }}
                         >
                           {index + 1}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: config.color }} />
-                            <span className="text-[var(--text-caption)] font-medium uppercase" style={{ color: config.color }}>
+                            <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: marker.is_fixed ? "#10B981" : config.color }} />
+                            <span className="text-[var(--text-caption)] font-medium uppercase" style={{ color: marker.is_fixed ? "#10B981" : config.color }}>
                               {config.label}
                             </span>
+                            {marker.severity === "error" && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleToggleFixed(marker.id, marker.is_fixed); }}
+                                className={`text-[var(--text-caption)] px-1.5 py-0.5 flex items-center gap-1 transition-colors ${
+                                  marker.is_fixed
+                                    ? "bg-[#10B98120] text-[#10B981] hover:bg-[#10B98130]"
+                                    : "bg-[var(--surface-hover)] text-[var(--text-tertiary)] hover:bg-[var(--surface-active)]"
+                                }`}
+                                title={marker.is_fixed ? "Mark as not fixed" : "Mark as fixed"}
+                              >
+                                <CheckCircle className="w-3 h-3" />
+                                {marker.is_fixed ? "Fixed" : "Not Fixed"}
+                              </button>
+                            )}
                           </div>
-                          <p className="font-medium text-[var(--text-primary)] text-[var(--text-body-sm)] truncate">
+                          <p className={`font-medium text-[var(--text-body-sm)] truncate ${marker.is_fixed ? "text-[var(--text-tertiary)] line-through" : "text-[var(--text-primary)]"}`}>
                             {marker.title}
                           </p>
                           {marker.description && (
@@ -958,7 +1042,7 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
                 <label className="block text-[var(--text-caption)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">
                   Type
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   {(Object.keys(severityConfig) as AnnotationSeverity[]).map((s) => {
                     const config = severityConfig[s];
                     const Icon = config.icon;
@@ -1073,7 +1157,7 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
                 <label className="block text-[var(--text-caption)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">
                   Type
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   {(Object.keys(severityConfig) as AnnotationSeverity[]).map((s) => {
                     const config = severityConfig[s];
                     const Icon = config.icon;
@@ -1167,6 +1251,16 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
                 Save Changes
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast.visible && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="bg-[var(--text-primary)] text-[var(--text-inverse)] px-4 py-3 shadow-lg flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-[#10B981]" />
+            <span className="font-medium">{toast.message}</span>
           </div>
         </div>
       )}

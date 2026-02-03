@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Plus, Trash2, Flag, MessageSquare, AlertTriangle, CheckCircle, Pencil, X, Scissors, GripVertical, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Plus, Trash2, Flag, MessageSquare, AlertTriangle, CheckCircle, Pencil, X, Scissors, GripVertical, ZoomIn, ZoomOut, Lightbulb, Camera, Copy, Check } from "lucide-react";
 import { useRecordingsStore, useRouterStore, useFeaturesStore } from "@/lib/stores";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { annotations as annotationsApi } from "@/lib/tauri/commands";
+import { writeImage } from "@tauri-apps/plugin-clipboard-manager";
+import { Image } from "@tauri-apps/api/image";
+import { annotations as annotationsApi, capture } from "@/lib/tauri/commands";
 import type { AnnotationSeverity } from "@/lib/tauri/types";
 
 // Local type for working with annotations in the UI
@@ -14,6 +16,7 @@ interface VideoAnnotation {
   title: string;
   description: string;
   severity: AnnotationSeverity;
+  is_fixed: boolean;
   feature_id: string | null;
 }
 
@@ -34,6 +37,7 @@ const severityConfig: Record<AnnotationSeverity, { icon: typeof Flag; color: str
   warning: { icon: AlertTriangle, color: "#F59E0B", label: "Warning" },
   error: { icon: Flag, color: "#EF4444", label: "Bug" },
   success: { icon: CheckCircle, color: "#10B981", label: "Works" },
+  eureka: { icon: Lightbulb, color: "#A855F7", label: "Eureka" },
 };
 
 export function VideoEditorView({ appId, explorationId, recordingId, initialTimestamp }: VideoEditorViewProps) {
@@ -106,11 +110,58 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
   // Toast state
   const [toast, setToast] = useState<{ message: string; visible: boolean }>({ message: "", visible: false });
 
+  // Copy to clipboard state
+  const [frameCopied, setFrameCopied] = useState(false);
+
+  // Watch progress tracking
+  const watchProgressRef = useRef<number>(recording?.watch_progress_ms || 0);
+  const watchProgressSaveTimeout = useRef<NodeJS.Timeout | null>(null);
+
   // Show toast helper
   const showToast = useCallback((message: string) => {
     setToast({ message, visible: true });
     setTimeout(() => setToast({ message: "", visible: false }), 3000);
   }, []);
+
+  // Save watch progress to database (debounced)
+  const saveWatchProgress = useCallback((progressMs: number) => {
+    if (!recordingId || !recording) return;
+
+    // Round to integer (backend expects i64)
+    const progressMsInt = Math.round(progressMs);
+
+    // Only save if progress has actually increased (don't go backwards)
+    const newProgress = Math.max(watchProgressRef.current, progressMsInt);
+    if (newProgress <= watchProgressRef.current) return;
+
+    watchProgressRef.current = newProgress;
+
+    // Debounce the save
+    if (watchProgressSaveTimeout.current) {
+      clearTimeout(watchProgressSaveTimeout.current);
+    }
+
+    watchProgressSaveTimeout.current = setTimeout(async () => {
+      try {
+        await update(recordingId, { watch_progress_ms: newProgress });
+      } catch (err) {
+        console.error("Failed to save watch progress:", err);
+      }
+    }, 2000); // Save every 2 seconds at most
+  }, [recordingId, recording, update]);
+
+  // Save watch progress when component unmounts
+  useEffect(() => {
+    return () => {
+      if (watchProgressSaveTimeout.current) {
+        clearTimeout(watchProgressSaveTimeout.current);
+      }
+      // Final save on unmount
+      if (watchProgressRef.current > (recording?.watch_progress_ms || 0)) {
+        update(recordingId, { watch_progress_ms: watchProgressRef.current }).catch(console.error);
+      }
+    };
+  }, [recordingId, recording?.watch_progress_ms, update]);
 
   // Load existing annotations from database
   useEffect(() => {
@@ -126,6 +177,7 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
           title: a.title,
           description: a.description || "",
           severity: a.severity || "info",
+          is_fixed: a.is_fixed || false,
           feature_id: a.feature_id || null,
         }));
         setAnnotations(videoAnnotations);
@@ -175,26 +227,52 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
     if (!video) return;
 
     const handleLoadedMetadata = () => {
-      setDuration(video.duration * 1000);
-      // Seek to initial timestamp if provided
+      const durationMs = video.duration * 1000;
+      setDuration(durationMs);
+
+      // Seek to initial timestamp if provided (e.g., clicking on an annotation)
       if (initialTimestamp !== undefined && initialTimestamp > 0) {
         video.currentTime = initialTimestamp / 1000;
         setCurrentTime(initialTimestamp);
       }
+      // Otherwise, resume from saved watch progress if video isn't already watched (< 90%)
+      else if (recording?.watch_progress_ms && recording.watch_progress_ms > 0) {
+        const watchProgress = recording.watch_progress_ms / durationMs;
+        // Only resume if not already watched (< 90%) and not at the very beginning
+        if (watchProgress < 0.9 && watchProgress > 0.01) {
+          video.currentTime = recording.watch_progress_ms / 1000;
+          setCurrentTime(recording.watch_progress_ms);
+        }
+      }
     };
-    const handleTimeUpdate = () => setCurrentTime(video.currentTime * 1000);
-    const handleEnded = () => setIsPlaying(false);
+    const handleTimeUpdate = () => {
+      const timeMs = video.currentTime * 1000;
+      setCurrentTime(timeMs);
+      // Track watch progress
+      saveWatchProgress(timeMs);
+    };
+    const handleEnded = () => {
+      setIsPlaying(false);
+      // Save final watch progress (100% of video)
+      saveWatchProgress(video.duration * 1000);
+    };
+    const handlePause = () => {
+      // Save watch progress when paused
+      saveWatchProgress(video.currentTime * 1000);
+    };
 
     video.addEventListener("loadedmetadata", handleLoadedMetadata);
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("ended", handleEnded);
+    video.addEventListener("pause", handlePause);
 
     return () => {
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("ended", handleEnded);
+      video.removeEventListener("pause", handlePause);
     };
-  }, [recording?.recording_path, initialTimestamp]);
+  }, [recording?.recording_path, recording?.watch_progress_ms, initialTimestamp, saveWatchProgress]);
 
   // Auto-save function - now only saves title changes
   // Annotations are saved directly to the database when added/edited/deleted
@@ -383,6 +461,7 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
         title: created.title,
         description: created.description || "",
         severity: created.severity || "info",
+        is_fixed: created.is_fixed || false,
         feature_id: created.feature_id || null,
       };
 
@@ -435,6 +514,25 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
       showToast("Failed to delete annotation");
     }
   }, [selectedAnnotation, showToast]);
+
+  const handleToggleFixed = useCallback(async (id: string, currentFixed: boolean) => {
+    try {
+      // Update in database
+      await annotationsApi.update(id, {
+        is_fixed: !currentFixed,
+      });
+
+      // Update local state
+      setAnnotations((prev) => prev.map((a) =>
+        a.id === id ? { ...a, is_fixed: !currentFixed } : a
+      ));
+
+      showToast(!currentFixed ? "Marked as fixed" : "Marked as not fixed");
+    } catch (err) {
+      console.error("Failed to toggle fixed status:", err);
+      showToast("Failed to update annotation");
+    }
+  }, [showToast]);
 
   const handleTitleSubmit = useCallback(() => {
     setIsEditingTitle(false);
@@ -538,6 +636,88 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isDraggingTrimStart, isDraggingTrimEnd, duration, trimRange]);
+
+  // Capture frame as screenshot
+  const captureFrame = useCallback(async () => {
+    if (!videoRef.current || !recording) return;
+
+    try {
+      const video = videoRef.current;
+      const currentTimeMs = Math.round(video.currentTime * 1000);
+
+      // Create a canvas with the video dimensions
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      // Draw the current frame
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        showToast("Failed to create canvas context");
+        return;
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Get base64 PNG data
+      const base64Data = canvas.toDataURL('image/png');
+
+      // Save via Tauri command
+      const screenshot = await capture.saveVideoFrameScreenshot(
+        base64Data,
+        appId,
+        explorationId,
+        null, // Let backend generate title with timestamp
+        recordingId,
+        currentTimeMs
+      );
+
+      showToast(`Screenshot saved at ${formatTime(currentTimeMs)}`);
+      console.log("Screenshot created:", screenshot.id);
+    } catch (err) {
+      console.error("Failed to capture frame:", err);
+      showToast(`Failed to capture frame: ${err}`);
+    }
+  }, [recording, appId, explorationId, recordingId, showToast]);
+
+  // Copy current frame to clipboard
+  const copyFrameToClipboard = useCallback(async () => {
+    if (!videoRef.current) return;
+
+    try {
+      const video = videoRef.current;
+
+      // Create a canvas with the video dimensions
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      // Draw the current frame
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        showToast("Failed to create canvas context");
+        return;
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Get raw RGBA pixel data for Tauri clipboard
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      // Convert Uint8ClampedArray to Uint8Array
+      const rgbaData = new Uint8Array(imageData.data.buffer);
+
+      // Create Tauri Image from RGBA data with dimensions
+      const tauriImage = await Image.new(rgbaData, canvas.width, canvas.height);
+
+      // Use Tauri's clipboard plugin to write image
+      await writeImage(tauriImage);
+
+      setFrameCopied(true);
+      setTimeout(() => setFrameCopied(false), 2000);
+      showToast("Frame copied to clipboard");
+    } catch (err) {
+      console.error("Failed to copy frame:", err);
+      showToast(`Failed to copy frame: ${err}`);
+    }
+  }, [showToast]);
 
   // Cut handlers
   const startCutMode = useCallback(() => {
@@ -780,6 +960,26 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
 
               <div className="w-px h-6 bg-[var(--border-default)]" />
 
+              {/* Capture Frame */}
+              <button
+                onClick={captureFrame}
+                className="p-2 hover:bg-[var(--surface-hover)] text-[var(--text-secondary)]"
+                title="Capture Frame as Screenshot"
+              >
+                <Camera className="w-5 h-5" />
+              </button>
+
+              {/* Copy Frame to Clipboard */}
+              <button
+                onClick={copyFrameToClipboard}
+                className="p-2 hover:bg-[var(--surface-hover)] text-[var(--text-secondary)]"
+                title="Copy Frame to Clipboard"
+              >
+                {frameCopied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
+              </button>
+
+              <div className="w-px h-6 bg-[var(--border-default)]" />
+
               {/* Timeline Zoom */}
               <div className="flex items-center gap-1">
                 <button
@@ -932,8 +1132,8 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <Icon className="w-4 h-4 flex-shrink-0" style={{ color: config.color }} />
-                            <span className="font-medium text-[var(--text-body-sm)] text-[var(--text-primary)] truncate">{ann.title}</span>
+                            <Icon className="w-4 h-4 flex-shrink-0" style={{ color: ann.is_fixed ? "#10B981" : config.color }} />
+                            <span className={`font-medium text-[var(--text-body-sm)] truncate ${ann.is_fixed ? "text-[var(--text-tertiary)] line-through" : "text-[var(--text-primary)]"}`}>{ann.title}</span>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <button
@@ -959,6 +1159,20 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
                           <span className="text-[var(--text-caption)] px-1.5 py-0.5" style={{ backgroundColor: `${config.color}20`, color: config.color }}>
                             {config.label}
                           </span>
+                          {ann.severity === "error" && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleToggleFixed(ann.id, ann.is_fixed); }}
+                              className={`text-[var(--text-caption)] px-1.5 py-0.5 flex items-center gap-1 transition-colors ${
+                                ann.is_fixed
+                                  ? "bg-[#10B98120] text-[#10B981] hover:bg-[#10B98130]"
+                                  : "bg-[var(--surface-hover)] text-[var(--text-tertiary)] hover:bg-[var(--surface-active)]"
+                              }`}
+                              title={ann.is_fixed ? "Mark as not fixed" : "Mark as fixed"}
+                            >
+                              <CheckCircle className="w-3 h-3" />
+                              {ann.is_fixed ? "Fixed" : "Not Fixed"}
+                            </button>
+                          )}
                         </div>
                         {ann.description && (
                           <p className="text-[var(--text-caption)] text-[var(--text-secondary)] mt-2 line-clamp-2">{ann.description}</p>
@@ -999,7 +1213,7 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
             <div className="p-4 space-y-4">
               <div>
                 <label className="block text-[var(--text-caption)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">Type</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   {(Object.keys(severityConfig) as AnnotationSeverity[]).map((sev) => {
                     const config = severityConfig[sev];
                     const Icon = config.icon;
@@ -1092,7 +1306,7 @@ export function VideoEditorView({ appId, explorationId, recordingId, initialTime
             <div className="p-4 space-y-4">
               <div>
                 <label className="block text-[var(--text-caption)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-2">Type</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   {(Object.keys(severityConfig) as AnnotationSeverity[]).map((sev) => {
                     const config = severityConfig[sev];
                     const Icon = config.icon;

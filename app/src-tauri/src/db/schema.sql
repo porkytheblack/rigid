@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS screenshot_markers (
     title TEXT NOT NULL,
     description TEXT,
     severity TEXT NOT NULL DEFAULT 'info', -- info, warning, error, success
+    is_fixed INTEGER NOT NULL DEFAULT 0,
     position_x REAL NOT NULL,
     position_y REAL NOT NULL,
     issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
@@ -140,6 +141,7 @@ CREATE TABLE IF NOT EXISTS recordings (
     webcam_path TEXT,
     duration_ms INTEGER,
     thumbnail_path TEXT,
+    watch_progress_ms INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -167,6 +169,7 @@ CREATE TABLE IF NOT EXISTS annotations (
     title TEXT NOT NULL,
     description TEXT,
     severity TEXT NOT NULL DEFAULT 'info',
+    is_fixed INTEGER NOT NULL DEFAULT 0,
     issue_id TEXT REFERENCES issues(id) ON DELETE SET NULL,
     feature_id TEXT REFERENCES features(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,

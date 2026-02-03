@@ -11,6 +11,7 @@ pub struct Recording {
     pub webcam_path: Option<String>,
     pub duration_ms: Option<i64>,
     pub thumbnail_path: Option<String>,
+    pub watch_progress_ms: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -30,6 +31,7 @@ pub struct UpdateRecording {
     pub webcam_path: Option<String>,
     pub duration_ms: Option<i64>,
     pub thumbnail_path: Option<String>,
+    pub watch_progress_ms: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -49,6 +51,8 @@ pub struct Annotation {
     pub title: String,
     pub description: Option<String>,
     pub severity: String,
+    #[sqlx(default)]
+    pub is_fixed: bool,
     pub issue_id: Option<String>,
     pub feature_id: Option<String>,
     pub created_at: String,
@@ -71,6 +75,7 @@ pub struct UpdateAnnotation {
     pub title: Option<String>,
     pub description: Option<String>,
     pub severity: Option<String>,
+    pub is_fixed: Option<bool>,
     pub issue_id: Option<String>,
     pub feature_id: Option<String>,
 }

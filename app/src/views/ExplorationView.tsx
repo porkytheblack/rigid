@@ -29,13 +29,14 @@ const statusConfig: Record<ExplorationStatus, { icon: typeof Clock; color: strin
 
 type Tab = "doc" | "checklist" | "annotations" | "screenshots" | "recordings" | "diagrams";
 type PickerMode = "screenshot" | "recording";
-type AnnotationSeverity = "info" | "warning" | "error" | "success";
+type AnnotationSeverity = "info" | "warning" | "error" | "success" | "eureka";
 
 const annotationSeverityConfig: Record<AnnotationSeverity, { color: string; bgColor: string; label: string }> = {
   info: { color: "#3B82F6", bgColor: "rgba(59, 130, 246, 0.15)", label: "Info" },
   warning: { color: "#F59E0B", bgColor: "rgba(245, 158, 11, 0.15)", label: "Warning" },
   error: { color: "#EF4444", bgColor: "rgba(239, 68, 68, 0.15)", label: "Bug" },
   success: { color: "#10B981", bgColor: "rgba(16, 185, 129, 0.15)", label: "Works" },
+  eureka: { color: "#A855F7", bgColor: "rgba(168, 85, 247, 0.15)", label: "Eureka" },
 };
 
 interface ExplorationViewProps {
@@ -1190,72 +1191,151 @@ export function ExplorationView({ appId, explorationId, initialTab }: Exploratio
           )}
 
           {/* Recordings Tab */}
-          {activeTab === "recordings" && (
-            <div className="p-6">
-              <h2 className="text-[var(--text-heading-sm)] font-semibold text-[var(--text-primary)] mb-6">Screen Recordings</h2>
-              {completedRecordings.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <Video className="w-12 h-12 text-[var(--text-tertiary)] mb-4" />
-                  <h3 className="text-[var(--text-body-md)] font-medium text-[var(--text-primary)] mb-2">No recordings yet</h3>
-                  <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)] mb-4">Use the bottom menu bar to start recording.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {completedRecordings.map((recording) => {
-                    const videoUrl = getAssetUrl(recording.recording_path);
-                    const isInProgress = recording.status === 'recording';
-                    const isDeleting = deletingIds.has(recording.id);
-                    return (
-                      <div key={recording.id} onClick={() => !isInProgress && !isDeleting && navigate({ name: "video-editor", appId, explorationId, recordingId: recording.id })} className={`group relative aspect-video bg-[var(--surface-secondary)] border overflow-hidden transition-all ${isDeleting ? 'opacity-50 cursor-wait' : isInProgress ? 'border-[var(--accent-error)] cursor-default' : 'border-[var(--border-default)] hover:border-[var(--border-strong)] cursor-pointer'}`}>
-                        {videoUrl ? (
-                          <video src={videoUrl} className="w-full h-full object-cover" muted preload="metadata" onLoadedMetadata={(e) => { e.currentTarget.currentTime = Math.min(1, e.currentTarget.duration / 2); }} />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-[var(--surface-elevated)]"><Video className="w-8 h-8 text-[var(--text-tertiary)]" /></div>
-                        )}
-                        {isDeleting && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                            <Loader2 className="w-6 h-6 text-white animate-spin" />
-                          </div>
-                        )}
-                        {!isInProgress && !isDeleting && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-12 h-12 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Play className="w-5 h-5 text-white ml-0.5" />
-                            </div>
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="absolute bottom-0 left-0 right-0 p-3">
-                            <p className="text-white text-[var(--text-body-sm)] font-medium truncate">{recording.name}</p>
-                            {recording.duration_ms && <p className="text-white/70 text-[var(--text-caption)]">{formatDuration(recording.duration_ms)}</p>}
-                          </div>
-                        </div>
-                        <div className="absolute top-2 left-2 px-2 py-1 bg-black/50 text-white text-[var(--text-caption)] flex items-center gap-1">
-                          {isInProgress ? (
-                            <><div className="w-2 h-2 bg-[var(--accent-error)] animate-pulse" />Recording...</>
-                          ) : (
-                            <><Video className="w-3 h-3" />{recording.duration_ms ? formatDuration(recording.duration_ms) : "Video"}</>
-                          )}
-                        </div>
-                        {!isInProgress && (
-                          <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                            {recording.recording_path && (
-                              <button onClick={(e) => { e.stopPropagation(); handleExportAsset(recording.recording_path!, `${recording.name || 'recording'}.mov`); }} className="p-1.5 bg-black/50 text-white hover:bg-black/70">
-                                <Download className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            <button onClick={(e) => { e.stopPropagation(); handleDeleteRecording(recording.id); }} disabled={isDeleting} className="p-1.5 bg-black/50 text-white hover:bg-black/70 disabled:cursor-wait">
-                              {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                        )}
+          {activeTab === "recordings" && (() => {
+            // Categorize recordings by watch status
+            const getWatchProgress = (rec: typeof completedRecordings[0]) => {
+              if (!rec.duration_ms || rec.duration_ms === 0) return 0;
+              const progress = (rec.watch_progress_ms || 0) / rec.duration_ms;
+              return Math.min(1, Math.max(0, progress));
+            };
+
+            const isWatched = (rec: typeof completedRecordings[0]) => getWatchProgress(rec) >= 0.9; // 90% watched = completed
+            const isPartiallyWatched = (rec: typeof completedRecordings[0]) => {
+              const progress = getWatchProgress(rec);
+              return progress > 0.05 && progress < 0.9; // Between 5% and 90%
+            };
+
+            const unwatchedRecordings = completedRecordings.filter(r => !isWatched(r) && !isPartiallyWatched(r));
+            const partialRecordings = completedRecordings.filter(r => isPartiallyWatched(r));
+            const watchedRecordings = completedRecordings.filter(r => isWatched(r));
+
+            const renderRecordingCard = (recording: typeof completedRecordings[0]) => {
+              const videoUrl = getAssetUrl(recording.recording_path);
+              const isInProgress = recording.status === 'recording';
+              const isDeleting = deletingIds.has(recording.id);
+              const watchProgress = getWatchProgress(recording);
+              const watched = isWatched(recording);
+
+              return (
+                <div key={recording.id} onClick={() => !isInProgress && !isDeleting && navigate({ name: "video-editor", appId, explorationId, recordingId: recording.id })} className={`group relative aspect-video bg-[var(--surface-secondary)] border overflow-hidden transition-all ${isDeleting ? 'opacity-50 cursor-wait' : isInProgress ? 'border-[var(--accent-error)] cursor-default' : 'border-[var(--border-default)] hover:border-[var(--border-strong)] cursor-pointer'}`}>
+                  {videoUrl ? (
+                    <video src={videoUrl} className="w-full h-full object-cover" muted preload="metadata" onLoadedMetadata={(e) => { e.currentTarget.currentTime = Math.min(1, e.currentTarget.duration / 2); }} />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-[var(--surface-elevated)]"><Video className="w-8 h-8 text-[var(--text-tertiary)]" /></div>
+                  )}
+                  {isDeleting && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <Loader2 className="w-6 h-6 text-white animate-spin" />
+                    </div>
+                  )}
+                  {!isInProgress && !isDeleting && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-12 h-12 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Play className="w-5 h-5 text-white ml-0.5" />
                       </div>
-                    );
-                  })}
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="absolute bottom-0 left-0 right-0 p-3">
+                      <p className="text-white text-[var(--text-body-sm)] font-medium truncate">{recording.name}</p>
+                      {recording.duration_ms && <p className="text-white/70 text-[var(--text-caption)]">{formatDuration(recording.duration_ms)}</p>}
+                    </div>
+                  </div>
+                  {/* Watch progress bar */}
+                  {!isInProgress && watchProgress > 0 && (
+                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/30">
+                      <div
+                        className={`h-full transition-all ${watched ? 'bg-[var(--accent-success)]' : 'bg-[var(--accent-warning)]'}`}
+                        style={{ width: `${watchProgress * 100}%` }}
+                      />
+                    </div>
+                  )}
+                  <div className="absolute top-2 left-2 flex items-center gap-1">
+                    <div className="px-2 py-1 bg-black/50 text-white text-[var(--text-caption)] flex items-center gap-1">
+                      {isInProgress ? (
+                        <><div className="w-2 h-2 bg-[var(--accent-error)] animate-pulse" />Recording...</>
+                      ) : (
+                        <><Video className="w-3 h-3" />{recording.duration_ms ? formatDuration(recording.duration_ms) : "Video"}</>
+                      )}
+                    </div>
+                    {/* Watch status badge */}
+                    {!isInProgress && watched && (
+                      <div className="px-2 py-1 bg-[var(--accent-success)] text-white text-[var(--text-caption)] flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" />
+                      </div>
+                    )}
+                  </div>
+                  {!isInProgress && (
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      {recording.recording_path && (
+                        <button onClick={(e) => { e.stopPropagation(); handleExportAsset(recording.recording_path!, `${recording.name || 'recording'}.mov`); }} className="p-1.5 bg-black/50 text-white hover:bg-black/70">
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button onClick={(e) => { e.stopPropagation(); handleDeleteRecording(recording.id); }} disabled={isDeleting} className="p-1.5 bg-black/50 text-white hover:bg-black/70 disabled:cursor-wait">
+                        {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+              );
+            };
+
+            return (
+              <div className="p-6 space-y-8">
+                <h2 className="text-[var(--text-heading-sm)] font-semibold text-[var(--text-primary)]">Screen Recordings</h2>
+
+                {completedRecordings.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <Video className="w-12 h-12 text-[var(--text-tertiary)] mb-4" />
+                    <h3 className="text-[var(--text-body-md)] font-medium text-[var(--text-primary)] mb-2">No recordings yet</h3>
+                    <p className="text-[var(--text-body-sm)] text-[var(--text-tertiary)] mb-4">Use the bottom menu bar to start recording.</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Unwatched Recordings */}
+                    {unwatchedRecordings.length > 0 && (
+                      <div>
+                        <h3 className="text-[var(--text-body-sm)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-4 flex items-center gap-2">
+                          <Clock className="w-4 h-4" />
+                          Unwatched ({unwatchedRecordings.length})
+                        </h3>
+                        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                          {unwatchedRecordings.map(renderRecordingCard)}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Continue Watching */}
+                    {partialRecordings.length > 0 && (
+                      <div>
+                        <h3 className="text-[var(--text-body-sm)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-4 flex items-center gap-2">
+                          <Play className="w-4 h-4" />
+                          Continue Watching ({partialRecordings.length})
+                        </h3>
+                        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                          {partialRecordings.map(renderRecordingCard)}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Watched Recordings */}
+                    {watchedRecordings.length > 0 && (
+                      <div>
+                        <h3 className="text-[var(--text-body-sm)] font-medium text-[var(--text-secondary)] uppercase tracking-wide mb-4 flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-[var(--accent-success)]" />
+                          Watched ({watchedRecordings.length})
+                        </h3>
+                        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                          {watchedRecordings.map(renderRecordingCard)}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Diagrams Tab */}
           {activeTab === "diagrams" && (

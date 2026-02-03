@@ -304,6 +304,24 @@ export const capture = {
       windowId,
     }),
 
+  /** Save a video frame as a screenshot from base64 PNG data */
+  saveVideoFrameScreenshot: (
+    base64Data: string,
+    appId?: string | null,
+    explorationId?: string | null,
+    title?: string | null,
+    recordingId?: string | null,
+    timestampMs?: number | null
+  ) =>
+    invoke<Screenshot>('save_video_frame_screenshot', {
+      base64Data,
+      appId,
+      testId: explorationId,
+      title,
+      recordingId,
+      timestampMs,
+    }),
+
   listWindows: () =>
     invoke<WindowInfo[]>('list_windows'),
 

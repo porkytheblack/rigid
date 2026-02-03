@@ -6,7 +6,7 @@ use crate::error::RigidError;
 pub type DbPool = SqlitePool;
 
 const SCHEMA: &str = include_str!("schema.sql");
-const CURRENT_VERSION: i32 = 19;
+const CURRENT_VERSION: i32 = 21;
 
 /// Initialize the database connection and run migrations
 pub async fn init_database(app_data_dir: PathBuf) -> Result<DbPool, RigidError> {
@@ -152,6 +152,14 @@ async fn run_migrations(pool: &DbPool) -> Result<(), RigidError> {
         } else if current_version == 18 {
             // Run v18 to v19 migration (fix missing video_clips columns)
             run_v18_to_v19_migration(pool).await?;
+            run_v19_to_v20_migration(pool).await?;
+        } else if current_version == 19 {
+            // Run v19 to v20 migration (add watch_progress_ms to recordings)
+            run_v19_to_v20_migration(pool).await?;
+            run_v20_to_v21_migration(pool).await?;
+        } else if current_version == 20 {
+            // Run v20 to v21 migration (add is_fixed to annotations and screenshot_markers)
+            run_v20_to_v21_migration(pool).await?;
         } else {
             // Fresh install or from v1 - apply full schema
             for statement in SCHEMA.split(';') {
@@ -1278,6 +1286,35 @@ async fn run_v18_to_v19_migration(pool: &DbPool) -> Result<(), RigidError> {
         .execute(pool)
         .await
         .ok();
+
+    Ok(())
+}
+
+/// Migration from v19 to v20: Add watch_progress_ms to recordings table
+async fn run_v19_to_v20_migration(pool: &DbPool) -> Result<(), RigidError> {
+    // Add watch_progress_ms column to track video watch progress
+    sqlx::query("ALTER TABLE recordings ADD COLUMN watch_progress_ms INTEGER DEFAULT 0")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    Ok(())
+}
+
+/// Migration from v20 to v21: Add is_fixed column to annotations and screenshot_markers
+/// This allows marking bug annotations as fixed for tracking resolved issues
+async fn run_v20_to_v21_migration(pool: &DbPool) -> Result<(), RigidError> {
+    // Add is_fixed column to annotations table
+    sqlx::query("ALTER TABLE annotations ADD COLUMN is_fixed INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    // Add is_fixed column to screenshot_markers table
+    sqlx::query("ALTER TABLE screenshot_markers ADD COLUMN is_fixed INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
 
     Ok(())
 }

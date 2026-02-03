@@ -110,6 +110,7 @@ impl RecordingRepository {
                 webcam_path = COALESCE(?, webcam_path),
                 duration_ms = COALESCE(?, duration_ms),
                 thumbnail_path = COALESCE(?, thumbnail_path),
+                watch_progress_ms = COALESCE(?, watch_progress_ms),
                 updated_at = ?
              WHERE id = ?"
         )
@@ -119,6 +120,7 @@ impl RecordingRepository {
         .bind(&updates.webcam_path)
         .bind(&updates.duration_ms)
         .bind(&updates.thumbnail_path)
+        .bind(&updates.watch_progress_ms)
         .bind(&now)
         .bind(id)
         .execute(&self.pool)
@@ -201,6 +203,7 @@ impl RecordingRepository {
                 title = COALESCE(?, title),
                 description = COALESCE(?, description),
                 severity = COALESCE(?, severity),
+                is_fixed = COALESCE(?, is_fixed),
                 issue_id = COALESCE(?, issue_id),
                 feature_id = COALESCE(?, feature_id),
                 updated_at = ?
@@ -209,6 +212,7 @@ impl RecordingRepository {
         .bind(&updates.title)
         .bind(&updates.description)
         .bind(&updates.severity)
+        .bind(&updates.is_fixed)
         .bind(&updates.issue_id)
         .bind(&updates.feature_id)
         .bind(&now)

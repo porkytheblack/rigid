@@ -694,6 +694,72 @@ pub async fn capture_fullscreen_screenshot(
     screenshot_repo.create(new_screenshot).await
 }
 
+/// Save a video frame as a screenshot from base64 PNG data
+/// This is used to capture a frame from a video in the frontend
+#[tauri::command]
+pub async fn save_video_frame_screenshot(
+    base64_data: String,
+    app_id: Option<String>,
+    test_id: Option<String>,
+    title: Option<String>,
+    recording_id: Option<String>,
+    timestamp_ms: Option<i64>,
+    app: AppHandle,
+    screenshot_repo: State<'_, ScreenshotRepository>,
+) -> Result<Screenshot, RigidError> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| RigidError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+
+    let screenshots_dir = data_dir.join("screenshots");
+    std::fs::create_dir_all(&screenshots_dir)
+        .map_err(|e| RigidError::Io(e))?;
+
+    let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+    let filename = format!("video_frame_{}.png", timestamp);
+    let screenshot_path = screenshots_dir.join(&filename);
+
+    // Remove data URL prefix if present (e.g., "data:image/png;base64,")
+    let base64_content = if base64_data.starts_with("data:") {
+        base64_data.split(',').nth(1).unwrap_or(&base64_data)
+    } else {
+        &base64_data
+    };
+
+    // Decode base64 to bytes
+    let image_bytes = STANDARD.decode(base64_content)
+        .map_err(|e| RigidError::Internal(format!("Failed to decode base64 image: {}", e)))?;
+
+    // Write to file
+    std::fs::write(&screenshot_path, &image_bytes)
+        .map_err(|e| RigidError::Io(e))?;
+
+    // Build title - include recording info if available
+    let final_title = title.unwrap_or_else(|| {
+        if let (Some(_rec_id), Some(ts)) = (&recording_id, timestamp_ms) {
+            let secs = ts / 1000;
+            let mins = secs / 60;
+            let secs_remainder = secs % 60;
+            format!("Frame from recording at {:02}:{:02}", mins, secs_remainder)
+        } else {
+            format!("Video Frame {}", timestamp)
+        }
+    });
+
+    let new_screenshot = NewScreenshot {
+        app_id,
+        test_id,
+        title: final_title,
+        description: recording_id.map(|id| format!("Captured from recording {}", id)),
+        image_path: screenshot_path.to_string_lossy().to_string(),
+    };
+
+    screenshot_repo.create(new_screenshot).await
+}
+
 /// Start screen recording using screencapture -v
 /// On macOS, this will record a specific region if bounds are provided
 /// audio_device can be: "none" (no audio), "system" (system audio via -k flag), or a device ID (mic recording)
@@ -850,6 +916,7 @@ pub async fn start_recording(
         webcam_path: webcam_recording_path,
         duration_ms: None,
         thumbnail_path: None,
+        watch_progress_ms: None,
     };
 
     recording_repo.update(&recording.id, updates).await
@@ -925,6 +992,7 @@ pub async fn stop_recording(
         webcam_path,
         duration_ms,
         thumbnail_path: None,
+        watch_progress_ms: None,
     };
 
     recording_repo.update(&recording_id, updates).await
@@ -1432,6 +1500,7 @@ pub async fn start_native_recording(
         webcam_path: None,
         duration_ms: None,
         thumbnail_path: None,
+        watch_progress_ms: None,
     };
 
     recording_repo.update(&recording.id, updates).await
@@ -1483,6 +1552,7 @@ pub async fn stop_native_recording(
         webcam_path: None,
         duration_ms,
         thumbnail_path: None,
+        watch_progress_ms: None,
     };
 
     recording_repo.update(&recording_id, updates).await

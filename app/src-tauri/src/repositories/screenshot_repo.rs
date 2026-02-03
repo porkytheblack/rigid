@@ -280,6 +280,7 @@ impl ScreenshotRepository {
                 title = COALESCE(?, title),
                 description = COALESCE(?, description),
                 severity = COALESCE(?, severity),
+                is_fixed = COALESCE(?, is_fixed),
                 position_x = COALESCE(?, position_x),
                 position_y = COALESCE(?, position_y),
                 issue_id = COALESCE(?, issue_id),
@@ -290,6 +291,7 @@ impl ScreenshotRepository {
         .bind(&updates.title)
         .bind(&updates.description)
         .bind(&updates.severity)
+        .bind(updates.is_fixed)
         .bind(updates.position_x)
         .bind(updates.position_y)
         .bind(&updates.issue_id)

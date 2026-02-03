@@ -78,6 +78,7 @@ export interface Recording {
   webcam_path: string | null;
   duration_ms: number | null;
   thumbnail_path: string | null;
+  watch_progress_ms: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -94,6 +95,7 @@ export interface UpdateRecording {
   webcam_path?: string | null;
   duration_ms?: number | null;
   thumbnail_path?: string | null;
+  watch_progress_ms?: number | null;
 }
 
 export interface RecordingFilter {
@@ -104,7 +106,7 @@ export interface RecordingFilter {
 }
 
 // Annotation types
-export type AnnotationSeverity = 'info' | 'warning' | 'error' | 'success';
+export type AnnotationSeverity = 'info' | 'warning' | 'error' | 'success' | 'eureka';
 
 export interface Annotation {
   id: string;
@@ -113,6 +115,7 @@ export interface Annotation {
   title: string;
   description: string | null;
   severity: AnnotationSeverity;
+  is_fixed: boolean;
   issue_id: string | null;
   feature_id: string | null;
   created_at: string;
@@ -133,6 +136,7 @@ export interface UpdateAnnotation {
   title?: string | null;
   description?: string | null;
   severity?: AnnotationSeverity | null;
+  is_fixed?: boolean | null;
   issue_id?: string | null;
   feature_id?: string | null;
 }
@@ -282,7 +286,7 @@ export interface NewScreenshotDrawing {
 }
 
 // Screenshot marker types (labeled annotations with title, description, severity)
-export type MarkerSeverity = 'info' | 'warning' | 'error' | 'success';
+export type MarkerSeverity = 'info' | 'warning' | 'error' | 'success' | 'eureka';
 
 export interface ScreenshotMarker {
   id: string;
@@ -290,6 +294,7 @@ export interface ScreenshotMarker {
   title: string;
   description: string | null;
   severity: MarkerSeverity;
+  is_fixed: boolean;
   position_x: number;
   position_y: number;
   issue_id: string | null;
@@ -313,6 +318,7 @@ export interface UpdateScreenshotMarker {
   title?: string | null;
   description?: string | null;
   severity?: MarkerSeverity | null;
+  is_fixed?: boolean | null;
   position_x?: number | null;
   position_y?: number | null;
   issue_id?: string | null;

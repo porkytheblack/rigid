@@ -76,6 +76,8 @@ pub struct ScreenshotMarker {
     pub title: String,
     pub description: Option<String>,
     pub severity: String, // info, warning, error, success
+    #[sqlx(default)]
+    pub is_fixed: bool,
     pub position_x: f64,
     pub position_y: f64,
     pub issue_id: Option<String>,
@@ -101,6 +103,7 @@ pub struct UpdateScreenshotMarker {
     pub title: Option<String>,
     pub description: Option<String>,
     pub severity: Option<String>,
+    pub is_fixed: Option<bool>,
     pub position_x: Option<f64>,
     pub position_y: Option<f64>,
     pub issue_id: Option<String>,

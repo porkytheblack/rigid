@@ -149,6 +149,7 @@ pub async fn trim_video(
         webcam_path: None,
         duration_ms: Some(duration_ms),
         thumbnail_path: None,
+        watch_progress_ms: None,
     }).await?;
 
     Ok(())
@@ -242,6 +243,7 @@ pub async fn cut_video(
         webcam_path: None,
         duration_ms: Some(duration_ms),
         thumbnail_path: None,
+        watch_progress_ms: None,
     }).await?;
 
     Ok(updated_recording)
