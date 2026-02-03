@@ -27,20 +27,69 @@
       "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost data: blob:; media-src 'self' asset: https://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**", "$HOME/**", "**"]
+        "scope": [
+          "$APPDATA/**",
+          "$HOME/**",
+          "**"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": [],
-    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Explore, document and deliver apps you did not write",
+    "longDescription": "Rigid is a powerful developer tool that helps you build rigid systems. Explore codebases, document your findings, and deliver applications with confidence.",
+    "copyright": "Copyright (c) 2024 Rigid Systems. All rights reserved.",
+    "externalBin": [
+      "binaries/ffmpeg",
+      "binaries/ffprobe"
+    ],
+    "publisher": "Rigid Systems",
     "macOS": {
       "minimumSystemVersion": "12.3",
       "entitlements": "./Entitlements.plist",
-      "infoPlist": "./Info.plist"
+      "infoPlist": "./Info.plist",
+      "signingIdentity": "4S5M2N3B86",
+      "hardenedRuntime": true
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "timestampUrl": "http://timestamp.digicert.com",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "section": "devel",
+        "priority": "optional"
+      }
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "active": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ1MkE4M0I5RjU1M0U0RUEKUldUcTVGUDF1WU1xMWNvTkNIRGlnSHBXUmYrSFIxKzAzZElheEVSN0F0Nm5uNFkrSEtaN0FvS1UK",
+      "endpoints": [
+        "https://oasis.dterminal.net/rigid/update/{{target}}-{{arch}}/{{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
 }

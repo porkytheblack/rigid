@@ -5,6 +5,7 @@ import { ActionNotesScratchpad } from "@/components/recording/ActionNotesScratch
 import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
 import { ToastProvider } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { UpdateNotification } from "@/components/update";
 import { useRecordingShortcuts } from "@/hooks/useRecordingShortcuts";
 import { providerRegistry } from "@/lib/ai/providers";
 import { useEffect } from "react";
@@ -29,6 +30,7 @@ export function AppShell({ children }: AppShellProps) {
         <ConfirmDialogProvider>
           {children}
           <ExportIndicator />
+          <UpdateNotification />
           <AIPanel />
           <ActionNotesScratchpad />
         </ConfirmDialogProvider>

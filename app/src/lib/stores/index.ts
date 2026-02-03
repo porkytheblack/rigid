@@ -16,4 +16,6 @@ export { useExportsStore, type Export } from './exports';
 export { useAnimationsStore, useAnimationFeedback } from './animations';
 export { useFeaturesStore } from './features';
 export { useActionNotesStore } from './action-notes';
+export { useUpdateStore, selectShouldShowNotification, selectIsUpdateAvailable, selectDownloadPercent } from './update';
 export type { Route } from './router';
+export type { UpdateStatus, UpdateInfo, DownloadProgress } from './update';
