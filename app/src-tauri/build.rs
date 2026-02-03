@@ -31,26 +31,37 @@ fn build_swift_library() {
         "debug"
     };
 
-    println!("cargo:warning=Building Swift package in {} mode...", configuration);
+    // Get the target architecture for cross-compilation support
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "aarch64".to_string());
+    let swift_arch = match arch.as_str() {
+        "x86_64" => "x86_64",
+        "aarch64" => "arm64",
+        _ => "arm64",
+    };
 
-    // Build Swift package
+    // Determine the Swift triple for cross-compilation
+    let swift_triple = match arch.as_str() {
+        "x86_64" => "x86_64-apple-macosx",
+        "aarch64" => "arm64-apple-macosx",
+        _ => "arm64-apple-macosx",
+    };
+
+    println!("cargo:warning=Building Swift package in {} mode for {}...", configuration, swift_triple);
+
+    // Build Swift package with explicit triple for cross-compilation
     let status = Command::new("swift")
-        .args(["build", "-c", configuration, "--package-path"])
-        .arg(&swift_dir)
+        .args([
+            "build",
+            "-c", configuration,
+            "--package-path", swift_dir.to_str().unwrap(),
+            "--triple", swift_triple,
+        ])
         .status()
         .expect("Failed to execute swift build command");
 
     if !status.success() {
         panic!("Swift build failed with status: {}", status);
     }
-
-    // Get the architecture
-    let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "arm64".to_string());
-    let swift_arch = match arch.as_str() {
-        "x86_64" => "x86_64",
-        "aarch64" => "arm64",
-        _ => "arm64",
-    };
 
     // Get the built library path
     // Swift builds to .build/<arch>-apple-macosx/<configuration>/

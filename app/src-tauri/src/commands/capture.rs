@@ -9,9 +9,12 @@ use crate::error::RigidError;
 use crate::models::{NewScreenshot, NewRecording, UpdateRecording, Screenshot, Recording};
 use crate::repositories::{ScreenshotRepository, RecordingRepository};
 
+// Types used in public function signatures - must be available on all platforms
+use crate::native::{NativeWindowInfo, NativeDisplayInfo};
+
 #[cfg(target_os = "macos")]
 use crate::native::{
-    NativeCaptureEngine, NativeWindowInfo, NativeDisplayInfo,
+    NativeCaptureEngine,
     RecordingConfig as NativeRecordingConfig, ScreenshotConfig as NativeScreenshotConfig,
     VideoCodec,
     webcam_list_audio_devices, webcam_list_video_devices, webcam_start_recording, webcam_stop_recording,
