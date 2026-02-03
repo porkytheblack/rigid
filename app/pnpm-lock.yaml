@@ -56,6 +56,9 @@ dependencies:
   '@tauri-apps/plugin-updater':
     specifier: ^2.10.0
     version: 2.10.0
+  '@tiptap/core':
+    specifier: ^3.19.0
+    version: 3.19.0(@tiptap/pm@3.17.1)
   '@tiptap/extension-code-block-lowlight':
     specifier: ^3.18.0
     version: 3.19.0(@tiptap/core@3.19.0)(@tiptap/extension-code-block@3.19.0)(@tiptap/pm@3.17.1)(highlight.js@11.11.1)(lowlight@3.3.0)
@@ -2679,14 +2682,6 @@ packages:
       react-dom: 19.2.3(react@19.2.3)
     dev: true
 
-  /@tiptap/core@3.17.1(@tiptap/pm@3.17.1):
-    resolution: {integrity: sha512-f8hB9MzXqsuXoF9qXEDEH5Fb3VgwhEFMBMfk9EKN88l5adri6oM8mt2XOWVxVVssjpEW0177zXSLPKWzoS/vrw==}
-    peerDependencies:
-      '@tiptap/pm': ^3.17.1
-    dependencies:
-      '@tiptap/pm': 3.17.1
-    dev: false
-
   /@tiptap/core@3.19.0(@tiptap/pm@3.17.1):
     resolution: {integrity: sha512-bpqELwPW+DG8gWiD8iiFtSl4vIBooG5uVJod92Qxn3rA9nFatyXRr4kNbMJmOZ66ezUvmCjXVe/5/G4i5cyzKA==}
     peerDependencies:
@@ -2695,20 +2690,20 @@ packages:
       '@tiptap/pm': 3.17.1
     dev: false
 
-  /@tiptap/extension-blockquote@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-blockquote@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-X4jU/fllJQ8QbjCHUafU4QIHBobyXP3yGBoOcXxUaKlWbLvUs0SQTREM3n6/86m2YyAxwTPG1cn3Xypf42DMAQ==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
-  /@tiptap/extension-bold@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-bold@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-PZmrljcVBziJkQDXT/QJv4ESxVVQ0iRH+ruTzPda56Kk4h2310cSXGjI33W7rlCikGPoBAAjY/inujm46YB4bw==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-bubble-menu@3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1):
@@ -2729,7 +2724,7 @@ packages:
     peerDependencies:
       '@tiptap/extension-list': ^3.17.1
     dependencies:
-      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
+      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-code-block-lowlight@3.19.0(@tiptap/core@3.19.0)(@tiptap/extension-code-block@3.19.0)(@tiptap/pm@3.17.1)(highlight.js@11.11.1)(lowlight@3.3.0):
@@ -2748,13 +2743,13 @@ packages:
       lowlight: 3.3.0
     dev: false
 
-  /@tiptap/extension-code-block@3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1):
+  /@tiptap/extension-code-block@3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1):
     resolution: {integrity: sha512-h4i+Y/cN7nMi0Tmlp6V1w4dI7NTqrUFSr1W/vMqnq4vn+c6jvm35KubKU5ry/1qQp8KfndDA02BtVQiMx6DmpA==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
       '@tiptap/pm': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
       '@tiptap/pm': 3.17.1
     dev: false
 
@@ -2768,20 +2763,20 @@ packages:
       '@tiptap/pm': 3.17.1
     dev: false
 
-  /@tiptap/extension-code@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-code@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-4W0x1ZZqSnIVzQV0/b5VR0bktef2HykH5I/Czzir9yqoZ5zV2cLrMVuLvdFNgRIckU60tQLmHrfKWLF50OY0ew==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
-  /@tiptap/extension-document@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-document@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-F7Q5HoAU383HWFa6AXZQ5N6t6lTJzVjYM8z93XrtH/2GzDFwy1UmDSrsXqvgznedBLAOgCNVTNh9PjXpLoOUbg==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-dropcursor@3.17.1(@tiptap/extensions@3.17.1):
@@ -2789,7 +2784,7 @@ packages:
     peerDependencies:
       '@tiptap/extensions': ^3.17.1
     dependencies:
-      '@tiptap/extensions': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
+      '@tiptap/extensions': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-floating-menu@3.17.1(@floating-ui/dom@1.7.4)(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1):
@@ -2811,23 +2806,23 @@ packages:
     peerDependencies:
       '@tiptap/extensions': ^3.17.1
     dependencies:
-      '@tiptap/extensions': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
+      '@tiptap/extensions': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
     dev: false
 
-  /@tiptap/extension-hard-break@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-hard-break@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-28FZPUho1Q2AB3ka5SVEVib5f9dMKbE1kewLZeRIOQ5FuFNholGIPL5X1tKcwGW7G3A7Y0fGxeNmIZJ3hrqhzA==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
-  /@tiptap/extension-heading@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-heading@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-rT+Su/YnHdlikg8f78t6RXlc1sVSfp7B0fdJdtFgS2e6BBYJQoDMp5L9nt54RR9Yy953aDW2sko7NArUCb8log==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-highlight@3.19.0(@tiptap/core@3.19.0):
@@ -2838,33 +2833,22 @@ packages:
       '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
-  /@tiptap/extension-horizontal-rule@3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1):
+  /@tiptap/extension-horizontal-rule@3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1):
     resolution: {integrity: sha512-CHG6LBtxV+3qj5EcCRVlpvSW5udKD6KbnXIGhP+Tvy+OabLGzO4HNxz3+duDE0pMR4eKX1libsnqffj0vq7mnQ==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
       '@tiptap/pm': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
       '@tiptap/pm': 3.17.1
     dev: false
 
-  /@tiptap/extension-italic@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-italic@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-unfRLmvf680Y0UkBToUcrDkSEKO/wAjd3nQ7CNPMfAc8m+ZMReXkcgLpeVvnDEiHNsJ0PlYSW7a45tnQD9HQdg==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
-    dev: false
-
-  /@tiptap/extension-link@3.19.0(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1):
-    resolution: {integrity: sha512-HEGDJnnCPfr7KWu7Dsq+eRRe/mBCsv6DuI+7fhOCLDJjjKzNgrX2abbo/zG3D/4lCVFaVb+qawgJubgqXR/Smw==}
-    peerDependencies:
-      '@tiptap/core': ^3.19.0
-      '@tiptap/pm': ^3.19.0
-    dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
-      '@tiptap/pm': 3.17.1
-      linkifyjs: 4.3.2
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-link@3.19.0(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1):
@@ -2883,7 +2867,7 @@ packages:
     peerDependencies:
       '@tiptap/extension-list': ^3.17.1
     dependencies:
-      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
+      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-list-keymap@3.17.1(@tiptap/extension-list@3.17.1):
@@ -2891,17 +2875,7 @@ packages:
     peerDependencies:
       '@tiptap/extension-list': ^3.17.1
     dependencies:
-      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
-    dev: false
-
-  /@tiptap/extension-list@3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1):
-    resolution: {integrity: sha512-LHKIxmXe5Me+vJZKhiwMBGHlApaBIAduNMRUpm5mkY7ER/m96zKR0VqrJd4LjVVH2iDvck5h1Ka4396MHWlKNg==}
-    peerDependencies:
-      '@tiptap/core': ^3.17.1
-      '@tiptap/pm': ^3.17.1
-    dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
-      '@tiptap/pm': 3.17.1
+      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-list@3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1):
@@ -2919,15 +2893,15 @@ packages:
     peerDependencies:
       '@tiptap/extension-list': ^3.17.1
     dependencies:
-      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
+      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
     dev: false
 
-  /@tiptap/extension-paragraph@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-paragraph@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-Vl+xAlINaPtX8XTPvPmeveYMEIMLs8gA7ItcKpyyo4cCzAfVCY3DKuWzOkQGUf7DKrhyJQZhpgLNMaq+h5sTSw==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-placeholder@3.17.1(@tiptap/extensions@3.17.1):
@@ -2938,12 +2912,12 @@ packages:
       '@tiptap/extensions': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
     dev: false
 
-  /@tiptap/extension-strike@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-strike@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-c6fS6YIhxoU55etlJgM0Xqker+jn7I1KC7GVu6ljmda8I00K3/lOLZgvFUNPmgp8EJWtyTctj+3D3D+PaZaFAA==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-subscript@3.19.0(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1):
@@ -3016,20 +2990,12 @@ packages:
       '@tiptap/extension-list': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
     dev: false
 
-  /@tiptap/extension-text@3.17.1(@tiptap/core@3.17.1):
+  /@tiptap/extension-text@3.17.1(@tiptap/core@3.19.0):
     resolution: {integrity: sha512-rGml96vokQbvPB+w6L3+WKyYJWwqELaLdFUr1WMgg+py5uNYGJYAExYNAbDb5biWJBrX9GgMlCaNeiJj849L1w==}
     peerDependencies:
       '@tiptap/core': ^3.17.1
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
-    dev: false
-
-  /@tiptap/extension-underline@3.19.0(@tiptap/core@3.17.1):
-    resolution: {integrity: sha512-800MGEWfG49j10wQzAFiW/ele1HT04MamcL8iyuPNu7ZbjbGN2yknvdrJlRy7hZlzIrVkZMr/1tz62KN33VHIw==}
-    peerDependencies:
-      '@tiptap/core': ^3.19.0
-    dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
     dev: false
 
   /@tiptap/extension-underline@3.19.0(@tiptap/core@3.19.0):
@@ -3038,16 +3004,6 @@ packages:
       '@tiptap/core': ^3.19.0
     dependencies:
       '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
-    dev: false
-
-  /@tiptap/extensions@3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1):
-    resolution: {integrity: sha512-aQ4WA5bdRpv9yPQ6rRdiqwlMZ1eJw1HyEaNPQhOr2HVhQ0EqSDIOEXF4ymCveGAHxXbxNvtQ+4t1ymQEikGfXA==}
-    peerDependencies:
-      '@tiptap/core': ^3.17.1
-      '@tiptap/pm': ^3.17.1
-    dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
-      '@tiptap/pm': 3.17.1
     dev: false
 
   /@tiptap/extensions@3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1):
@@ -3112,29 +3068,29 @@ packages:
   /@tiptap/starter-kit@3.17.1:
     resolution: {integrity: sha512-3vBGqag9mwuQoWTrfQlULtHeoFs7k/2Q8CREf3Y79hv2fqAXTvTOKlWYPSgZhiGVMp6Dti7BDiE9Y1QpvAat2g==}
     dependencies:
-      '@tiptap/core': 3.17.1(@tiptap/pm@3.17.1)
-      '@tiptap/extension-blockquote': 3.17.1(@tiptap/core@3.17.1)
-      '@tiptap/extension-bold': 3.17.1(@tiptap/core@3.17.1)
+      '@tiptap/core': 3.19.0(@tiptap/pm@3.17.1)
+      '@tiptap/extension-blockquote': 3.17.1(@tiptap/core@3.19.0)
+      '@tiptap/extension-bold': 3.17.1(@tiptap/core@3.19.0)
       '@tiptap/extension-bullet-list': 3.17.1(@tiptap/extension-list@3.17.1)
-      '@tiptap/extension-code': 3.17.1(@tiptap/core@3.17.1)
-      '@tiptap/extension-code-block': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
-      '@tiptap/extension-document': 3.17.1(@tiptap/core@3.17.1)
+      '@tiptap/extension-code': 3.17.1(@tiptap/core@3.19.0)
+      '@tiptap/extension-code-block': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
+      '@tiptap/extension-document': 3.17.1(@tiptap/core@3.19.0)
       '@tiptap/extension-dropcursor': 3.17.1(@tiptap/extensions@3.17.1)
       '@tiptap/extension-gapcursor': 3.17.1(@tiptap/extensions@3.17.1)
-      '@tiptap/extension-hard-break': 3.17.1(@tiptap/core@3.17.1)
-      '@tiptap/extension-heading': 3.17.1(@tiptap/core@3.17.1)
-      '@tiptap/extension-horizontal-rule': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
-      '@tiptap/extension-italic': 3.17.1(@tiptap/core@3.17.1)
-      '@tiptap/extension-link': 3.19.0(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
-      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
+      '@tiptap/extension-hard-break': 3.17.1(@tiptap/core@3.19.0)
+      '@tiptap/extension-heading': 3.17.1(@tiptap/core@3.19.0)
+      '@tiptap/extension-horizontal-rule': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
+      '@tiptap/extension-italic': 3.17.1(@tiptap/core@3.19.0)
+      '@tiptap/extension-link': 3.19.0(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
+      '@tiptap/extension-list': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
       '@tiptap/extension-list-item': 3.17.1(@tiptap/extension-list@3.17.1)
       '@tiptap/extension-list-keymap': 3.17.1(@tiptap/extension-list@3.17.1)
       '@tiptap/extension-ordered-list': 3.17.1(@tiptap/extension-list@3.17.1)
-      '@tiptap/extension-paragraph': 3.17.1(@tiptap/core@3.17.1)
-      '@tiptap/extension-strike': 3.17.1(@tiptap/core@3.17.1)
-      '@tiptap/extension-text': 3.17.1(@tiptap/core@3.17.1)
-      '@tiptap/extension-underline': 3.19.0(@tiptap/core@3.17.1)
-      '@tiptap/extensions': 3.17.1(@tiptap/core@3.17.1)(@tiptap/pm@3.17.1)
+      '@tiptap/extension-paragraph': 3.17.1(@tiptap/core@3.19.0)
+      '@tiptap/extension-strike': 3.17.1(@tiptap/core@3.19.0)
+      '@tiptap/extension-text': 3.17.1(@tiptap/core@3.19.0)
+      '@tiptap/extension-underline': 3.19.0(@tiptap/core@3.19.0)
+      '@tiptap/extensions': 3.17.1(@tiptap/core@3.19.0)(@tiptap/pm@3.17.1)
       '@tiptap/pm': 3.17.1
     dev: false
 
