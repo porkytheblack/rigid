@@ -551,7 +551,7 @@ jobs:
               notes: $notes,
               artifacts: $artifacts,
               installers: $installers,
-              auto_publish: true
+              auto_publish: false
             }')
 
           echo "Registering release with Oasis server..."
