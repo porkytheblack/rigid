@@ -1,0 +1,353 @@
+/* ============================================
+   RIGID DESIGN SYSTEM
+   Revolutionary landing page foundations
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* Surface colors - Dark, premium feel */
+  --surface-primary: #0a0a0a;
+  --surface-secondary: #111111;
+  --surface-elevated: #181818;
+  --surface-hover: #1f1f1f;
+  --surface-active: #262626;
+
+  /* Text colors - High contrast, readable */
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1a1;
+  --text-tertiary: #666666;
+  --text-inverse: #0a0a0a;
+
+  /* Border colors */
+  --border-default: #262626;
+  --border-strong: #404040;
+  --border-subtle: #1a1a1a;
+
+  /* Accent colors - The Rigid yellow */
+  --accent-warm: #facc15;
+  --accent-warm-dim: rgba(250, 204, 21, 0.15);
+  --accent-interactive: #2563eb;
+
+  /* Typography */
+  --font-display: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+
+  /* Type scale */
+  --text-display-xl: 64px;
+  --text-display-lg: 48px;
+  --text-display-md: 36px;
+  --text-heading-lg: 28px;
+  --text-heading-md: 22px;
+  --text-heading-sm: 18px;
+  --text-body-lg: 18px;
+  --text-body-md: 16px;
+  --text-body-sm: 14px;
+  --text-caption: 12px;
+
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --space-10: 128px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.25);
+  --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.35);
+
+  /* Borders - Paper aesthetic: sharp edges everywhere */
+  --radius: 0px;
+  --radius-none: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-full: 0px;
+
+  /* Animation - Based on Rigid Motion System v1.0 */
+  --ease-sculpt: cubic-bezier(0.16, 1, 0.3, 1); /* "Sculpt ease" - quick start, gentle settle */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Timing per motion system */
+  --duration-micro: 150ms;   /* Blinks, quick state changes */
+  --duration-fast: 200ms;    /* Micro-interactions: hovers, toggles */
+  --duration-normal: 400ms;  /* Transitions: panels, mode switches */
+  --duration-slow: 800ms;    /* Statements: reveals, celebrations */
+  --duration-statement: 1200ms; /* Major intro sequences */
+}
+
+/* ============================================
+   CSS RESET & BASE STYLES
+   ============================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-body);
+  font-size: var(--text-body-md);
+  line-height: 1.5;
+  color: var(--text-primary);
+  background-color: var(--surface-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--surface-primary);
+  color: var(--text-primary);
+}
+
+main {
+  display: block;
+}
+
+/* Images */
+img,
+picture,
+video,
+canvas,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+p {
+  line-height: 1.7;
+}
+
+strong, b {
+  font-weight: 600;
+}
+
+/* Links */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Buttons */
+button {
+  font-family: inherit;
+  font-size: inherit;
+  border: none;
+  cursor: pointer;
+  background: none;
+  color: inherit;
+}
+
+/* Lists */
+ul, ol {
+  list-style: none;
+}
+
+/* Form elements */
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--accent-warm);
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+  background: var(--accent-warm);
+  color: var(--surface-primary);
+}
+
+/* ============================================
+   UTILITY ANIMATIONS
+   ============================================ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Emergence - from Rigid Motion System
+   Elements don't just appear—they emerge from potential into form */
+@keyframes emerge {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(20px);
+    filter: blur(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* Sculpting - malleable, clay-like transformations */
+@keyframes sculpt {
+  0% { transform: scale(1) rotate(0deg); }
+  25% { transform: scale(1.05, 0.95) rotate(-2deg); }
+  50% { transform: scale(0.95, 1.05) rotate(2deg); }
+  75% { transform: scale(1.02, 0.98) rotate(-1deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+/* Refinement - rough becomes smooth */
+@keyframes refine {
+  0% { clip-path: polygon(10% 0%, 90% 5%, 95% 90%, 5% 95%); }
+  50% { clip-path: polygon(5% 2%, 95% 0%, 98% 95%, 2% 98%); }
+  100% { clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%); }
+}
+
+/* ============================================
+   RESPONSIVE TYPE SCALE
+   ============================================ */
+
+@media (max-width: 1024px) {
+  :root {
+    --text-display-xl: 52px;
+    --text-display-lg: 40px;
+    --text-display-md: 32px;
+    --text-heading-lg: 26px;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --text-display-xl: 40px;
+    --text-display-lg: 32px;
+    --text-display-md: 28px;
+    --text-heading-lg: 24px;
+    --text-heading-md: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --text-display-xl: 32px;
+    --text-display-lg: 28px;
+    --text-display-md: 24px;
+    --text-heading-lg: 22px;
+    --text-heading-md: 18px;
+    --text-body-lg: 16px;
+  }
+}
+
+/* ============================================
+   SCROLLBAR STYLING
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) var(--surface-secondary);
+}
