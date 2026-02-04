@@ -515,7 +515,7 @@ export default async function HomePage() {
 
             <div className={styles.downloadGithub}>
               <a
-                href="https://github.com/porkytheblack/taka"
+                href="https://github.com/porkytheblack/rigid"
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles.githubBtn}
