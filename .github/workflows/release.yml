@@ -249,18 +249,35 @@ jobs:
           mkdir -p ../artifacts/updates
 
           TARGET_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+          VERSION="${{ steps.get_version.outputs.version }}"
+          PLATFORM="${{ matrix.os }}-${{ matrix.arch }}"
 
-          # DMG installer
-          if [ -f "$TARGET_DIR/dmg/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.arch }}.dmg" ]; then
-            cp "$TARGET_DIR/dmg/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.arch }}.dmg" ../artifacts/installers/
+          # DMG installer - find it dynamically
+          DMG_FILE=$(find "$TARGET_DIR/dmg" -name "*.dmg" -type f 2>/dev/null | head -1)
+          if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
+            cp "$DMG_FILE" "../artifacts/installers/Rigid_${VERSION}_${PLATFORM}.dmg"
+            echo "Found DMG installer"
+          else
+            echo "Warning: No DMG found in $TARGET_DIR/dmg"
+            ls -la "$TARGET_DIR/dmg" 2>/dev/null || echo "dmg directory not found"
           fi
 
-          # Update bundle (.tar.gz and .tar.gz.sig)
-          if [ -f "$TARGET_DIR/macos/Rigid.app.tar.gz" ]; then
-            cp "$TARGET_DIR/macos/Rigid.app.tar.gz" "../artifacts/updates/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
+          # Update bundle (.app.tar.gz and .app.tar.gz.sig)
+          UPDATE_FILE=$(find "$TARGET_DIR/macos" -name "*.app.tar.gz" -type f 2>/dev/null | head -1)
+          if [ -n "$UPDATE_FILE" ] && [ -f "$UPDATE_FILE" ]; then
+            cp "$UPDATE_FILE" "../artifacts/updates/Rigid_${VERSION}_${PLATFORM}.app.tar.gz"
+            echo "Found update bundle: $(basename "$UPDATE_FILE")"
+          else
+            echo "Warning: No .app.tar.gz found in $TARGET_DIR/macos"
+            ls -la "$TARGET_DIR/macos" 2>/dev/null || echo "macos directory not found"
           fi
-          if [ -f "$TARGET_DIR/macos/Rigid.app.tar.gz.sig" ]; then
-            cp "$TARGET_DIR/macos/Rigid.app.tar.gz.sig" "../artifacts/updates/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.os }}-${{ matrix.arch }}.tar.gz.sig"
+
+          SIG_FILE=$(find "$TARGET_DIR/macos" -name "*.app.tar.gz.sig" -type f 2>/dev/null | head -1)
+          if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
+            cp "$SIG_FILE" "../artifacts/updates/Rigid_${VERSION}_${PLATFORM}.app.tar.gz.sig"
+            echo "Found update signature"
+          else
+            echo "Warning: No .app.tar.gz.sig found"
           fi
 
           echo "=== Collected artifacts ==="
@@ -270,15 +287,22 @@ jobs:
       - name: Collect build artifacts (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           mkdir -p ../artifacts/installers
           mkdir -p ../artifacts/updates
 
           TARGET_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+          VERSION="${{ steps.get_version.outputs.version }}"
+          PLATFORM="${{ matrix.os }}-${{ matrix.arch }}"
 
           # AppImage installer
-          if ls $TARGET_DIR/appimage/*.AppImage 1> /dev/null 2>&1; then
-            cp $TARGET_DIR/appimage/*.AppImage ../artifacts/installers/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.arch }}.AppImage
+          APPIMAGE=$(find "$TARGET_DIR/appimage" -name "*.AppImage" -not -name "*.sig" -type f 2>/dev/null | head -1)
+          if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
+            cp "$APPIMAGE" "../artifacts/installers/Rigid_${VERSION}_${PLATFORM}.AppImage"
+            echo "Found AppImage installer"
           fi
 
           # Deb installer
@@ -286,12 +310,28 @@ jobs:
             cp $TARGET_DIR/deb/*.deb ../artifacts/installers/
           fi
 
-          # Update bundle (.tar.gz and .tar.gz.sig)
-          if ls $TARGET_DIR/appimage/*.AppImage.tar.gz 1> /dev/null 2>&1; then
-            cp $TARGET_DIR/appimage/*.AppImage.tar.gz "../artifacts/updates/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.os }}-${{ matrix.arch }}.AppImage.tar.gz"
-          fi
-          if ls $TARGET_DIR/appimage/*.AppImage.tar.gz.sig 1> /dev/null 2>&1; then
-            cp $TARGET_DIR/appimage/*.AppImage.tar.gz.sig "../artifacts/updates/Rigid_${{ steps.get_version.outputs.version }}_${{ matrix.os }}-${{ matrix.arch }}.AppImage.tar.gz.sig"
+          # Update bundle - Tauri may not create .tar.gz for AppImage by default
+          # We need to create it manually and sign it
+          if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
+            APPIMAGE_NAME=$(basename "$APPIMAGE")
+            TARBALL="../artifacts/updates/Rigid_${VERSION}_${PLATFORM}.AppImage.tar.gz"
+
+            echo "Creating tar.gz archive of AppImage..."
+            tar -czvf "$TARBALL" -C "$(dirname "$APPIMAGE")" "$APPIMAGE_NAME"
+
+            # Sign the tarball
+            echo "Signing the tarball..."
+            if [ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+              npx --yes @tauri-apps/cli signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$TARBALL"
+            else
+              npx --yes @tauri-apps/cli signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" "$TARBALL"
+            fi
+
+            if [ -f "${TARBALL}.sig" ]; then
+              echo "Successfully created and signed update bundle"
+            else
+              echo "Warning: Failed to sign tarball"
+            fi
           fi
 
           echo "=== Collected artifacts ==="
@@ -307,21 +347,31 @@ jobs:
 
           $targetDir = "src-tauri/target/${{ matrix.target }}/release/bundle"
           $version = "${{ steps.get_version.outputs.version }}"
+          $platform = "${{ matrix.os }}-${{ matrix.arch }}"
 
-          # NSIS installer
+          # NSIS installer (.exe)
           $nsisPath = Get-ChildItem -Path "$targetDir/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($nsisPath) {
-            Copy-Item $nsisPath.FullName -Destination "../artifacts/installers/Rigid_${version}_${{ matrix.arch }}-setup.exe"
+            Copy-Item $nsisPath.FullName -Destination "../artifacts/installers/Rigid_${version}_${platform}-setup.exe"
+            Write-Host "Found NSIS installer"
           }
 
           # Update bundle (.nsis.zip and .nsis.zip.sig)
           $updateZip = Get-ChildItem -Path "$targetDir/nsis" -Filter "*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($updateZip) {
-            Copy-Item $updateZip.FullName -Destination "../artifacts/updates/Rigid_${version}_${{ matrix.os }}-${{ matrix.arch }}.nsis.zip"
+            Copy-Item $updateZip.FullName -Destination "../artifacts/updates/Rigid_${version}_${platform}.nsis.zip"
+            Write-Host "Found update zip: $($updateZip.Name)"
+          } else {
+            Write-Host "Warning: No .nsis.zip found in $targetDir/nsis"
+            Get-ChildItem -Path "$targetDir/nsis" -ErrorAction SilentlyContinue
           }
+
           $updateSig = Get-ChildItem -Path "$targetDir/nsis" -Filter "*.nsis.zip.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($updateSig) {
-            Copy-Item $updateSig.FullName -Destination "../artifacts/updates/Rigid_${version}_${{ matrix.os }}-${{ matrix.arch }}.nsis.zip.sig"
+            Copy-Item $updateSig.FullName -Destination "../artifacts/updates/Rigid_${version}_${platform}.nsis.zip.sig"
+            Write-Host "Found update signature"
+          } else {
+            Write-Host "Warning: No .nsis.zip.sig found"
           }
 
           Write-Host "=== Collected artifacts ==="
@@ -462,7 +512,7 @@ jobs:
 
             # Determine file extension based on platform
             if [[ "$OS" == "darwin" ]]; then
-              EXT=".tar.gz"
+              EXT=".app.tar.gz"
             elif [[ "$OS" == "linux" ]]; then
               EXT=".AppImage.tar.gz"
             elif [[ "$OS" == "windows" ]]; then
@@ -616,15 +666,14 @@ jobs:
           ## Downloads
 
           ### macOS
-          - [Rigid_VERSION_aarch64.dmg](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_aarch64.dmg) - Apple Silicon (M1/M2/M3)
-          - [Rigid_VERSION_x86_64.dmg](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_x86_64.dmg) - Intel
+          - [Rigid_VERSION_darwin-aarch64.dmg](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_darwin-aarch64.dmg) - Apple Silicon (M1/M2/M3)
+          - [Rigid_VERSION_darwin-x86_64.dmg](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_darwin-x86_64.dmg) - Intel
 
           ### Windows
-          - [Rigid_VERSION_x86_64-setup.exe](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_x86_64-setup.exe) - Windows 64-bit
+          - [Rigid_VERSION_windows-x86_64-setup.exe](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_windows-x86_64-setup.exe) - Windows 64-bit
 
           ### Linux
-          - [Rigid_VERSION_x86_64.AppImage](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_x86_64.AppImage) - AppImage (Universal)
-          - [Rigid_VERSION_amd64.deb](R2_URL/APP_SLUG/installers/VERSION/rigid_VERSION_amd64.deb) - Debian/Ubuntu
+          - [Rigid_VERSION_linux-x86_64.AppImage](R2_URL/APP_SLUG/installers/VERSION/Rigid_VERSION_linux-x86_64.AppImage) - AppImage (Universal)
 
           ---
 
