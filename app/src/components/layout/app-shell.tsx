@@ -7,6 +7,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { UpdateNotification } from "@/components/update";
 import { useRecordingShortcuts } from "@/hooks/useRecordingShortcuts";
+import { useThemeInitializer } from "@/hooks/useTheme";
 import { providerRegistry } from "@/lib/ai/providers";
 import { useEffect } from "react";
 import { ExportIndicator } from "./export-indicator";
@@ -16,6 +17,9 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
+  // Initialize theme system on app startup
+  useThemeInitializer();
+
   // Initialize AI provider registry on app startup
   useEffect(() => {
     providerRegistry.initialize().catch(console.warn);

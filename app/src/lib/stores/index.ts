@@ -17,5 +17,7 @@ export { useAnimationsStore, useAnimationFeedback } from './animations';
 export { useFeaturesStore } from './features';
 export { useActionNotesStore } from './action-notes';
 export { useUpdateStore, selectShouldShowNotification, selectIsUpdateAvailable, selectDownloadPercent } from './update';
+export { useThemeStore, selectActiveTheme, selectBuiltInThemes, selectCustomThemes } from './theme';
 export type { Route } from './router';
 export type { UpdateStatus, UpdateInfo, DownloadProgress } from './update';
+export type { ThemeDefinition, ThemeColors, ThemeValidationResult } from './theme-types';

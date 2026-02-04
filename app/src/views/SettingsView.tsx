@@ -11,6 +11,7 @@ import {
 import { useRouterStore, useSettingsStore } from "@/lib/stores";
 import { RigidLogo } from "@/components/ui/rigid-logo";
 import { AIProviderConfig } from "@/components/ai/ai-provider-config";
+import { ThemeSettings } from "@/components/settings";
 
 export function SettingsView() {
   const { navigate, goBack, canGoBack } = useRouterStore();
@@ -154,6 +155,9 @@ export function SettingsView() {
             </div>
           </div>
         </section>
+
+        {/* Appearance / Themes */}
+        <ThemeSettings />
 
         {/* Permissions */}
         <section className="mb-8">
