@@ -286,6 +286,45 @@
   scale: 0.98;
 }
 
+.githubBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 28px;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  border-radius: 0;
+  transition: all 150ms ease-out;
+}
+
+.githubBtn:hover {
+  border-color: var(--accent-warm);
+  color: var(--accent-warm);
+  background: rgba(250, 204, 21, 0.05);
+  transform: translateY(-1px);
+}
+
+.githubBtn:active {
+  transform: translateY(0);
+  scale: 0.98;
+}
+
+.githubBtn svg {
+  transition: transform 150ms ease-out;
+}
+
+.githubBtn:hover svg {
+  transform: scale(1.1);
+}
+
+.starIcon {
+  color: var(--accent-warm);
+}
+
 /* Hero Showcase - Cinematic Screenshot Display */
 .heroShowcase {
   max-width: 1200px;
@@ -847,6 +886,13 @@
 .downloadCard:hover .downloadArrow {
   color: var(--accent-warm);
   transform: translateY(2px);
+}
+
+.downloadGithub {
+  display: flex;
+  justify-content: center;
+  padding-top: 32px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .downloadHelp {
