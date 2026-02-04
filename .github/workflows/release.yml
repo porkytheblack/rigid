@@ -394,33 +394,33 @@ jobs:
           curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
           sudo dpkg -i rclone-current-linux-amd64.deb
 
+          # Configure rclone for Cloudflare R2
           mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf << EOF
-          [r2]
-          type = s3
-          provider = Cloudflare
-          access_key_id = ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
-          secret_access_key = ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
-          endpoint = https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          acl = private
-          no_check_bucket = true
-          EOF
+          echo "[r2]" > ~/.config/rclone/rclone.conf
+          echo "type = s3" >> ~/.config/rclone/rclone.conf
+          echo "provider = Cloudflare" >> ~/.config/rclone/rclone.conf
+          echo "access_key_id = ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}" >> ~/.config/rclone/rclone.conf
+          echo "secret_access_key = ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}" >> ~/.config/rclone/rclone.conf
+          echo "endpoint = https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com" >> ~/.config/rclone/rclone.conf
+          echo "acl = private" >> ~/.config/rclone/rclone.conf
+          echo "no_check_bucket = true" >> ~/.config/rclone/rclone.conf
 
       - name: Upload installers to R2
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
           BUCKET="${{ secrets.R2_BUCKET_NAME }}"
 
-          echo "Uploading installers to r2://$BUCKET/${{ env.APP_SLUG }}/installers/$VERSION/"
-
+          echo "=== Uploading Installers ==="
           if [ -d "artifacts/installers" ] && [ "$(ls -A artifacts/installers 2>/dev/null)" ]; then
-            rclone copy artifacts/installers/ "r2:$BUCKET/${{ env.APP_SLUG }}/installers/$VERSION/" \
-              --progress \
-              --checksum \
-              --s3-upload-concurrency 4
-
-            echo "Installer upload complete"
-            rclone ls "r2:$BUCKET/${{ env.APP_SLUG }}/installers/$VERSION/"
+            for file in artifacts/installers/*; do
+              if [ -f "$file" ]; then
+                FILENAME=$(basename "$file")
+                R2_KEY="${{ env.APP_SLUG }}/installers/$VERSION/$FILENAME"
+                echo "Uploading $FILENAME to r2:$BUCKET/$R2_KEY"
+                rclone copyto "$file" "r2:$BUCKET/$R2_KEY"
+                echo "Uploaded: $R2_KEY"
+              fi
+            done
           else
             echo "No installers to upload"
           fi
@@ -430,16 +430,17 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           BUCKET="${{ secrets.R2_BUCKET_NAME }}"
 
-          echo "Uploading updates to r2://$BUCKET/${{ env.APP_SLUG }}/releases/$VERSION/"
-
+          echo "=== Uploading Update Artifacts ==="
           if [ -d "artifacts/updates" ] && [ "$(ls -A artifacts/updates 2>/dev/null)" ]; then
-            rclone copy artifacts/updates/ "r2:$BUCKET/${{ env.APP_SLUG }}/releases/$VERSION/" \
-              --progress \
-              --checksum \
-              --s3-upload-concurrency 4
-
-            echo "Update upload complete"
-            rclone ls "r2:$BUCKET/${{ env.APP_SLUG }}/releases/$VERSION/"
+            for file in artifacts/updates/*; do
+              if [ -f "$file" ]; then
+                FILENAME=$(basename "$file")
+                R2_KEY="${{ env.APP_SLUG }}/releases/$VERSION/$FILENAME"
+                echo "Uploading $FILENAME to r2:$BUCKET/$R2_KEY"
+                rclone copyto "$file" "r2:$BUCKET/$R2_KEY"
+                echo "Uploaded: $R2_KEY"
+              fi
+            done
           else
             echo "No updates to upload"
           fi
@@ -447,42 +448,91 @@ jobs:
       # -------------------------------------------------------------------------
       # Register release with Oasis
       # -------------------------------------------------------------------------
-      - name: Prepare Oasis release payload
-        id: prepare_payload
+      - name: Register release with Oasis
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
-          R2_URL="${{ secrets.R2_PUBLIC_URL }}"
 
-          # Build platform artifacts array
-          PLATFORMS="[]"
+          # Build artifacts array for Oasis API
+          ARTIFACTS="["
+          FIRST=true
 
-          # Helper function to add platform
-          add_platform() {
-            local target="$1"
-            local update_file="$2"
-            local sig_file="$3"
+          # Process each platform for update artifacts
+          for platform in "darwin-aarch64" "darwin-x86_64" "linux-x86_64" "windows-x86_64"; do
+            OS=$(echo $platform | cut -d'-' -f1)
 
-            if [ -f "artifacts/updates/$update_file" ] && [ -f "artifacts/updates/$sig_file" ]; then
-              local signature=$(cat "artifacts/updates/$sig_file")
-              PLATFORMS=$(echo "$PLATFORMS" | jq --arg target "$target" \
-                --arg url "$R2_URL/${{ env.APP_SLUG }}/releases/$VERSION/$update_file" \
-                --arg sig "$signature" \
-                '. + [{
-                  "target": $target,
-                  "url": $url,
-                  "signature": $sig
-                }]')
-              echo "Added platform: $target"
-            else
-              echo "Skipping platform $target - files not found"
+            # Determine file extension based on platform
+            if [[ "$OS" == "darwin" ]]; then
+              EXT=".tar.gz"
+            elif [[ "$OS" == "linux" ]]; then
+              EXT=".AppImage.tar.gz"
+            elif [[ "$OS" == "windows" ]]; then
+              EXT=".nsis.zip"
             fi
-          }
 
-          # Add each platform
-          add_platform "darwin-aarch64" "Rigid_${VERSION}_darwin-aarch64.tar.gz" "Rigid_${VERSION}_darwin-aarch64.tar.gz.sig"
-          add_platform "darwin-x86_64" "Rigid_${VERSION}_darwin-x86_64.tar.gz" "Rigid_${VERSION}_darwin-x86_64.tar.gz.sig"
-          add_platform "linux-x86_64" "Rigid_${VERSION}_linux-x86_64.AppImage.tar.gz" "Rigid_${VERSION}_linux-x86_64.AppImage.tar.gz.sig"
-          add_platform "windows-x86_64" "Rigid_${VERSION}_windows-x86_64.nsis.zip" "Rigid_${VERSION}_windows-x86_64.nsis.zip.sig"
+            ARTIFACT_FILE="artifacts/updates/Rigid_${VERSION}_${platform}${EXT}"
+            SIG_FILE="${ARTIFACT_FILE}.sig"
+
+            if [ -f "$ARTIFACT_FILE" ] && [ -f "$SIG_FILE" ]; then
+              SIGNATURE=$(cat "$SIG_FILE")
+              R2_KEY="${{ env.APP_SLUG }}/releases/$VERSION/Rigid_${VERSION}_${platform}${EXT}"
+
+              if [ "$FIRST" = true ]; then
+                FIRST=false
+              else
+                ARTIFACTS="$ARTIFACTS,"
+              fi
+
+              ARTIFACTS="$ARTIFACTS{\"platform\":\"$platform\",\"signature\":\"$SIGNATURE\",\"r2_key\":\"$R2_KEY\"}"
+              echo "Added artifact for $platform"
+            else
+              echo "Warning: Missing artifact or signature for $platform"
+            fi
+          done
+
+          ARTIFACTS="$ARTIFACTS]"
+
+          # Build installers array for Oasis API
+          INSTALLERS="["
+          FIRST_INSTALLER=true
+
+          # Process installers for each platform
+          declare -A INSTALLER_DISPLAY_NAMES
+          INSTALLER_DISPLAY_NAMES["darwin-aarch64"]="macOS (Apple Silicon)"
+          INSTALLER_DISPLAY_NAMES["darwin-x86_64"]="macOS (Intel)"
+          INSTALLER_DISPLAY_NAMES["windows-x86_64"]="Windows (64-bit)"
+          INSTALLER_DISPLAY_NAMES["linux-x86_64"]="Linux (64-bit)"
+
+          for platform in "darwin-aarch64" "darwin-x86_64" "windows-x86_64" "linux-x86_64"; do
+            OS=$(echo $platform | cut -d'-' -f1)
+
+            # Determine installer file pattern based on platform
+            if [[ "$OS" == "darwin" ]]; then
+              INSTALLER_FILE="artifacts/installers/Rigid_${VERSION}_${platform}.dmg"
+            elif [[ "$OS" == "windows" ]]; then
+              INSTALLER_FILE="artifacts/installers/Rigid_${VERSION}_${platform}-setup.exe"
+            elif [[ "$OS" == "linux" ]]; then
+              INSTALLER_FILE="artifacts/installers/Rigid_${VERSION}_${platform}.AppImage"
+            fi
+
+            if [ -f "$INSTALLER_FILE" ]; then
+              FILENAME=$(basename "$INSTALLER_FILE")
+              R2_KEY="${{ env.APP_SLUG }}/installers/$VERSION/$FILENAME"
+              DISPLAY_NAME="${INSTALLER_DISPLAY_NAMES[$platform]:-$platform}"
+
+              if [ "$FIRST_INSTALLER" = true ]; then
+                FIRST_INSTALLER=false
+              else
+                INSTALLERS="$INSTALLERS,"
+              fi
+
+              INSTALLERS="$INSTALLERS{\"platform\":\"$platform\",\"filename\":\"$FILENAME\",\"r2_key\":\"$R2_KEY\",\"display_name\":\"$DISPLAY_NAME\"}"
+              echo "Added installer for $platform: $FILENAME"
+            else
+              echo "No installer found for $platform (optional)"
+            fi
+          done
+
+          INSTALLERS="$INSTALLERS]"
 
           # Build release notes from tag message or default
           NOTES="Release v$VERSION"
@@ -490,49 +540,43 @@ jobs:
             NOTES="${{ github.event.head_commit.message }}"
           fi
 
-          # Create full payload
+          # Create the API payload using jq with --arg for proper escaping
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \
             --arg notes "$NOTES" \
-            --argjson platforms "$PLATFORMS" \
+            --argjson artifacts "$ARTIFACTS" \
+            --argjson installers "$INSTALLERS" \
             '{
-              "version": $version,
-              "notes": $notes,
-              "pub_date": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
-              "platforms": $platforms
+              version: $version,
+              notes: $notes,
+              artifacts: $artifacts,
+              installers: $installers,
+              auto_publish: true
             }')
 
-          echo "Release payload:"
+          echo "Registering release with Oasis server..."
+          echo "Payload:"
           echo "$PAYLOAD" | jq .
 
-          # Save for next step
-          echo "$PAYLOAD" > release-payload.json
-
-      - name: Register release with Oasis
-        run: |
-          OASIS_URL="${{ secrets.OASIS_SERVER_URL }}"
-          API_KEY="${{ secrets.OASIS_CI_KEY }}"
-
-          echo "Registering release with Oasis at $OASIS_URL"
-
-          RESPONSE=$(curl -sS -w "\n%{http_code}" -X POST \
-            "$OASIS_URL/api/apps/${{ env.APP_SLUG }}/releases" \
+          # Make the API call to the correct endpoint
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.OASIS_SERVER_URL }}/ci/apps/${{ env.APP_SLUG }}/releases" \
+            -H "Authorization: Bearer ${{ secrets.OASIS_CI_KEY }}" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $API_KEY" \
-            -d @release-payload.json)
+            -d "$PAYLOAD")
 
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
 
           echo "Response code: $HTTP_CODE"
           echo "Response body: $BODY"
 
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "Release registered successfully!"
-          else
-            echo "Failed to register release with Oasis"
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Failed to register release with Oasis server"
             exit 1
           fi
+
+          echo "Successfully registered release $VERSION with Oasis server"
 
   # ===========================================================================
   # Create GitHub Release
