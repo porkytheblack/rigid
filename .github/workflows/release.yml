@@ -64,24 +64,27 @@ jobs:
             arch: aarch64
             os: darwin
             ffmpeg_target: macos-arm64
-            bundle_targets: dmg
+            # app bundle generates .app.tar.gz for updater, dmg for installer
+            bundle_targets: app,dmg
           - platform: macos-latest
             target: x86_64-apple-darwin
             arch: x86_64
             os: darwin
             ffmpeg_target: macos-x64
-            bundle_targets: dmg
+            bundle_targets: app,dmg
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             arch: x86_64
             os: linux
             ffmpeg_target: linux-x64
+            # appimage for updater (manually tarred), deb for installer
             bundle_targets: appimage,deb
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             arch: x86_64
             os: windows
             ffmpeg_target: windows
+            # nsis generates both installer (.exe) and updater (.nsis.zip)
             bundle_targets: nsis
 
     runs-on: ${{ matrix.platform }}
@@ -237,7 +240,8 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundle_targets }}
+          tauriScript: pnpm tauri
 
       # -------------------------------------------------------------------------
       # Collect and upload artifacts
@@ -253,30 +257,35 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           PLATFORM="${{ matrix.os }}-${{ matrix.arch }}"
 
+          echo "=== Listing all bundle contents ==="
+          find "$TARGET_DIR" -type f 2>/dev/null || echo "No files found in bundle directory"
+
           # DMG installer - find it dynamically
           DMG_FILE=$(find "$TARGET_DIR/dmg" -name "*.dmg" -type f 2>/dev/null | head -1)
           if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
             cp "$DMG_FILE" "../artifacts/installers/Rigid_${VERSION}_${PLATFORM}.dmg"
-            echo "Found DMG installer"
+            echo "Found DMG installer: $DMG_FILE"
           else
             echo "Warning: No DMG found in $TARGET_DIR/dmg"
             ls -la "$TARGET_DIR/dmg" 2>/dev/null || echo "dmg directory not found"
           fi
 
           # Update bundle (.app.tar.gz and .app.tar.gz.sig)
+          # Tauri v2 puts these in the macos directory
           UPDATE_FILE=$(find "$TARGET_DIR/macos" -name "*.app.tar.gz" -type f 2>/dev/null | head -1)
           if [ -n "$UPDATE_FILE" ] && [ -f "$UPDATE_FILE" ]; then
             cp "$UPDATE_FILE" "../artifacts/updates/Rigid_${VERSION}_${PLATFORM}.app.tar.gz"
-            echo "Found update bundle: $(basename "$UPDATE_FILE")"
+            echo "Found update bundle: $UPDATE_FILE"
           else
             echo "Warning: No .app.tar.gz found in $TARGET_DIR/macos"
+            echo "Contents of macos directory:"
             ls -la "$TARGET_DIR/macos" 2>/dev/null || echo "macos directory not found"
           fi
 
           SIG_FILE=$(find "$TARGET_DIR/macos" -name "*.app.tar.gz.sig" -type f 2>/dev/null | head -1)
           if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
             cp "$SIG_FILE" "../artifacts/updates/Rigid_${VERSION}_${PLATFORM}.app.tar.gz.sig"
-            echo "Found update signature"
+            echo "Found update signature: $SIG_FILE"
           else
             echo "Warning: No .app.tar.gz.sig found"
           fi
@@ -299,19 +308,25 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           PLATFORM="${{ matrix.os }}-${{ matrix.arch }}"
 
+          echo "=== Listing all bundle contents ==="
+          find "$TARGET_DIR" -type f 2>/dev/null || echo "No files found in bundle directory"
+
           # AppImage installer
           APPIMAGE=$(find "$TARGET_DIR/appimage" -name "*.AppImage" -not -name "*.sig" -type f 2>/dev/null | head -1)
           if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
             cp "$APPIMAGE" "../artifacts/installers/Rigid_${VERSION}_${PLATFORM}.AppImage"
-            echo "Found AppImage installer"
+            echo "Found AppImage installer: $APPIMAGE"
+          else
+            echo "Warning: No AppImage found"
           fi
 
           # Deb installer
           if ls $TARGET_DIR/deb/*.deb 1> /dev/null 2>&1; then
             cp $TARGET_DIR/deb/*.deb ../artifacts/installers/
+            echo "Found Deb installer"
           fi
 
-          # Update bundle - Tauri may not create .tar.gz for AppImage by default
+          # Update bundle - Tauri doesn't create .tar.gz for AppImage by default
           # We need to create it manually and sign it
           if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
             APPIMAGE_NAME=$(basename "$APPIMAGE")
@@ -329,10 +344,15 @@ jobs:
             fi
 
             if [ -f "${TARBALL}.sig" ]; then
-              echo "Successfully created and signed update bundle"
+              echo "Successfully created and signed update bundle: $TARBALL"
+              ls -la "${TARBALL}"*
             else
-              echo "Warning: Failed to sign tarball"
+              echo "ERROR: Failed to sign tarball"
+              exit 1
             fi
+          else
+            echo "ERROR: No AppImage found to create update bundle"
+            exit 1
           fi
 
           echo "=== Collected artifacts ==="
@@ -350,27 +370,33 @@ jobs:
           $version = "${{ steps.get_version.outputs.version }}"
           $platform = "${{ matrix.os }}-${{ matrix.arch }}"
 
+          Write-Host "=== Listing all bundle contents ==="
+          Get-ChildItem -Path $targetDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+
           # NSIS installer (.exe)
           $nsisPath = Get-ChildItem -Path "$targetDir/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($nsisPath) {
             Copy-Item $nsisPath.FullName -Destination "../artifacts/installers/Rigid_${version}_${platform}-setup.exe"
-            Write-Host "Found NSIS installer"
+            Write-Host "Found NSIS installer: $($nsisPath.FullName)"
+          } else {
+            Write-Host "Warning: No .exe found in $targetDir/nsis"
           }
 
           # Update bundle (.nsis.zip and .nsis.zip.sig)
           $updateZip = Get-ChildItem -Path "$targetDir/nsis" -Filter "*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($updateZip) {
             Copy-Item $updateZip.FullName -Destination "../artifacts/updates/Rigid_${version}_${platform}.nsis.zip"
-            Write-Host "Found update zip: $($updateZip.Name)"
+            Write-Host "Found update zip: $($updateZip.FullName)"
           } else {
             Write-Host "Warning: No .nsis.zip found in $targetDir/nsis"
-            Get-ChildItem -Path "$targetDir/nsis" -ErrorAction SilentlyContinue
+            Write-Host "Contents of nsis directory:"
+            Get-ChildItem -Path "$targetDir/nsis" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.Name }
           }
 
           $updateSig = Get-ChildItem -Path "$targetDir/nsis" -Filter "*.nsis.zip.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($updateSig) {
             Copy-Item $updateSig.FullName -Destination "../artifacts/updates/Rigid_${version}_${platform}.nsis.zip.sig"
-            Write-Host "Found update signature"
+            Write-Host "Found update signature: $($updateSig.FullName)"
           } else {
             Write-Host "Warning: No .nsis.zip.sig found"
           }
