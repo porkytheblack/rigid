@@ -38,7 +38,7 @@ export function SettingsView() {
   return (
     <div className="h-screen overflow-auto bg-[var(--surface-primary)]">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b border-[var(--border-default)] bg-[var(--surface-primary)]">
+      <header className="sticky top-0 z-10 pt-[var(--titlebar-height)] border-b border-[var(--border-default)] bg-[var(--surface-primary)]">
         <div className="mx-auto flex max-w-4xl items-center gap-4 px-6 py-4">
           <button
             onClick={handleBack}

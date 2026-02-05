@@ -101,8 +101,8 @@ export function Sidebar() {
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-[var(--sidebar-width)] flex flex-col bg-[var(--bg-surface)] border-r border-[var(--border-subtle)]">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 h-14 border-b border-[var(--border-subtle)]">
+      {/* Header - with padding for macOS traffic light buttons */}
+      <div className="flex items-center gap-3 px-4 h-[calc(56px+var(--titlebar-height))] pt-[var(--titlebar-height)] border-b border-[var(--border-subtle)]">
         <RigidLogo size={28} />
         <div>
           <h1 className="font-semibold text-[var(--text-primary)] text-sm">

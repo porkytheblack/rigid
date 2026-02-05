@@ -240,7 +240,7 @@ function ArchitectureDiagramEditorContent({ appId, docId, diagramId }: Architect
   return (
     <div className="h-screen bg-[var(--surface-primary)] flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0 bg-[var(--surface-primary)]">
+      <header className="h-[var(--titlebar-area-height)] pt-[var(--titlebar-height)] border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0 bg-[var(--surface-primary)]">
         <div className="flex items-center gap-3">
           <button onClick={goBack} className="p-2 -ml-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]">
             <ArrowLeft className="w-5 h-5" />

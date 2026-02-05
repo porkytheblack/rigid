@@ -108,8 +108,11 @@ export function DemoView({ appId, demoId, initialTab }: DemoViewProps) {
   const [_loadingDemoMedia, setLoadingDemoMedia] = useState(false);
 
   // Available recordings/screenshots for this app (to add to demo)
-  const _appRecordings = allRecordings.filter((r) => r.app_id === appId);
-  const _appScreenshots = allScreenshots.filter((s) => s.app_id === appId);
+  const appRecordings = allRecordings.filter((r) => r.app_id === appId);
+  const appScreenshots = allScreenshots.filter((s) => s.app_id === appId);
+  // Silence unused variable warnings - these are available for future features
+  void appRecordings;
+  void appScreenshots;
 
   // Get the current demo
   const demo = getDemoById(demoId);
@@ -322,8 +325,8 @@ export function DemoView({ appId, demoId, initialTab }: DemoViewProps) {
         if (cameraStatus === "not_determined") {
           // Request permission - this should show system dialog
           await captureCommands.requestCameraPermission();
-          // Give the system dialog a moment to process
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Give the system dialog time to process - increased for Windows users
+          await new Promise(resolve => setTimeout(resolve, 2000));
           // Check again
           const newStatus = await captureCommands.checkCameraPermission();
           if (newStatus === "denied" || newStatus === "restricted") {
@@ -337,11 +340,17 @@ export function DemoView({ appId, demoId, initialTab }: DemoViewProps) {
           return;
         }
 
+        // Add delay before requesting microphone permission
+        // This gives the user time to process one dialog at a time
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
         // Also check microphone if needed
         const micStatus = await captureCommands.checkMicrophonePermission();
         console.log("Microphone permission status:", micStatus);
         if (micStatus === "not_determined") {
           await captureCommands.requestMicrophonePermission();
+          // Give the system dialog time to process
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
       } catch (err) {
         console.error("Error checking camera permission:", err);
@@ -815,12 +824,14 @@ export function DemoView({ appId, demoId, initialTab }: DemoViewProps) {
   };
 
   // Start editing demo name
-  const _handleStartEditingDemoName = () => {
+  const handleStartEditingDemoName = () => {
     if (demo) {
       setDemoNameInput(demo.name);
       setEditingDemoName(true);
     }
   };
+  // Silence unused variable warning - available for future UI
+  void handleStartEditingDemoName;
 
   // Save demo name
   const handleSaveDemoName = async () => {
@@ -897,7 +908,7 @@ export function DemoView({ appId, demoId, initialTab }: DemoViewProps) {
   return (
     <div className="h-screen bg-[var(--surface-primary)] flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0 bg-[var(--surface-primary)]">
+      <header className="h-[var(--titlebar-area-height)] pt-[var(--titlebar-height)] border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0 bg-[var(--surface-primary)]">
         <div className="flex items-center gap-3">
           <button
             onClick={goBackToApp}

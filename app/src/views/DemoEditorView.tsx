@@ -42,10 +42,11 @@ import {
   Circle,
   Link2,
   Move,
+  Waypoints,
 } from "lucide-react";
 import { useRouterStore, useDemosStore, useExportsStore } from "@/lib/stores";
 import { demoRecordings, demoScreenshots, demoVideos } from "@/lib/tauri/commands";
-import type { DemoTrackType, DemoClip, DemoTrack, DemoAsset, DemoBackground, DemoZoomClip, DemoBlurClip, DemoPanClip, Recording, Screenshot, DemoFormat, DemoVideo } from "@/lib/tauri/types";
+import type { DemoTrackType, DemoClip, DemoTrack, DemoAsset, DemoBackground, DemoZoomClip, DemoBlurClip, DemoPanClip, DemoTransformClip, TransformKeyframe, TransformEasingType, Recording, Screenshot, DemoFormat, DemoVideo } from "@/lib/tauri/types";
 // DEMO_FORMAT_DIMENSIONS available from "@/lib/tauri/types" if needed
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -84,6 +85,7 @@ const trackTypeConfig: Record<DemoTrackType, { icon: typeof Video; color: string
   zoom: { icon: ZoomIn, color: "#A855F7", label: "Zoom" },
   blur: { icon: Circle, color: "#EC4899", label: "Blur" },
   pan: { icon: Move, color: "#14B8A6", label: "Pan" },
+  transform: { icon: Waypoints, color: "#F97316", label: "Transform" },
 };
 
 // Background presets
@@ -158,6 +160,13 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
     updatePanClip,
     deletePanClip,
     selectPanClip,
+    addTransformClip,
+    updateTransformClip,
+    deleteTransformClip,
+    selectTransformClip,
+    addKeyframeToTransformClip,
+    updateKeyframeInTransformClip,
+    deleteKeyframeFromTransformClip,
     saveDemo,
     updateDemoInfo,
   } = useDemosStore();
@@ -205,6 +214,10 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
   const [panClipDragOffset, setPanClipDragOffset] = useState(0);
   const [isTrimmingPanClip, setIsTrimmingPanClip] = useState<{ clipId: string; edge: "start" | "end" } | null>(null);
   const [showPanTrackTargetMenu, setShowPanTrackTargetMenu] = useState(false);
+  const [isDraggingTransformClip, setIsDraggingTransformClip] = useState(false);
+  const [transformClipDragOffset, setTransformClipDragOffset] = useState(0);
+  const [isTrimmingTransformClip, setIsTrimmingTransformClip] = useState<{ clipId: string; edge: "start" | "end" } | null>(null);
+  const [showTransformTrackTargetMenu, setShowTransformTrackTargetMenu] = useState(false);
 
   // Expandable sections state
   const [expandedSections, setExpandedSections] = useState({
@@ -802,7 +815,16 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
           break;
         case "Delete":
         case "Backspace":
-          if (canvas.selectedZoomClipId) {
+          if (canvas.selectedTransformClipId) {
+            e.preventDefault();
+            deleteTransformClip(canvas.selectedTransformClipId);
+          } else if (canvas.selectedPanClipId) {
+            e.preventDefault();
+            deletePanClip(canvas.selectedPanClipId);
+          } else if (canvas.selectedBlurClipId) {
+            e.preventDefault();
+            deleteBlurClip(canvas.selectedBlurClipId);
+          } else if (canvas.selectedZoomClipId) {
             e.preventDefault();
             deleteZoomClip(canvas.selectedZoomClipId);
           } else if (canvas.selectedClipId) {
@@ -2035,6 +2057,151 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
     };
   }, [isTrimmingPanClip, timeline.zoom, updatePanClip, currentDemo]);
 
+  // Handle click on transform track to create a new transform clip
+  const handleTransformTrackClick = useCallback(
+    (e: React.MouseEvent, trackId: string) => {
+      if (!timelineRef.current) return;
+
+      const rect = timelineRef.current.getBoundingClientRect();
+      const scrollLeft = timelineRef.current.scrollLeft;
+      const clickX = e.clientX - rect.left + scrollLeft;
+      const pxPerMs = timeline.zoom * 0.1;
+      const clickedTime = Math.max(0, clickX / pxPerMs);
+
+      // Create a new transform clip at the clicked position with default 2 second duration
+      addTransformClip({
+        track_id: trackId,
+        name: "Transform",
+        start_time_ms: Math.round(clickedTime),
+        duration_ms: 2000,
+      });
+    },
+    [timeline.zoom, addTransformClip]
+  );
+  // Silence unused variable warning - will be used when transform track click-to-add is wired up
+  void handleTransformTrackClick;
+
+  // Handle transform clip drag start
+  const handleTransformClipDragStart = useCallback(
+    (e: React.MouseEvent, transformClip: DemoTransformClip) => {
+      e.stopPropagation();
+      if (!timelineRef.current) return;
+
+      const rect = timelineRef.current.getBoundingClientRect();
+      const scrollLeft = timelineRef.current.scrollLeft;
+      const x = e.clientX - rect.left + scrollLeft;
+      const pxPerMs = timeline.zoom * 0.1;
+      const clipStartPx = transformClip.start_time_ms * pxPerMs;
+
+      setIsDraggingTransformClip(true);
+      setTransformClipDragOffset(x - clipStartPx);
+      selectTransformClip(transformClip.id);
+    },
+    [timeline.zoom, selectTransformClip]
+  );
+
+  // Handle transform clip drag
+  useEffect(() => {
+    if (!isDraggingTransformClip || !canvas.selectedTransformClipId || !currentDemo) return;
+
+    const draggedTransformClip = currentDemo.transformClips.find(tc => tc.id === canvas.selectedTransformClipId);
+    if (!draggedTransformClip) return;
+
+    const pxPerMs = timeline.zoom * 0.1;
+    const snapThresholdPx = 15;
+    const snapThresholdMs = snapThresholdPx / pxPerMs;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!timelineRef.current) return;
+
+      const rect = timelineRef.current.getBoundingClientRect();
+      const scrollLeft = timelineRef.current.scrollLeft;
+      const x = e.clientX - rect.left + scrollLeft;
+
+      let newStartTime = (x - transformClipDragOffset) / pxPerMs;
+
+      // Snap to playhead
+      if (Math.abs(newStartTime - playback.currentTimeMs) < snapThresholdMs) {
+        newStartTime = playback.currentTimeMs;
+      }
+
+      // Snap to timeline start
+      if (Math.abs(newStartTime) < snapThresholdMs) {
+        newStartTime = 0;
+      }
+
+      updateTransformClip(canvas.selectedTransformClipId!, { start_time_ms: Math.round(Math.max(0, newStartTime)) });
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingTransformClip(false);
+      setTransformClipDragOffset(0);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDraggingTransformClip, canvas.selectedTransformClipId, transformClipDragOffset, timeline.zoom, updateTransformClip, currentDemo, playback.currentTimeMs]);
+
+  // Handle transform clip trim start
+  const handleTransformClipTrimStart = useCallback(
+    (e: React.MouseEvent, clipId: string, edge: "start" | "end") => {
+      e.stopPropagation();
+      setIsTrimmingTransformClip({ clipId, edge });
+      selectTransformClip(clipId);
+    },
+    [selectTransformClip]
+  );
+
+  // Handle transform clip trim
+  useEffect(() => {
+    if (!isTrimmingTransformClip || !currentDemo) return;
+
+    const transformClip = currentDemo.transformClips.find(tc => tc.id === isTrimmingTransformClip.clipId);
+    if (!transformClip) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!timelineRef.current) return;
+
+      const rect = timelineRef.current.getBoundingClientRect();
+      const scrollLeft = timelineRef.current.scrollLeft;
+      const x = e.clientX - rect.left + scrollLeft;
+      const pxPerMs = timeline.zoom * 0.1;
+      const newTime = Math.max(0, x / pxPerMs);
+
+      if (isTrimmingTransformClip.edge === "start") {
+        const maxStart = transformClip.start_time_ms + transformClip.duration_ms - 100;
+        const newStart = Math.min(newTime, maxStart);
+        const durationDelta = transformClip.start_time_ms - newStart;
+        updateTransformClip(isTrimmingTransformClip.clipId, {
+          start_time_ms: Math.round(newStart),
+          duration_ms: Math.round(transformClip.duration_ms + durationDelta),
+        });
+      } else {
+        const newDuration = Math.max(100, newTime - transformClip.start_time_ms);
+        updateTransformClip(isTrimmingTransformClip.clipId, {
+          duration_ms: Math.round(newDuration),
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsTrimmingTransformClip(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isTrimmingTransformClip, timeline.zoom, updateTransformClip, currentDemo]);
+
   // Handle canvas clip drag for repositioning
   const handleCanvasClipDragStart = useCallback((e: React.MouseEvent, clipId: string) => {
     e.stopPropagation();
@@ -2314,14 +2481,14 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
     );
   }
 
-  const { demo, background, tracks, clips, assets, zoomClips, blurClips, panClips } = currentDemo;
+  const { demo, background, tracks, clips, assets, zoomClips, blurClips, panClips, transformClips } = currentDemo;
   const currentVideoClip = getCurrentVideoClip();
   const timelineDuration = getTimelineDuration();
 
   return (
     <div className="h-screen bg-[var(--surface-primary)] flex flex-col overflow-hidden select-none">
       {/* Header */}
-      <header className="h-12 border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0 bg-[var(--surface-secondary)]">
+      <header className="h-[calc(48px+var(--titlebar-height))] pt-[var(--titlebar-height)] border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0 bg-[var(--surface-secondary)]">
         <div className="flex items-center gap-3">
           <button
             onClick={goBack}
@@ -2977,6 +3144,97 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
                     }
                   }
 
+                  // Calculate transform effect - check transform tracks targeting this clip's track
+                  let transformPositionX = 0;
+                  let transformPositionY = 0;
+                  let transformScaleX = 1;
+                  let transformScaleY = 1;
+                  let transformRotation = 0;
+                  let transformOpacity = 1;
+                  let hasTransformEffect = false;
+
+                  const transformTracksTargetingThisTrack = tracks.filter(
+                    t => t.track_type === "transform" && t.target_track_id === clip.track_id
+                  );
+                  for (const transformTrack of transformTracksTargetingThisTrack) {
+                    if (!transformTrack.visible) continue;
+                    const activeTransformClip = transformClips.find(
+                      tc =>
+                        tc.track_id === transformTrack.id &&
+                        effectiveTime >= tc.start_time_ms &&
+                        effectiveTime < tc.start_time_ms + tc.duration_ms
+                    );
+                    if (activeTransformClip && activeTransformClip.keyframes.length > 0) {
+                      hasTransformEffect = true;
+                      const clipRelativeTime = effectiveTime - activeTransformClip.start_time_ms;
+
+                      // Sort keyframes by time
+                      const sortedKeyframes = [...activeTransformClip.keyframes].sort((a, b) => a.time_ms - b.time_ms);
+
+                      // Find keyframes before and after current time
+                      let beforeKf: TransformKeyframe | null = null;
+                      let afterKf: TransformKeyframe | null = null;
+
+                      for (const kf of sortedKeyframes) {
+                        if (kf.time_ms <= clipRelativeTime) {
+                          beforeKf = kf;
+                        } else if (!afterKf) {
+                          afterKf = kf;
+                          break;
+                        }
+                      }
+
+                      // If no keyframe before, use the first one
+                      if (!beforeKf && sortedKeyframes.length > 0) {
+                        beforeKf = sortedKeyframes[0];
+                      }
+
+                      // Interpolate between keyframes
+                      const interpolateValue = (prop: keyof TransformKeyframe, defaultVal: number): number => {
+                        if (!beforeKf) return defaultVal;
+
+                        const beforeVal = beforeKf[prop] as number | null;
+                        if (!afterKf || beforeKf.time_ms === clipRelativeTime) {
+                          return beforeVal ?? defaultVal;
+                        }
+
+                        const afterVal = afterKf[prop] as number | null;
+                        if (beforeVal === null) return afterVal ?? defaultVal;
+                        if (afterVal === null) return beforeVal;
+
+                        const t = (clipRelativeTime - beforeKf.time_ms) / (afterKf.time_ms - beforeKf.time_ms);
+
+                        // Apply easing
+                        const easing = beforeKf.easing || 'linear';
+                        let easedT = t;
+
+                        switch (easing) {
+                          case 'ease_in':
+                            easedT = t * t;
+                            break;
+                          case 'ease_out':
+                            easedT = 1 - (1 - t) * (1 - t);
+                            break;
+                          case 'ease_in_out':
+                            easedT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+                            break;
+                          default:
+                            easedT = t;
+                        }
+
+                        return beforeVal + (afterVal - beforeVal) * easedT;
+                      };
+
+                      transformPositionX = interpolateValue('position_x', 0);
+                      transformPositionY = interpolateValue('position_y', 0);
+                      transformScaleX = interpolateValue('scale_x', 1);
+                      transformScaleY = interpolateValue('scale_y', 1);
+                      transformRotation = interpolateValue('rotation', 0);
+                      transformOpacity = interpolateValue('opacity', 1);
+                      break; // Use first matching transform clip
+                    }
+                  }
+
                   // Calculate entrance/exit transition effects
                   let transitionOpacity = 1;
                   let transitionTranslateX = 0;
@@ -3076,6 +3334,21 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
                     // Pan offset is percentage of container, translate by that amount
                     transforms.push(`translate(${panOffsetX}%, ${panOffsetY}%)`);
                   }
+                  // Add transform effect (position, scale, rotation from transform tracks)
+                  if (hasTransformEffect) {
+                    // Position offset in pixels
+                    if (transformPositionX !== 0 || transformPositionY !== 0) {
+                      transforms.push(`translate(${transformPositionX}px, ${transformPositionY}px)`);
+                    }
+                    // Scale (separate X and Y)
+                    if (transformScaleX !== 1 || transformScaleY !== 1) {
+                      transforms.push(`scale(${transformScaleX}, ${transformScaleY})`);
+                    }
+                    // Rotation
+                    if (transformRotation !== 0) {
+                      transforms.push(`rotate(${transformRotation}deg)`);
+                    }
+                  }
                   // Add transition transforms
                   if (transitionTranslateX !== 0 || transitionTranslateY !== 0) {
                     transforms.push(`translate(${transitionTranslateX}%, ${transitionTranslateY}%)`);
@@ -3084,7 +3357,10 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
                     transforms.push(`scale(${transitionScale})`);
                   }
                   const combinedTransform = transforms.length > 0 ? transforms.join(' ') : undefined;
-                  const hasEffect = hasZoomEffect || hasPanEffect;
+                  const hasEffect = hasZoomEffect || hasPanEffect || hasTransformEffect;
+
+                  // Calculate final opacity including transform effect opacity
+                  const finalOpacity = (clip.opacity ?? 1) * transitionOpacity * (hasTransformEffect ? transformOpacity : 1);
 
                   return (
                     <div
@@ -3096,8 +3372,8 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
                         transform: `translate(-50%, -50%)`,
                         width: `${(clip.scale || 0.8) * 100}%`,
                         height: `${(clip.scale || 0.8) * 100}%`,
-                        // Apply both clip opacity and transition opacity
-                        opacity: isVisible ? (clip.opacity ?? 1) * transitionOpacity : 0,
+                        // Apply clip opacity, transition opacity, and transform effect opacity
+                        opacity: isVisible ? finalOpacity : 0,
                         // z-index: lower sort_order = top of timeline = higher z-index (on top visually)
                         zIndex: isVisible ? maxSortOrder - (track?.sort_order ?? 0) + 1 : -1,
                         boxShadow: isVisible && clip.shadow_enabled
@@ -3353,6 +3629,9 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
                 const selectedZoomClip = canvas.selectedZoomClipId
                   ? zoomClips.find((zc) => zc.id === canvas.selectedZoomClipId)
                   : null;
+                const selectedTransformClip = canvas.selectedTransformClipId
+                  ? transformClips.find((tc) => tc.id === canvas.selectedTransformClipId)
+                  : null;
                 const selectedClip = canvas.selectedClipId
                   ? clips.find((c) => c.id === canvas.selectedClipId)
                   : null;
@@ -3360,6 +3639,19 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
                   ? tracks.find((t) => t.id === timeline.selectedTrackId)
                   : null;
 
+                if (selectedTransformClip) {
+                  return (
+                    <TransformClipInspector
+                      transformClip={selectedTransformClip}
+                      currentTimeMs={playback.currentTimeMs}
+                      onUpdate={(updates) => updateTransformClip(selectedTransformClip.id, updates)}
+                      onDelete={() => deleteTransformClip(selectedTransformClip.id)}
+                      onAddKeyframe={(keyframe) => addKeyframeToTransformClip(selectedTransformClip.id, keyframe)}
+                      onUpdateKeyframe={(keyframeId, updates) => updateKeyframeInTransformClip(selectedTransformClip.id, keyframeId, updates)}
+                      onDeleteKeyframe={(keyframeId) => deleteKeyframeFromTransformClip(selectedTransformClip.id, keyframeId)}
+                    />
+                  );
+                }
                 if (selectedPanClip) {
                   return (
                     <PanClipInspector
@@ -3619,6 +3911,44 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
                         </div>
                       )}
                     </div>
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowTransformTrackTargetMenu(!showTransformTrackTargetMenu)}
+                        className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-[var(--surface-hover)] text-[var(--text-primary)]"
+                      >
+                        <Waypoints className="w-4 h-4 text-[#F97316]" />
+                        Transform Track
+                        <ChevronRight className="w-3 h-3 ml-auto" />
+                      </button>
+                      {showTransformTrackTargetMenu && (
+                        <div className="absolute left-full top-0 ml-1 w-48 bg-[var(--surface-elevated)] border border-[var(--border-default)] shadow-lg z-30">
+                          <div className="px-3 py-1.5 text-xs text-[var(--text-secondary)] border-b border-[var(--border-default)]">
+                            Select target track:
+                          </div>
+                          {currentDemo?.tracks
+                            .filter(t => t.track_type === 'video' || t.track_type === 'image')
+                            .map(track => (
+                              <button
+                                key={track.id}
+                                onClick={() => handleAddTrack("transform", track.id)}
+                                className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-[var(--surface-hover)] text-[var(--text-primary)]"
+                              >
+                                {track.track_type === 'video' ? (
+                                  <Video className="w-4 h-4 text-[#3B82F6]" />
+                                ) : (
+                                  <Image className="w-4 h-4 text-[#10B981]" />
+                                )}
+                                {track.name}
+                              </button>
+                            ))}
+                          {currentDemo?.tracks.filter(t => t.track_type === 'video' || t.track_type === 'image').length === 0 && (
+                            <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">
+                              No video/image tracks
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </>
               )}
@@ -3814,6 +4144,37 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
                         }}
                         className="p-0.5 hover:bg-[var(--surface-active)] text-[#14B8A6]"
                         title="Add pan clip at playhead"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    )}
+                    {/* Add transform clip button for transform tracks */}
+                    {track.track_type === "transform" && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          addTransformClip({
+                            track_id: track.id,
+                            name: "Transform",
+                            start_time_ms: Math.round(playback.currentTimeMs),
+                            duration_ms: 2000,
+                            keyframes: [
+                              {
+                                id: crypto.randomUUID(),
+                                time_ms: 0,
+                                position_x: 0,
+                                position_y: 0,
+                                scale_x: 1,
+                                scale_y: 1,
+                                rotation: 0,
+                                opacity: 1,
+                                easing: "ease_in_out",
+                              },
+                            ],
+                          });
+                        }}
+                        className="p-0.5 hover:bg-[var(--surface-active)] text-[#F97316]"
+                        title="Add transform clip at playhead"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -4265,6 +4626,81 @@ export function DemoEditorView({ appId, demoId, videoId, parentDemoId }: DemoEdi
                               <div className="px-2 py-1 text-[10px] text-white truncate h-full flex items-center gap-1">
                                 <Move className="w-3 h-3" />
                                 {Math.round(panClip.start_x)},{Math.round(panClip.start_y)} → {Math.round(panClip.end_x)},{Math.round(panClip.end_y)}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                      {/* Transform clips on transform tracks */}
+                      {track.track_type === "transform" && transformClips
+                        .filter((tc) => tc.track_id === track.id)
+                        .map((transformClip) => {
+                          const config = trackTypeConfig["transform"];
+                          const clipWidth = transformClip.duration_ms * timeline.zoom * 0.1;
+                          const pxPerMs = timeline.zoom * 0.1;
+                          return (
+                            <div
+                              key={transformClip.id}
+                              onMouseDown={(e) => !track.locked && handleTransformClipDragStart(e, transformClip)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                selectTransformClip(transformClip.id);
+                              }}
+                              className={`absolute top-1 bottom-1 cursor-pointer group ${
+                                canvas.selectedTransformClipId === transformClip.id
+                                  ? "ring-2 ring-white"
+                                  : ""
+                              }`}
+                              style={{
+                                left: `${transformClip.start_time_ms * timeline.zoom * 0.1}px`,
+                                width: `${clipWidth}px`,
+                                backgroundColor: config.color,
+                                opacity: track.visible ? 0.9 : 0.4,
+                              }}
+                            >
+                              {/* Trim handles for transform clips */}
+                              {!track.locked && (
+                                <>
+                                  <div
+                                    onMouseDown={(e) => handleTransformClipTrimStart(e, transformClip.id, "start")}
+                                    className={`absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-10 transition-opacity ${
+                                      canvas.selectedTransformClipId === transformClip.id
+                                        ? "bg-white/40"
+                                        : "bg-white/0 group-hover:bg-white/20"
+                                    }`}
+                                  >
+                                    <div className="absolute left-0.5 top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/60 rounded-full opacity-0 group-hover:opacity-100" />
+                                  </div>
+                                  <div
+                                    onMouseDown={(e) => handleTransformClipTrimStart(e, transformClip.id, "end")}
+                                    className={`absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-10 transition-opacity ${
+                                      canvas.selectedTransformClipId === transformClip.id
+                                        ? "bg-white/40"
+                                        : "bg-white/0 group-hover:bg-white/20"
+                                    }`}
+                                  >
+                                    <div className="absolute right-0.5 top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/60 rounded-full opacity-0 group-hover:opacity-100" />
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Keyframe diamond markers */}
+                              {transformClip.keyframes.map((kf) => {
+                                const kfX = kf.time_ms * pxPerMs;
+                                return (
+                                  <div
+                                    key={kf.id}
+                                    className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white rotate-45 border border-[#F97316]"
+                                    style={{ left: `${kfX - 4}px` }}
+                                    title={`Keyframe at ${formatTime(kf.time_ms)}`}
+                                  />
+                                );
+                              })}
+
+                              {/* Transform clip content - shows keyframe count */}
+                              <div className="px-2 py-1 text-[10px] text-white truncate h-full flex items-center gap-1">
+                                <Waypoints className="w-3 h-3" />
+                                {transformClip.keyframes.length} keyframes
                               </div>
                             </div>
                           );
@@ -5679,6 +6115,727 @@ function PanClipInspector({
           <span className="text-[var(--text-caption)] text-[var(--text-secondary)]">
             {panClip.ease_out_duration_ms}ms
           </span>
+        </div>
+      </CollapsibleSection>
+    </div>
+  );
+}
+
+// Transform Clip Inspector Component
+function TransformClipInspector({
+  transformClip,
+  currentTimeMs,
+  onUpdate,
+  onDelete,
+  onAddKeyframe,
+  onUpdateKeyframe,
+  onDeleteKeyframe,
+}: {
+  transformClip: DemoTransformClip;
+  currentTimeMs: number;
+  onUpdate: (updates: Partial<DemoTransformClip>) => void;
+  onDelete: () => void;
+  onAddKeyframe: (keyframe: TransformKeyframe) => void;
+  onUpdateKeyframe: (keyframeId: string, updates: Partial<TransformKeyframe>) => void;
+  onDeleteKeyframe: (keyframeId: string) => void;
+}) {
+  const [expandedKeyframe, setExpandedKeyframe] = useState<string | null>(null);
+
+  if (!transformClip) return null;
+
+  // Calculate the time relative to clip start for "add keyframe at playhead"
+  const relativeTimeMs = Math.max(0, Math.min(
+    currentTimeMs - transformClip.start_time_ms,
+    transformClip.duration_ms
+  ));
+
+  // Check if a keyframe already exists at this time (within 50ms tolerance)
+  const keyframeAtPlayhead = transformClip.keyframes.find(
+    (kf) => Math.abs(kf.time_ms - relativeTimeMs) < 50
+  );
+
+  // Sort keyframes by time for display
+  const sortedKeyframes = [...transformClip.keyframes].sort((a, b) => a.time_ms - b.time_ms);
+
+  // Get interpolated values at current time for display
+  const getInterpolatedValue = (property: keyof TransformKeyframe): number | null => {
+    if (sortedKeyframes.length === 0) return null;
+
+    // Find the keyframes before and after current time
+    let beforeKf: TransformKeyframe | null = null;
+    let afterKf: TransformKeyframe | null = null;
+
+    for (const kf of sortedKeyframes) {
+      if (kf.time_ms <= relativeTimeMs) {
+        beforeKf = kf;
+      } else if (!afterKf) {
+        afterKf = kf;
+        break;
+      }
+    }
+
+    // If no keyframe before, use the first one
+    if (!beforeKf && sortedKeyframes.length > 0) {
+      beforeKf = sortedKeyframes[0];
+    }
+
+    // If exactly at a keyframe or no after keyframe, return the before value
+    if (!afterKf || (beforeKf && beforeKf.time_ms === relativeTimeMs)) {
+      return beforeKf ? (beforeKf[property] as number | null) : null;
+    }
+
+    // Interpolate between keyframes
+    if (beforeKf && afterKf) {
+      const beforeVal = beforeKf[property] as number | null;
+      const afterVal = afterKf[property] as number | null;
+
+      if (beforeVal === null) return afterVal;
+      if (afterVal === null) return beforeVal;
+
+      const t = (relativeTimeMs - beforeKf.time_ms) / (afterKf.time_ms - beforeKf.time_ms);
+
+      // Apply easing
+      const easing = beforeKf.easing || 'linear';
+      let easedT = t;
+
+      switch (easing) {
+        case 'ease_in':
+          easedT = t * t;
+          break;
+        case 'ease_out':
+          easedT = 1 - (1 - t) * (1 - t);
+          break;
+        case 'ease_in_out':
+          easedT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+          break;
+        default:
+          easedT = t;
+      }
+
+      return beforeVal + (afterVal - beforeVal) * easedT;
+    }
+
+    return null;
+  };
+
+  const handleAddKeyframeAtPlayhead = () => {
+    // Get current interpolated values as defaults
+    const newKeyframe: TransformKeyframe = {
+      id: crypto.randomUUID(),
+      time_ms: Math.round(relativeTimeMs),
+      position_x: getInterpolatedValue('position_x') ?? 0,
+      position_y: getInterpolatedValue('position_y') ?? 0,
+      scale_x: getInterpolatedValue('scale_x') ?? 1,
+      scale_y: getInterpolatedValue('scale_y') ?? 1,
+      rotation: getInterpolatedValue('rotation') ?? 0,
+      opacity: getInterpolatedValue('opacity') ?? 1,
+      easing: 'ease_in_out',
+    };
+    onAddKeyframe(newKeyframe);
+    setExpandedKeyframe(newKeyframe.id);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="font-medium text-[var(--text-primary)] text-sm mb-1 flex items-center gap-2">
+          <Waypoints className="w-4 h-4 text-[#F97316]" />
+          Transform Effect
+        </h3>
+        <p className="text-[var(--text-caption)] text-[var(--text-tertiary)]">
+          {sortedKeyframes.length} keyframe{sortedKeyframes.length !== 1 ? 's' : ''} &middot; {formatTime(transformClip.duration_ms)}
+        </p>
+      </div>
+
+      {/* Quick actions */}
+      <div className="flex gap-2 pb-3 border-b border-[var(--border-default)]">
+        <button
+          onClick={onDelete}
+          className="flex-1 h-8 border border-[var(--accent-error)] text-[var(--accent-error)] text-sm flex items-center justify-center gap-1 hover:bg-[var(--status-error-bg)]"
+          title="Delete (Delete)"
+        >
+          <Trash2 className="w-3 h-3" />
+          Delete
+        </button>
+      </div>
+
+      {/* Timing */}
+      <CollapsibleSection title="Timing" defaultExpanded={true}>
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Start</label>
+            <input
+              type="text"
+              value={formatTime(transformClip.start_time_ms)}
+              readOnly
+              className="w-full h-8 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Duration</label>
+            <input
+              type="text"
+              value={formatTime(transformClip.duration_ms)}
+              readOnly
+              className="w-full h-8 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-sm"
+            />
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* Current Values (interpolated at playhead) */}
+      <CollapsibleSection title="Current Values" defaultExpanded={true}>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="flex justify-between">
+            <span className="text-[var(--text-tertiary)]">Position X:</span>
+            <span className="text-[var(--text-secondary)]">{(getInterpolatedValue('position_x') ?? 0).toFixed(1)}px</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[var(--text-tertiary)]">Position Y:</span>
+            <span className="text-[var(--text-secondary)]">{(getInterpolatedValue('position_y') ?? 0).toFixed(1)}px</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[var(--text-tertiary)]">Scale X:</span>
+            <span className="text-[var(--text-secondary)]">{((getInterpolatedValue('scale_x') ?? 1) * 100).toFixed(0)}%</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[var(--text-tertiary)]">Scale Y:</span>
+            <span className="text-[var(--text-secondary)]">{((getInterpolatedValue('scale_y') ?? 1) * 100).toFixed(0)}%</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[var(--text-tertiary)]">Rotation:</span>
+            <span className="text-[var(--text-secondary)]">{(getInterpolatedValue('rotation') ?? 0).toFixed(1)}°</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[var(--text-tertiary)]">Opacity:</span>
+            <span className="text-[var(--text-secondary)]">{((getInterpolatedValue('opacity') ?? 1) * 100).toFixed(0)}%</span>
+          </div>
+        </div>
+        <div className="mt-2 text-[var(--text-caption)] text-[var(--text-tertiary)]">
+          At {formatTime(relativeTimeMs)} in clip
+        </div>
+      </CollapsibleSection>
+
+      {/* Keyframes */}
+      <CollapsibleSection title="Keyframes" defaultExpanded={true}>
+        <div className="space-y-2">
+          {/* Add keyframe at playhead button */}
+          <button
+            onClick={handleAddKeyframeAtPlayhead}
+            disabled={!!keyframeAtPlayhead}
+            className={`w-full h-8 border text-sm flex items-center justify-center gap-1 ${
+              keyframeAtPlayhead
+                ? 'border-[var(--border-default)] text-[var(--text-tertiary)] cursor-not-allowed'
+                : 'border-[#F97316] text-[#F97316] hover:bg-[#F97316]/10'
+            }`}
+            title={keyframeAtPlayhead ? 'Keyframe already exists near playhead' : 'Add keyframe at current playhead position'}
+          >
+            <Plus className="w-3 h-3" />
+            Add Keyframe at {formatTime(relativeTimeMs)}
+          </button>
+
+          {/* Keyframe list */}
+          {sortedKeyframes.length === 0 ? (
+            <div className="text-center py-4 text-[var(--text-tertiary)] text-xs">
+              No keyframes yet. Add one to start animating.
+            </div>
+          ) : (
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {sortedKeyframes.map((keyframe, index) => (
+                <div
+                  key={keyframe.id}
+                  className={`border ${
+                    expandedKeyframe === keyframe.id
+                      ? 'border-[#F97316] bg-[#F97316]/5'
+                      : 'border-[var(--border-default)] hover:border-[var(--border-hover)]'
+                  }`}
+                >
+                  {/* Keyframe header */}
+                  <div
+                    className="flex items-center gap-2 p-2 cursor-pointer"
+                    onClick={() => setExpandedKeyframe(expandedKeyframe === keyframe.id ? null : keyframe.id)}
+                  >
+                    <div className="w-3 h-3 rotate-45 bg-[#F97316] flex-shrink-0" />
+                    <span className="text-xs text-[var(--text-primary)] flex-1">
+                      Keyframe {index + 1}
+                    </span>
+                    <span className="text-xs text-[var(--text-tertiary)]">
+                      {formatTime(keyframe.time_ms)}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteKeyframe(keyframe.id);
+                      }}
+                      className="p-1 hover:bg-[var(--surface-hover)] text-[var(--text-tertiary)] hover:text-[var(--accent-error)]"
+                      title="Delete keyframe"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                    {expandedKeyframe === keyframe.id ? (
+                      <ChevronUp className="w-3 h-3 text-[var(--text-tertiary)]" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3 text-[var(--text-tertiary)]" />
+                    )}
+                  </div>
+
+                  {/* Keyframe properties (expanded) */}
+                  {expandedKeyframe === keyframe.id && (
+                    <div className="px-2 pb-2 space-y-2 border-t border-[var(--border-default)]">
+                      {/* Time */}
+                      <div className="pt-2">
+                        <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Time (ms)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max={transformClip.duration_ms}
+                          value={keyframe.time_ms}
+                          onChange={(e) => onUpdateKeyframe(keyframe.id, { time_ms: Math.max(0, parseInt(e.target.value) || 0) })}
+                          className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs"
+                        />
+                      </div>
+
+                      {/* Position */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Position X</label>
+                          <input
+                            type="number"
+                            value={keyframe.position_x ?? 0}
+                            onChange={(e) => onUpdateKeyframe(keyframe.id, { position_x: parseFloat(e.target.value) || 0 })}
+                            className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Position Y</label>
+                          <input
+                            type="number"
+                            value={keyframe.position_y ?? 0}
+                            onChange={(e) => onUpdateKeyframe(keyframe.id, { position_y: parseFloat(e.target.value) || 0 })}
+                            className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Scale */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Scale X (%)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={Math.round((keyframe.scale_x ?? 1) * 100)}
+                            onChange={(e) => onUpdateKeyframe(keyframe.id, { scale_x: (parseFloat(e.target.value) || 100) / 100 })}
+                            className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Scale Y (%)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={Math.round((keyframe.scale_y ?? 1) * 100)}
+                            onChange={(e) => onUpdateKeyframe(keyframe.id, { scale_y: (parseFloat(e.target.value) || 100) / 100 })}
+                            className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Rotation */}
+                      <div>
+                        <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Rotation (degrees)</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="-180"
+                            max="180"
+                            value={keyframe.rotation ?? 0}
+                            onChange={(e) => onUpdateKeyframe(keyframe.id, { rotation: parseFloat(e.target.value) })}
+                            className="flex-1 accent-[#F97316]"
+                          />
+                          <input
+                            type="number"
+                            value={keyframe.rotation ?? 0}
+                            onChange={(e) => onUpdateKeyframe(keyframe.id, { rotation: parseFloat(e.target.value) || 0 })}
+                            className="w-16 h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Opacity */}
+                      <div>
+                        <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Opacity (%)</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={Math.round((keyframe.opacity ?? 1) * 100)}
+                            onChange={(e) => onUpdateKeyframe(keyframe.id, { opacity: parseInt(e.target.value) / 100 })}
+                            className="flex-1 accent-[#F97316]"
+                          />
+                          <span className="text-xs text-[var(--text-secondary)] w-12 text-right">
+                            {Math.round((keyframe.opacity ?? 1) * 100)}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Easing */}
+                      <div>
+                        <label className="text-[var(--text-caption)] text-[var(--text-tertiary)]">Easing (to next keyframe)</label>
+                        <select
+                          value={keyframe.easing || 'linear'}
+                          onChange={(e) => onUpdateKeyframe(keyframe.id, { easing: e.target.value as TransformEasingType })}
+                          className="w-full h-7 px-2 bg-[var(--surface-primary)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs"
+                        >
+                          <option value="linear">Linear</option>
+                          <option value="ease_in">Ease In</option>
+                          <option value="ease_out">Ease Out</option>
+                          <option value="ease_in_out">Ease In Out</option>
+                        </select>
+                      </div>
+
+                      {/* Quick presets */}
+                      <div className="flex gap-1 pt-1">
+                        <button
+                          onClick={() => onUpdateKeyframe(keyframe.id, {
+                            position_x: 0,
+                            position_y: 0,
+                            scale_x: 1,
+                            scale_y: 1,
+                            rotation: 0,
+                            opacity: 1,
+                          })}
+                          className="flex-1 h-6 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+                          title="Reset all values to defaults"
+                        >
+                          Reset
+                        </button>
+                        <button
+                          onClick={() => onUpdateKeyframe(keyframe.id, {
+                            scale_x: 1.5,
+                            scale_y: 1.5,
+                          })}
+                          className="flex-1 h-6 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+                          title="Scale up to 150%"
+                        >
+                          Scale Up
+                        </button>
+                        <button
+                          onClick={() => onUpdateKeyframe(keyframe.id, {
+                            opacity: 0,
+                          })}
+                          className="flex-1 h-6 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+                          title="Set opacity to 0"
+                        >
+                          Fade Out
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </CollapsibleSection>
+
+      {/* Preset Animations */}
+      <CollapsibleSection title="Preset Animations" defaultExpanded={false}>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => {
+              // Fade in animation
+              const duration = transformClip.duration_ms;
+              onUpdate({
+                keyframes: [
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: 0,
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 0,
+                    easing: 'ease_out',
+                  },
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: Math.round(duration * 0.3),
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'linear',
+                  },
+                ],
+              });
+            }}
+            className="h-8 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+          >
+            Fade In
+          </button>
+          <button
+            onClick={() => {
+              // Fade out animation
+              const duration = transformClip.duration_ms;
+              onUpdate({
+                keyframes: [
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: Math.round(duration * 0.7),
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'ease_in',
+                  },
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: duration,
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 0,
+                    easing: 'linear',
+                  },
+                ],
+              });
+            }}
+            className="h-8 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+          >
+            Fade Out
+          </button>
+          <button
+            onClick={() => {
+              // Scale up animation (zoom in)
+              const duration = transformClip.duration_ms;
+              onUpdate({
+                keyframes: [
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: 0,
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'ease_in_out',
+                  },
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: duration,
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1.5,
+                    scale_y: 1.5,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'linear',
+                  },
+                ],
+              });
+            }}
+            className="h-8 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+          >
+            Scale Up
+          </button>
+          <button
+            onClick={() => {
+              // Scale down animation (zoom out)
+              const duration = transformClip.duration_ms;
+              onUpdate({
+                keyframes: [
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: 0,
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1.5,
+                    scale_y: 1.5,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'ease_in_out',
+                  },
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: duration,
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'linear',
+                  },
+                ],
+              });
+            }}
+            className="h-8 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+          >
+            Scale Down
+          </button>
+          <button
+            onClick={() => {
+              // Slide in from left
+              const duration = transformClip.duration_ms;
+              onUpdate({
+                keyframes: [
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: 0,
+                    position_x: -200,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 0,
+                    easing: 'ease_out',
+                  },
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: Math.round(duration * 0.3),
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'linear',
+                  },
+                ],
+              });
+            }}
+            className="h-8 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+          >
+            Slide In Left
+          </button>
+          <button
+            onClick={() => {
+              // Slide in from right
+              const duration = transformClip.duration_ms;
+              onUpdate({
+                keyframes: [
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: 0,
+                    position_x: 200,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 0,
+                    easing: 'ease_out',
+                  },
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: Math.round(duration * 0.3),
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'linear',
+                  },
+                ],
+              });
+            }}
+            className="h-8 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+          >
+            Slide In Right
+          </button>
+          <button
+            onClick={() => {
+              // Spin animation
+              const duration = transformClip.duration_ms;
+              onUpdate({
+                keyframes: [
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: 0,
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'ease_in_out',
+                  },
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: duration,
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 360,
+                    opacity: 1,
+                    easing: 'linear',
+                  },
+                ],
+              });
+            }}
+            className="h-8 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+          >
+            Spin 360
+          </button>
+          <button
+            onClick={() => {
+              // Pop in animation
+              const duration = transformClip.duration_ms;
+              onUpdate({
+                keyframes: [
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: 0,
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 0,
+                    scale_y: 0,
+                    rotation: 0,
+                    opacity: 0,
+                    easing: 'ease_out',
+                  },
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: Math.round(duration * 0.2),
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1.1,
+                    scale_y: 1.1,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'ease_in_out',
+                  },
+                  {
+                    id: crypto.randomUUID(),
+                    time_ms: Math.round(duration * 0.35),
+                    position_x: 0,
+                    position_y: 0,
+                    scale_x: 1,
+                    scale_y: 1,
+                    rotation: 0,
+                    opacity: 1,
+                    easing: 'linear',
+                  },
+                ],
+              });
+            }}
+            className="h-8 border border-[var(--border-default)] text-[var(--text-secondary)] text-xs hover:bg-[var(--surface-hover)]"
+          >
+            Pop In
+          </button>
         </div>
       </CollapsibleSection>
     </div>

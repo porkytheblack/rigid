@@ -925,7 +925,10 @@ export interface UpdateDemoBackground {
 }
 
 /** Track type in timeline */
-export type DemoTrackType = 'background' | 'video' | 'image' | 'audio' | 'zoom' | 'blur' | 'pan';
+export type DemoTrackType = 'background' | 'video' | 'image' | 'audio' | 'zoom' | 'blur' | 'pan' | 'transform';
+
+/** Easing type for animations */
+export type TransformEasingType = 'linear' | 'ease_in' | 'ease_out' | 'ease_in_out';
 
 /** Demo timeline track */
 export interface DemoTrack {
@@ -1122,6 +1125,58 @@ export interface UpdateDemoPanClip {
   end_y?: number | null;
   ease_in_duration_ms?: number | null;
   ease_out_duration_ms?: number | null;
+}
+
+/** Transform keyframe - individual keyframe within a transform clip */
+export interface TransformKeyframe {
+  id: string;
+  /** Time within clip relative to clip start (in milliseconds) */
+  time_ms: number;
+  /** X position offset in pixels (null means inherit from previous keyframe or default) */
+  position_x: number | null;
+  /** Y position offset in pixels (null means inherit from previous keyframe or default) */
+  position_y: number | null;
+  /** X scale factor (1.0 = 100%, null means inherit) */
+  scale_x: number | null;
+  /** Y scale factor (1.0 = 100%, null means inherit) */
+  scale_y: number | null;
+  /** Rotation in degrees (null means inherit) */
+  rotation: number | null;
+  /** Opacity from 0 to 1 (null means inherit) */
+  opacity: number | null;
+  /** Easing curve to use when interpolating TO the next keyframe */
+  easing: TransformEasingType | null;
+}
+
+/** Demo transform clip - keyframe-based animation on a transform track */
+export interface DemoTransformClip {
+  id: string;
+  track_id: string;
+  name: string;
+  /** When the transform effect starts on the timeline */
+  start_time_ms: number;
+  /** Total duration of the transform effect */
+  duration_ms: number;
+  /** Array of keyframes defining the animation */
+  keyframes: TransformKeyframe[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewDemoTransformClip {
+  id?: string;
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  keyframes?: TransformKeyframe[];
+}
+
+export interface UpdateDemoTransformClip {
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  keyframes?: TransformKeyframe[] | null;
 }
 
 /** Demo clip - media element on a track */
@@ -1384,6 +1439,7 @@ export interface DemoWithData {
   zoomClips: DemoZoomClip[];
   blurClips: DemoBlurClip[];
   panClips: DemoPanClip[];
+  transformClips: DemoTransformClip[];
   assets: DemoAsset[];
 }
 
@@ -1434,6 +1490,7 @@ export interface VideoWithData {
   zoomClips: VideoZoomClip[];
   blurClips: VideoBlurClip[];
   panClips: VideoPanClip[];
+  transformClips: VideoTransformClip[];
   assets: VideoAsset[];
 }
 
@@ -1793,6 +1850,33 @@ export interface UpdateVideoPanClip {
   end_y?: number | null;
   ease_in_duration_ms?: number | null;
   ease_out_duration_ms?: number | null;
+}
+
+export interface VideoTransformClip {
+  id: string;
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  keyframes: TransformKeyframe[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewVideoTransformClip {
+  id?: string | null;
+  track_id: string;
+  name: string;
+  start_time_ms: number;
+  duration_ms: number;
+  keyframes?: TransformKeyframe[];
+}
+
+export interface UpdateVideoTransformClip {
+  name?: string | null;
+  start_time_ms?: number | null;
+  duration_ms?: number | null;
+  keyframes?: TransformKeyframe[] | null;
 }
 
 export interface VideoAsset {

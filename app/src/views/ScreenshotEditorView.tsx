@@ -705,7 +705,7 @@ export function ScreenshotEditorView({ appId, explorationId, screenshotId }: Scr
   return (
     <div className="h-screen bg-[var(--surface-primary)] flex flex-col">
       {/* Header */}
-      <header className="h-14 border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0">
+      <header className="h-[calc(56px+var(--titlebar-height))] pt-[var(--titlebar-height)] border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0">
         <div className="flex items-center gap-4">
           <button onClick={goBackToScreenshots} className="p-2 hover:bg-[var(--surface-hover)] text-[var(--text-secondary)]">
             <ArrowLeft className="w-5 h-5" />

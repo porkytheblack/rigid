@@ -332,7 +332,7 @@ export function FeaturesKanbanView({ appId }: FeaturesKanbanViewProps) {
   return (
     <div className="h-screen bg-[var(--surface-primary)] flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="h-14 border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0">
+      <header className="h-[calc(56px+var(--titlebar-height))] pt-[var(--titlebar-height)] border-b border-[var(--border-default)] flex items-center justify-between px-4 flex-shrink-0">
         <div className="flex items-center gap-4">
           {canGoBack() && (
             <button
@@ -350,7 +350,7 @@ export function FeaturesKanbanView({ appId }: FeaturesKanbanViewProps) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setCommandPaletteOpen(true)}
-            className="h-8 px-3 text-sm text-[var(--text-tertiary)] bg-[var(--surface-secondary)] border border-[var(--border-default)] hover:border-[var(--border-strong)] flex items-center gap-2"
+            className="h-8 px-3 text-sm text-[var(--text-secondary)] bg-[var(--surface-secondary)] border border-[var(--border-default)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] flex items-center gap-2 transition-colors"
           >
             <Search className="w-4 h-4" />
             <kbd className="text-xs">⌘K</kbd>
@@ -463,13 +463,13 @@ export function FeaturesKanbanView({ appId }: FeaturesKanbanViewProps) {
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-default)]">
-              <Search className="w-5 h-5 text-[var(--text-tertiary)]" />
+              <Search className="w-5 h-5 text-[var(--text-secondary)]" />
               <input
                 type="text"
                 value={commandSearch}
                 onChange={e => setCommandSearch(e.target.value)}
                 placeholder="Search commands..."
-                className="flex-1 bg-transparent text-[var(--text-primary)] outline-none"
+                className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none"
                 autoFocus
               />
             </div>

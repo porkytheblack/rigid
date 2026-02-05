@@ -43,7 +43,7 @@ export function Header({ title, description, actions }: HeaderProps) {
   const pageTitle = title || pageTitles[pathname] || "Rigid";
 
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-4 h-14 px-6 bg-[var(--bg-base)] border-b border-[var(--border-subtle)]">
+    <header className="sticky top-0 z-30 flex items-center gap-4 h-[calc(56px+var(--titlebar-height))] pt-[var(--titlebar-height)] px-6 bg-[var(--bg-base)] border-b border-[var(--border-subtle)]">
       {/* Left side - Title and Breadcrumbs */}
       <div className="flex flex-col justify-center min-w-0 flex-1">
         {/* Breadcrumbs */}

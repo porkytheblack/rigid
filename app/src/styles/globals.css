@@ -53,6 +53,35 @@
   border-radius: 0 !important;
 }
 
+/* macOS Titlebar Safe Area for Tauri Overlay mode */
+/* This accounts for the traffic light buttons when using titleBarStyle: Overlay */
+:root {
+  --titlebar-height: 28px;
+  --titlebar-area-height: calc(var(--header-height) + var(--titlebar-height));
+}
+
+/* Allow the entire window to be draggable except for interactive elements */
+html {
+  -webkit-app-region: drag;
+}
+
+/* Make interactive elements non-draggable */
+button,
+a,
+input,
+textarea,
+select,
+[role="button"],
+[data-clickable="true"],
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Utility class for elements that need titlebar inset */
+.titlebar-inset {
+  padding-top: var(--titlebar-height);
+}
+
 /* Remove all outlines globally - use border changes instead */
 *:focus {
   outline: none !important;

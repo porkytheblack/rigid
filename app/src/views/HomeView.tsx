@@ -5,7 +5,6 @@ import { Plus, Search, FolderOpen, Settings, MoreHorizontal, Trash2, Pencil, X, 
 import { useAppsStore, useRouterStore } from "@/lib/stores";
 import { useAIChatStore } from "@/lib/stores/ai-chat";
 import type { NewApp } from "@/lib/tauri/types";
-import { RigidLogo } from "@/components/ui/rigid-logo";
 import { RigidCharacter, RigidCharacterMini } from "@/components/ui/rigid-character";
 import { cn } from "@/lib/utils";
 import { Editor, type Block, createBlock, blocksToPlainText, parseMarkdownToBlocks } from "@/components/editor";
@@ -207,8 +206,8 @@ export function HomeView() {
       {/* Context menu backdrop - must be first so it's behind everything */}
       {contextMenuApp && <div className="fixed inset-0 z-[5]" onClick={() => setContextMenuApp(null)} />}
 
-      {/* Header - Clean navigation bar */}
-      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center px-8 flex-shrink-0">
+      {/* Header - Clean navigation bar with macOS titlebar padding */}
+      <header className="h-[calc(var(--header-height)+var(--titlebar-height))] pt-[var(--titlebar-height)] border-b border-[var(--border-default)] flex items-center px-8 flex-shrink-0">
         <div className="flex items-center gap-4 flex-1">
           {/* <RigidLogo size={32} /> */}
           <span className="font-bold text-[var(--text-primary)] text-lg tracking-tight">Rigid</span>

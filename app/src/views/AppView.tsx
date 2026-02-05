@@ -236,7 +236,7 @@ export function AppView({ appId }: AppViewProps) {
   return (
     <div className="h-screen bg-[var(--surface-primary)] flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="h-[var(--header-height)] border-b border-[var(--border-default)] flex items-center px-8 flex-shrink-0">
+      <header className="h-[var(--titlebar-area-height)] pt-[var(--titlebar-height)] border-b border-[var(--border-default)] flex items-center px-8 flex-shrink-0">
         <div className="flex items-center gap-5 flex-1">
           <button onClick={() => navigate({ name: "home" })} className="p-2 -ml-2 hover:bg-[var(--surface-hover)] transition-colors text-[var(--text-secondary)]">
             <ArrowLeft className="w-5 h-5" />

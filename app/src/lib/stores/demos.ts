@@ -20,6 +20,9 @@ import type {
   NewDemoBlurClip,
   DemoPanClip,
   NewDemoPanClip,
+  DemoTransformClip,
+  NewDemoTransformClip,
+  TransformKeyframe,
   DemoFormat,
   DemoBackgroundType,
   DemoTrackType,
@@ -68,6 +71,7 @@ export interface CanvasState {
   selectedZoomClipId: string | null;
   selectedBlurClipId: string | null;
   selectedPanClipId: string | null;
+  selectedTransformClipId: string | null;
 }
 
 export interface TimelineState {
@@ -92,6 +96,7 @@ interface PendingDeletions {
   zoomClips: string[];
   blurClips: string[];
   panClips: string[];
+  transformClips: string[];
   assets: string[];
   tracks: string[];
 }
@@ -189,6 +194,15 @@ interface DemosActions {
   deletePanClip: (id: string) => void;
   selectPanClip: (id: string | null) => void;
 
+  // Transform clip operations
+  addTransformClip: (clip: NewDemoTransformClip) => void;
+  updateTransformClip: (id: string, updates: Partial<DemoTransformClip>) => void;
+  deleteTransformClip: (id: string) => void;
+  selectTransformClip: (id: string | null) => void;
+  addKeyframeToTransformClip: (clipId: string, keyframe: TransformKeyframe) => void;
+  updateKeyframeInTransformClip: (clipId: string, keyframeId: string, updates: Partial<TransformKeyframe>) => void;
+  deleteKeyframeFromTransformClip: (clipId: string, keyframeId: string) => void;
+
   // Playback controls
   play: () => void;
   pause: () => void;
@@ -285,6 +299,12 @@ async function saveDemoState(currentDemo: DemoWithData, pendingDeletions: Pendin
   // Delete pan clips
   for (const panClipId of pendingDeletions.panClips) {
     try { await demoPanClipsApi.delete(panClipId); } catch { /* Ignore */ }
+  }
+  // Delete transform clips
+  for (const transformClipId of pendingDeletions.transformClips) {
+    // Transform clips are stored locally only for now (no backend API yet)
+    // When backend support is added, uncomment:
+    // try { await demoTransformClipsApi.delete(transformClipId); } catch { /* Ignore */ }
   }
   // Delete assets
   for (const assetId of pendingDeletions.assets) {
@@ -431,6 +451,24 @@ async function saveDemoState(currentDemo: DemoWithData, pendingDeletions: Pendin
     }
   }
 
+  // Save transform clips
+  // Transform clips are stored in-memory only for now
+  // When backend support is added, uncomment and implement:
+  // for (const transformClip of currentDemo.transformClips) {
+  //   try {
+  //     await demoTransformClipsApi.update(transformClip.id, {
+  //       name: transformClip.name, start_time_ms: transformClip.start_time_ms,
+  //       duration_ms: transformClip.duration_ms, keyframes: JSON.stringify(transformClip.keyframes),
+  //     });
+  //   } catch {
+  //     await demoTransformClipsApi.create({
+  //       id: transformClip.id, track_id: transformClip.track_id, name: transformClip.name,
+  //       start_time_ms: transformClip.start_time_ms, duration_ms: transformClip.duration_ms,
+  //       keyframes: JSON.stringify(transformClip.keyframes),
+  //     });
+  //   }
+  // }
+
   // Save assets
   for (const asset of currentDemo.assets) {
     try {
@@ -484,6 +522,12 @@ async function saveVideoState(videoId: string, currentDemo: DemoWithData, pendin
   // Delete pan clips
   for (const panClipId of pendingDeletions.panClips) {
     try { await videoPanClipsApi.delete(panClipId); } catch { /* Ignore */ }
+  }
+  // Delete transform clips
+  for (const transformClipId of pendingDeletions.transformClips) {
+    // Transform clips are stored locally only for now (no backend API yet)
+    // When backend support is added, uncomment:
+    // try { await videoTransformClipsApi.delete(transformClipId); } catch { /* Ignore */ }
   }
   // Delete assets
   for (const assetId of pendingDeletions.assets) {
@@ -645,6 +689,24 @@ async function saveVideoState(videoId: string, currentDemo: DemoWithData, pendin
     }
   }
 
+  // Save transform clips
+  // Transform clips are stored in-memory only for now
+  // When backend support is added, uncomment and implement:
+  // for (const transformClip of currentDemo.transformClips) {
+  //   try {
+  //     await videoTransformClipsApi.update(transformClip.id, {
+  //       name: transformClip.name, start_time_ms: transformClip.start_time_ms,
+  //       duration_ms: transformClip.duration_ms, keyframes: JSON.stringify(transformClip.keyframes),
+  //     });
+  //   } catch {
+  //     await videoTransformClipsApi.create({
+  //       id: transformClip.id, track_id: transformClip.track_id, name: transformClip.name,
+  //       start_time_ms: transformClip.start_time_ms, duration_ms: transformClip.duration_ms,
+  //       keyframes: JSON.stringify(transformClip.keyframes),
+  //     });
+  //   }
+  // }
+
   // Save assets
   for (const asset of currentDemo.assets) {
     try {
@@ -692,6 +754,7 @@ export const useDemosStore = create<DemosStore>()(
       selectedZoomClipId: null,
       selectedBlurClipId: null,
       selectedPanClipId: null,
+      selectedTransformClipId: null,
     },
 
     timeline: {
@@ -709,6 +772,7 @@ export const useDemosStore = create<DemosStore>()(
       zoomClips: [],
       blurClips: [],
       panClips: [],
+      transformClips: [],
       assets: [],
       tracks: [],
     },
@@ -758,7 +822,12 @@ export const useDemosStore = create<DemosStore>()(
         // Load the demo with all its data from the database
         // Note: Default tracks are created in the create() function, not here
         // loadDemo should only load existing data
-        const demoWithData = await demosApi.getWithData(id);
+        const rawDemoWithData = await demosApi.getWithData(id);
+        // Ensure transformClips exists (backend may not have this table yet)
+        const demoWithData: DemoWithData = {
+          ...rawDemoWithData,
+          transformClips: rawDemoWithData.transformClips ?? [],
+        };
 
         set((state) => {
           state.currentDemo = deepClone(demoWithData);
@@ -771,6 +840,7 @@ export const useDemosStore = create<DemosStore>()(
             zoomClips: [],
             blurClips: [],
             panClips: [],
+            transformClips: [],
             assets: [],
             tracks: [],
           };
@@ -977,6 +1047,16 @@ export const useDemosStore = create<DemosStore>()(
             created_at: p.created_at,
             updated_at: p.updated_at,
           })),
+          transformClips: (videoWithData.transformClips ?? []).map((t) => ({
+            id: t.id,
+            track_id: t.track_id,
+            name: t.name,
+            start_time_ms: t.start_time_ms,
+            duration_ms: t.duration_ms,
+            keyframes: t.keyframes,
+            created_at: t.created_at,
+            updated_at: t.updated_at,
+          })),
           assets: convertedAssets,
         };
 
@@ -992,6 +1072,7 @@ export const useDemosStore = create<DemosStore>()(
             zoomClips: [],
             blurClips: [],
             panClips: [],
+            transformClips: [],
             assets: [],
             tracks: [],
           };
@@ -1037,6 +1118,7 @@ export const useDemosStore = create<DemosStore>()(
           zoomClips: [],
           blurClips: [],
           panClips: [],
+          transformClips: [],
           assets: [],
         };
 
@@ -1051,6 +1133,7 @@ export const useDemosStore = create<DemosStore>()(
             zoomClips: [],
             blurClips: [],
             panClips: [],
+            transformClips: [],
             assets: [],
             tracks: [],
           };
@@ -1139,6 +1222,7 @@ export const useDemosStore = create<DemosStore>()(
           selectedZoomClipId: null,
           selectedBlurClipId: null,
           selectedPanClipId: null,
+          selectedTransformClipId: null,
         };
         state.timeline = {
           zoom: 1,
@@ -1179,6 +1263,7 @@ export const useDemosStore = create<DemosStore>()(
             zoomClips: [],
             blurClips: [],
             panClips: [],
+            transformClips: [],
             assets: [],
             tracks: [],
           };
@@ -1385,6 +1470,8 @@ export const useDemosStore = create<DemosStore>()(
       const clipIdsToDelete = clipsToDelete.map(c => c.id);
       const zoomClipsToDelete = get().currentDemo!.zoomClips.filter(zc => zc.track_id === id);
       const blurClipsToDelete = get().currentDemo!.blurClips.filter(bc => bc.track_id === id);
+      const panClipsToDelete = get().currentDemo!.panClips.filter(pc => pc.track_id === id);
+      const transformClipsToDelete = get().currentDemo!.transformClips.filter(tc => tc.track_id === id);
 
       set((state) => {
         if (state.currentDemo) {
@@ -1431,6 +1518,26 @@ export const useDemosStore = create<DemosStore>()(
           for (const bc of blurClipsToDelete) {
             if (!state.pendingDeletions.blurClips.includes(bc.id)) {
               state.pendingDeletions.blurClips.push(bc.id);
+            }
+          }
+
+          // Also remove pan clips on this track
+          state.currentDemo.panClips = state.currentDemo.panClips.filter(
+            (pc) => pc.track_id !== id
+          );
+          for (const pc of panClipsToDelete) {
+            if (!state.pendingDeletions.panClips.includes(pc.id)) {
+              state.pendingDeletions.panClips.push(pc.id);
+            }
+          }
+
+          // Also remove transform clips on this track
+          state.currentDemo.transformClips = state.currentDemo.transformClips.filter(
+            (tc) => tc.track_id !== id
+          );
+          for (const tc of transformClipsToDelete) {
+            if (!state.pendingDeletions.transformClips.includes(tc.id)) {
+              state.pendingDeletions.transformClips.push(tc.id);
             }
           }
 
@@ -1927,6 +2034,7 @@ export const useDemosStore = create<DemosStore>()(
           state.canvas.selectedClipId = null; // Deselect regular clips when selecting zoom clip
           state.canvas.selectedBlurClipId = null; // Deselect blur clips
           state.canvas.selectedPanClipId = null; // Deselect pan clips
+          state.canvas.selectedTransformClipId = null; // Deselect transform clips
         }
       });
     },
@@ -2013,6 +2121,7 @@ export const useDemosStore = create<DemosStore>()(
           state.canvas.selectedClipId = null; // Deselect regular clips
           state.canvas.selectedZoomClipId = null; // Deselect zoom clips
           state.canvas.selectedPanClipId = null; // Deselect pan clips
+          state.canvas.selectedTransformClipId = null; // Deselect transform clips
         }
       });
     },
@@ -2097,6 +2206,184 @@ export const useDemosStore = create<DemosStore>()(
           state.canvas.selectedClipId = null; // Deselect regular clips
           state.canvas.selectedZoomClipId = null; // Deselect zoom clips
           state.canvas.selectedBlurClipId = null; // Deselect blur clips
+          state.canvas.selectedTransformClipId = null; // Deselect transform clips
+        }
+      });
+    },
+
+    // ==========================================================================
+    // Transform Clip Operations
+    // ==========================================================================
+
+    addTransformClip: (clip) => {
+      if (!get().currentDemo) return;
+      get().pushHistory('Add transform clip');
+
+      // Create initial keyframes if not provided - start and end at default values
+      const initialKeyframes: TransformKeyframe[] = clip.keyframes ?? [
+        {
+          id: generateId(),
+          time_ms: 0,
+          position_x: 0,
+          position_y: 0,
+          scale_x: 1,
+          scale_y: 1,
+          rotation: 0,
+          opacity: 1,
+          easing: 'ease_in_out',
+        },
+        {
+          id: generateId(),
+          time_ms: clip.duration_ms,
+          position_x: 0,
+          position_y: 0,
+          scale_x: 1,
+          scale_y: 1,
+          rotation: 0,
+          opacity: 1,
+          easing: null,
+        },
+      ];
+
+      const newTransformClip: DemoTransformClip = {
+        id: generateId(),
+        track_id: clip.track_id,
+        name: clip.name,
+        start_time_ms: clip.start_time_ms,
+        duration_ms: clip.duration_ms,
+        keyframes: initialKeyframes,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      set((state) => {
+        if (state.currentDemo) {
+          state.currentDemo.transformClips.push(newTransformClip);
+          state.canvas.selectedTransformClipId = newTransformClip.id;
+          state.canvas.selectedClipId = null;
+          state.canvas.selectedZoomClipId = null;
+          state.canvas.selectedBlurClipId = null;
+          state.canvas.selectedPanClipId = null;
+        }
+      });
+    },
+
+    updateTransformClip: (id, updates) => {
+      if (!get().currentDemo) return;
+      get().pushHistory('Update transform clip');
+
+      set((state) => {
+        if (state.currentDemo) {
+          const index = state.currentDemo.transformClips.findIndex((tc) => tc.id === id);
+          if (index !== -1) {
+            state.currentDemo.transformClips[index] = {
+              ...state.currentDemo.transformClips[index],
+              ...updates,
+              updated_at: new Date().toISOString(),
+            };
+          }
+        }
+      });
+    },
+
+    deleteTransformClip: (id) => {
+      if (!get().currentDemo) return;
+      get().pushHistory('Delete transform clip');
+
+      set((state) => {
+        if (state.currentDemo) {
+          state.currentDemo.transformClips = state.currentDemo.transformClips.filter(
+            (tc) => tc.id !== id
+          );
+          if (state.canvas.selectedTransformClipId === id) {
+            state.canvas.selectedTransformClipId = null;
+          }
+          // Track deletion for database sync
+          if (!state.pendingDeletions.transformClips.includes(id)) {
+            state.pendingDeletions.transformClips.push(id);
+          }
+        }
+      });
+    },
+
+    selectTransformClip: (id) => {
+      set((state) => {
+        state.canvas.selectedTransformClipId = id;
+        if (id) {
+          state.canvas.selectedClipId = null;
+          state.canvas.selectedZoomClipId = null;
+          state.canvas.selectedBlurClipId = null;
+          state.canvas.selectedPanClipId = null;
+        }
+      });
+    },
+
+    addKeyframeToTransformClip: (clipId, keyframe) => {
+      if (!get().currentDemo) return;
+      get().pushHistory('Add keyframe');
+
+      set((state) => {
+        if (state.currentDemo) {
+          const clipIndex = state.currentDemo.transformClips.findIndex((tc) => tc.id === clipId);
+          if (clipIndex !== -1) {
+            const clip = state.currentDemo.transformClips[clipIndex];
+            // Insert keyframe in sorted order by time_ms
+            const newKeyframes = [...clip.keyframes, keyframe].sort((a, b) => a.time_ms - b.time_ms);
+            state.currentDemo.transformClips[clipIndex] = {
+              ...clip,
+              keyframes: newKeyframes,
+              updated_at: new Date().toISOString(),
+            };
+          }
+        }
+      });
+    },
+
+    updateKeyframeInTransformClip: (clipId, keyframeId, updates) => {
+      if (!get().currentDemo) return;
+      get().pushHistory('Update keyframe');
+
+      set((state) => {
+        if (state.currentDemo) {
+          const clipIndex = state.currentDemo.transformClips.findIndex((tc) => tc.id === clipId);
+          if (clipIndex !== -1) {
+            const clip = state.currentDemo.transformClips[clipIndex];
+            const keyframeIndex = clip.keyframes.findIndex((kf) => kf.id === keyframeId);
+            if (keyframeIndex !== -1) {
+              const updatedKeyframe = { ...clip.keyframes[keyframeIndex], ...updates };
+              const newKeyframes = [...clip.keyframes];
+              newKeyframes[keyframeIndex] = updatedKeyframe;
+              // Re-sort in case time_ms changed
+              newKeyframes.sort((a, b) => a.time_ms - b.time_ms);
+              state.currentDemo.transformClips[clipIndex] = {
+                ...clip,
+                keyframes: newKeyframes,
+                updated_at: new Date().toISOString(),
+              };
+            }
+          }
+        }
+      });
+    },
+
+    deleteKeyframeFromTransformClip: (clipId, keyframeId) => {
+      if (!get().currentDemo) return;
+      get().pushHistory('Delete keyframe');
+
+      set((state) => {
+        if (state.currentDemo) {
+          const clipIndex = state.currentDemo.transformClips.findIndex((tc) => tc.id === clipId);
+          if (clipIndex !== -1) {
+            const clip = state.currentDemo.transformClips[clipIndex];
+            // Don't allow deleting if only 2 or fewer keyframes (need at least start and end)
+            if (clip.keyframes.length <= 2) return;
+            const newKeyframes = clip.keyframes.filter((kf) => kf.id !== keyframeId);
+            state.currentDemo.transformClips[clipIndex] = {
+              ...clip,
+              keyframes: newKeyframes,
+              updated_at: new Date().toISOString(),
+            };
+          }
         }
       });
     },
@@ -2211,6 +2498,7 @@ export const useDemosStore = create<DemosStore>()(
           state.canvas.selectedZoomClipId = null;
           state.canvas.selectedBlurClipId = null;
           state.canvas.selectedPanClipId = null;
+          state.canvas.selectedTransformClipId = null;
         }
       });
     },
@@ -2223,6 +2511,7 @@ export const useDemosStore = create<DemosStore>()(
           state.canvas.selectedZoomClipId = null;
           state.canvas.selectedBlurClipId = null;
           state.canvas.selectedPanClipId = null;
+          state.canvas.selectedTransformClipId = null;
         }
       });
     },
